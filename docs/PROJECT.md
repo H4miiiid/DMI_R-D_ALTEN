@@ -140,7 +140,9 @@ Visual reference overlays are examples only and are not automatically numerical 
 
 The current development set contains seven short MP4 recordings. All are
 `2304 × 1728` camera frames at approximately 29–30 frames per second and are
-about 6.9–9.9 seconds long.
+about 6.1–9.6 seconds long. The MP4 container's nominal frame-count metadata is
+not reliable for these files; sequential decoding and media-duration metadata
+agree on the usable duration.
 
 Observed coverage is:
 

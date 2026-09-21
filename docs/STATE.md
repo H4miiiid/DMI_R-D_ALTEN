@@ -12,7 +12,7 @@ Do not use it as a detailed development diary.
 
 ## Current Phase
 
-**Phase 2 — Basic Processing Pipeline**
+**Phase 3 — Display Geometry**
 
 Read and follow the corresponding phase in:
 
@@ -27,20 +27,54 @@ Use the related project documents referenced there for requirements and completi
 ### Phase 1 — Understand the Data — Completed
 
 Files:
+
 - `docs/PROJECT.md`
 - `docs/UI_SPEC.md`
 
 Implemented:
+
 - documented the development-video inventory and observed UI layouts
 - reconciled the annotated left-display regions with the 22-box requirement
 
 Verified:
+
 - all 7 development videos open and representative frames were inspected
 - all 3 reference overlays and all 3 level-icon assets were inspected
 - current code and entry-point files are empty scaffolds
 
 Limitation:
+
 - no machine-readable ground truth or verified coordinate annotations exist
+
+---
+
+### Phase 2 — Basic Processing Pipeline — Completed
+
+Files:
+
+- `src/dmi/pipeline.py`
+- `src/dmi/video.py`
+- `scripts/run_video.py`
+- `tests/test_pipeline.py`
+- `tests/test_video.py`
+
+Implemented:
+
+- source-independent `process_frame()` result contract and annotation rendering
+- recorded-video frame loop with JSON and annotated MP4 output
+- atomic output replacement and overwrite protection
+
+Verified:
+
+- all 6 automated tests pass
+- representative `Driver ID`, `Level`, and `Main` videos process end to end
+- JSON and annotated-video frame counts match at original frame resolution
+
+Limitation:
+
+- display geometry and UI detections are intentionally unknown until Phase 3
+
+---
 
 For each completed phase, briefly record:
 
