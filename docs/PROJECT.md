@@ -136,6 +136,28 @@ Current sources include:
 
 Visual reference overlays are examples only and are not automatically numerical ground truth.
 
+### Current Development Dataset
+
+The current development set contains seven short MP4 recordings. All are
+`2304 × 1728` camera frames at approximately 29–30 frames per second and are
+about 6.9–9.9 seconds long.
+
+Observed coverage is:
+
+- three `Driver ID` recordings showing the visible values `5`, `12`, and `235`
+- one `Level` recording showing `Level 0`
+- three recordings of the `Main` screen after selecting level 0, 1, or 2; the
+  corresponding level icon is visible on the left display
+
+The recordings use a dark environment with bright blue displays. They include
+small camera/display alignment differences, mild perspective distortion,
+brightness variation, blur, and occasional hand occlusion. Both physical
+displays remain visible throughout the currently supplied recordings.
+
+The current visual references comprise one full-camera annotated example and
+one rectified annotated example for each display. The icon assets comprise
+three `52 × 21` bitmap images for levels 0, 1, and 2.
+
 ---
 
 ## Ground Truth

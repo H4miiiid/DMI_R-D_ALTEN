@@ -82,6 +82,25 @@ Each screen may contain a different combination of:
 
 The pipeline must understand the visible structure rather than depending only on a fixed list of known screens.
 
+### 4.0.1 Observed Development Layouts
+
+The current development recordings show these stable screen structures:
+
+- `Main`: a title, a two-column grid of menu buttons, and a close button near
+  the lower-left of the display. The visible menu labels include `Start`,
+  `Driver ID`, `Train Data`, `Level`, `Train running number`, `Shunting`,
+  `Non-Leading`, `Maintain Shunting`, and `Radio Data`. One grid cell is
+  visibly empty.
+- `Driver ID`: a title, a light data field, a numeric keypad, and a bottom row
+  of action controls. The development recordings show values `5`, `12`, and
+  `235`.
+- `Level`: a title, a light data field, a three-column option grid, an
+  additional ellipsis control, and a close button. The current recording shows
+  `Level 0` in the field.
+
+These observations describe current coverage, not a closed list of layouts or
+values.
+
 ---
 
 ## 4.1 Screen State
@@ -277,6 +296,19 @@ Avoid boxes that:
 - remain fixed while the display moves
 - resize because of temporary brightness changes rather than real geometry changes
 
+The current annotated reference indicates how the 22 non-speed regions are
+grouped:
+
+- 9 vertically stacked sidebar regions
+- 4 first-row status regions plus 1 power region
+- 1 merged second-row status region plus 4 additional second-row regions
+- 1 main lower region
+- 2 scroll-control regions
+
+These semantic groupings reconcile the 22-box count. A stable mapping from the
+generic `box_1` through `box_22` output identities to these physical regions
+still needs to be defined and verified before left-display implementation.
+
 ---
 
 ## 5.2 Icons
@@ -314,6 +346,11 @@ box_5 → null
 Do not assign an icon when evidence is insufficient.
 
 Only use icon identities supported by the available assets or documented UI definitions.
+
+The current assets and recordings cover `level0_icon`, `level1_icon`, and
+`level2_icon`. Each appears in the same left-sidebar region in its corresponding
+selected-level recording. The asset bitmaps are clean UI renderings; the video
+appearance is affected by camera blur, scale, perspective, and brightness.
 
 ---
 

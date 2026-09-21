@@ -12,7 +12,7 @@ Do not use it as a detailed development diary.
 
 ## Current Phase
 
-**Phase 1 — Understand the Data**
+**Phase 2 — Basic Processing Pipeline**
 
 Read and follow the corresponding phase in:
 
@@ -24,7 +24,23 @@ Use the related project documents referenced there for requirements and completi
 
 ## Completed Phases
 
-None yet.
+### Phase 1 — Understand the Data — Completed
+
+Files:
+- `docs/PROJECT.md`
+- `docs/UI_SPEC.md`
+
+Implemented:
+- documented the development-video inventory and observed UI layouts
+- reconciled the annotated left-display regions with the 22-box requirement
+
+Verified:
+- all 7 development videos open and representative frames were inspected
+- all 3 reference overlays and all 3 level-icon assets were inspected
+- current code and entry-point files are empty scaffolds
+
+Limitation:
+- no machine-readable ground truth or verified coordinate annotations exist
 
 For each completed phase, briefly record:
 
