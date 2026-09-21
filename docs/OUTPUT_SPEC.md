@@ -49,6 +49,9 @@ Example:
 }
 ```
 
+Each display result includes nullable display geometry. Geometry uses the
+original-frame coordinates defined below.
+
 ---
 
 ## 4. Coordinate System
@@ -94,11 +97,43 @@ A typical right-display result should contain:
 
 ```json
 {
+  "geometry": {},
   "state": "Driver ID",
   "title": {},
   "buttons": {},
   "data_field": {}
 }
+```
+
+### Display Geometry
+
+When a display is localized reliably:
+
+```json
+"geometry": {
+  "corners": [[1020, 180], [1640, 195], [1610, 1450], [990, 1435]],
+  "oriented_box": [[1000, 175], [1640, 190], [1610, 1450], [970, 1435]],
+  "bbox": [990, 180, 1640, 1450],
+  "center": [1315, 815]
+}
+```
+
+Corners are ordered clockwise starting at the top-left corner:
+
+```text
+top-left → top-right → bottom-right → bottom-left
+```
+
+`corners` describes the perspective quadrilateral used for rectification.
+`oriented_box` is a detected minimum-area rectangle around the display. It is
+used for annotation, follows the display's rotation, and has perpendicular
+adjacent edges. `bbox` is the axis-aligned bounds retained for rectangular
+region consumers.
+
+If a display cannot be localized reliably:
+
+```json
+"geometry": null
 ```
 
 ### State
@@ -231,6 +266,7 @@ Example:
 
 ```json
 "left_display": {
+  "geometry": {},
   "boxes": {},
   "speed_indicator": {}
 }
@@ -348,6 +384,12 @@ A complete video output may use a structure such as:
       "frame_index": 0,
       "timestamp": 0.0,
       "right_display": {
+        "geometry": {
+          "corners": [[1020, 180], [1640, 195], [1610, 1450], [990, 1435]],
+          "oriented_box": [[1000, 175], [1640, 190], [1610, 1450], [970, 1435]],
+          "bbox": [990, 180, 1640, 1450],
+          "center": [1315, 815]
+        },
         "state": "Driver ID",
         "title": {
           "text": "Driver ID",
@@ -360,6 +402,12 @@ A complete video output may use a structure such as:
         }
       },
       "left_display": {
+        "geometry": {
+          "corners": [[200, 150], [850, 175], [820, 1460], [180, 1430]],
+          "oriented_box": [[190, 145], [850, 170], [820, 1460], [160, 1435]],
+          "bbox": [180, 150, 850, 1460],
+          "center": [513, 804]
+        },
         "boxes": {},
         "speed_indicator": null
       }

@@ -12,7 +12,7 @@ Do not use it as a detailed development diary.
 
 ## Current Phase
 
-**Phase 3 — Display Geometry**
+**Phase 4 — Right Display**
 
 Read and follow the corresponding phase in:
 
@@ -73,6 +73,35 @@ Verified:
 Limitation:
 
 - display geometry and UI detections are intentionally unknown until Phase 3
+
+---
+
+### Phase 3 — Display Geometry — Completed
+
+Files:
+
+- `src/dmi/geometry.py`
+- `src/dmi/temporal.py`
+- `src/dmi/pipeline.py`
+- `src/dmi/video.py`
+- `docs/OUTPUT_SPEC.md`
+- `tests/test_geometry.py`
+
+Implemented:
+
+- evidence-based localization of both physical displays in original-frame coordinates
+- perspective quadrilaterals for rectification and detected rotated rectangles for annotation
+- causal geometry stabilization with responsive reset for genuine movement
+
+Verified:
+
+- both displays detected in all 1,708 frames across all 7 development videos
+- user approved the rotated, temporally smoothed annotations
+- all 11 automated tests pass
+
+Limitation:
+
+- right-display state, elements, and OCR remain unknown until Phase 4
 
 ---
 

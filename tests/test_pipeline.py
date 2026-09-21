@@ -16,7 +16,7 @@ class ProcessFrameTest(unittest.TestCase):
     def setUp(self) -> None:
         self.frame = np.zeros((160, 640, 3), dtype=np.uint8)
 
-    def test_returns_phase_two_output_contract(self) -> None:
+    def test_returns_output_contract(self) -> None:
         result = process_frame(self.frame, frame_index=12, timestamp=0.4)
 
         self.assertEqual(result["frame_index"], 12)
@@ -24,6 +24,7 @@ class ProcessFrameTest(unittest.TestCase):
         self.assertEqual(
             result["right_display"],
             {
+                "geometry": None,
                 "state": "unknown",
                 "title": None,
                 "buttons": {},
@@ -32,7 +33,7 @@ class ProcessFrameTest(unittest.TestCase):
         )
         self.assertEqual(
             result["left_display"],
-            {"boxes": {}, "speed_indicator": None},
+            {"geometry": None, "boxes": {}, "speed_indicator": None},
         )
 
     def test_annotation_is_a_modified_copy(self) -> None:

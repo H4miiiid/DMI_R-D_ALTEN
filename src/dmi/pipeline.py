@@ -1,8 +1,7 @@
 """Frame-level orchestration for DMI screen understanding.
 
-Detection stages are deliberately absent in Phase 2. The public frame contract
-is established here so later stages can add evidence-backed detections without
-changing video acquisition or output code.
+The public frame contract is established here so later stages can add
+evidence-backed detections without changing video acquisition or output code.
 """
 
 from __future__ import annotations
@@ -11,17 +10,23 @@ from typing import Any
 
 import cv2
 import numpy as np
-from numpy.typing import NDArray
 
-Frame = NDArray[np.uint8]
+from dmi.geometry import Frame, detect_displays
+from dmi.temporal import GeometryStabilizer
+
 FrameResult = dict[str, Any]
 
 
-def process_frame(frame: Frame, frame_index: int, timestamp: float) -> FrameResult:
+def process_frame(
+    frame: Frame,
+    frame_index: int,
+    timestamp: float,
+    geometry_stabilizer: GeometryStabilizer | None = None,
+) -> FrameResult:
     """Process one source-independent BGR frame.
 
-    Phase 2 returns explicit unknown values rather than fabricated detections.
-    Geometry and recognition phases will populate the same result structure.
+    Unimplemented recognition stages return explicit unknown values rather
+    than fabricated detections.
     """
     _validate_frame(frame)
     if frame_index < 0:
@@ -29,16 +34,23 @@ def process_frame(frame: Frame, frame_index: int, timestamp: float) -> FrameResu
     if timestamp < 0:
         raise ValueError("timestamp must be non-negative")
 
+    displays = detect_displays(frame)
+    if geometry_stabilizer is not None:
+        displays = geometry_stabilizer.update(displays, frame.shape[:2])
+    left_geometry = displays["left"]
+    right_geometry = displays["right"]
     return {
         "frame_index": int(frame_index),
         "timestamp": round(float(timestamp), 6),
         "right_display": {
+            "geometry": right_geometry.as_result() if right_geometry else None,
             "state": "unknown",
             "title": None,
             "buttons": {},
             "data_field": None,
         },
         "left_display": {
+            "geometry": left_geometry.as_result() if left_geometry else None,
             "boxes": {},
             "speed_indicator": None,
         },
@@ -53,10 +65,14 @@ def annotate_frame(frame: Frame, result: FrameResult) -> Frame:
     frame_index = result["frame_index"]
     timestamp = result["timestamp"]
     state = result["right_display"]["state"]
+    left_geometry = result["left_display"]["geometry"]
+    right_geometry = result["right_display"]["geometry"]
     lines = (
         f"frame {frame_index} | {timestamp:.3f}s",
         f"right state: {state}",
-        "Phase 2: detections not implemented",
+        "display geometry: "
+        f"left={'found' if left_geometry else 'unknown'}, "
+        f"right={'found' if right_geometry else 'unknown'}",
     )
 
     overlay = annotated.copy()
@@ -73,7 +89,37 @@ def annotate_frame(frame: Frame, result: FrameResult) -> Frame:
             2,
             cv2.LINE_AA,
         )
+    _draw_geometry(annotated, left_geometry, "left display", (255, 255, 0))
+    _draw_geometry(annotated, right_geometry, "right display", (0, 255, 0))
     return annotated
+
+
+def _draw_geometry(
+    frame: Frame,
+    geometry: dict[str, Any] | None,
+    label: str,
+    color: tuple[int, int, int],
+) -> None:
+    if geometry is None:
+        return
+    oriented_box = np.asarray(geometry["oriented_box"], dtype=np.int32)
+    cv2.polylines(
+        frame, [oriented_box], isClosed=True, color=color, thickness=5,
+        lineType=cv2.LINE_AA,
+    )
+    center = tuple(geometry["center"])
+    cv2.circle(frame, center, 7, color, thickness=-1, lineType=cv2.LINE_AA)
+    origin = tuple(oriented_box[0] + (12, 32))
+    cv2.putText(
+        frame,
+        label,
+        origin,
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.85,
+        color,
+        2,
+        cv2.LINE_AA,
+    )
 
 
 def _validate_frame(frame: Frame) -> None:
