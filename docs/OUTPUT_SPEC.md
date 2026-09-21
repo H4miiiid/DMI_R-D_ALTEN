@@ -1,7 +1,416 @@
-JSON structure
-coordinate convention
-null/unknown semantics
-button centers
-box centers
-OCR output
-icon associations
+# OUTPUT_SPEC.md — Structured Output and Coordinates
+
+## 1. Purpose
+
+This document defines the structured output produced by the video-processing pipeline.
+
+The output should be:
+
+- simple
+- consistent
+- machine-readable
+- human-readable
+- stable across the project
+
+Detailed UI behavior belongs in `docs/UI_SPEC.md`.
+
+---
+
+## 2. Output Types
+
+Processing a video should eventually produce:
+
+- structured JSON results
+- annotated video or frames for visual verification
+
+Generated outputs must remain separate from the original files under `data/`.
+
+---
+
+## 3. Frame-Level Output
+
+Results should be stored per processed frame.
+
+Each frame should include at least:
+
+- frame index
+- timestamp
+- right-display result
+- left-display result
+
+Example:
+
+```json
+{
+  "frame_index": 120,
+  "timestamp": 4.0,
+  "right_display": {},
+  "left_display": {}
+}
+```
+
+---
+
+## 4. Coordinate System
+
+All final coordinates must refer to the **original input video frame**.
+
+Internal processing may:
+
+- resize
+- crop
+- rectify
+- warp
+- transform
+
+but reported coordinates must be mapped correctly back to the original frame.
+
+Use:
+
+```text
+[x, y]
+```
+
+for points.
+
+For rectangular regions use:
+
+```text
+[x1, y1, x2, y2]
+```
+
+where:
+
+- `x1`, `y1` = top-left
+- `x2`, `y2` = bottom-right
+
+Coordinates should use pixels unless explicitly changed later.
+
+---
+
+## 5. Right Display
+
+A typical right-display result should contain:
+
+```json
+{
+  "state": "Driver ID",
+  "title": {},
+  "buttons": {},
+  "data_field": {}
+}
+```
+
+### State
+
+Known examples:
+
+```json
+"state": "Main"
+```
+
+```json
+"state": "Driver ID"
+```
+
+```json
+"state": "Level"
+```
+
+For an unrecognized screen:
+
+```json
+"state": "unknown"
+```
+
+An unknown state must not prevent other visible elements from being reported.
+
+---
+
+## 6. Title
+
+When a title is detected:
+
+```json
+"title": {
+  "text": "Driver ID",
+  "bbox": [1020, 180, 1450, 260]
+}
+```
+
+If no reliable title is available:
+
+```json
+"title": null
+```
+
+Do not fabricate OCR text.
+
+---
+
+## 7. Buttons
+
+Buttons should be reported using stable logical labels when their identity is known.
+
+Example:
+
+```json
+"buttons": {
+  "button_1": {
+    "bbox": [1100, 410, 1220, 480],
+    "center": [1160, 445]
+  },
+  "button_2": {
+    "bbox": [1240, 410, 1360, 480],
+    "center": [1300, 445]
+  }
+}
+```
+
+The center point is an important required output.
+
+For unknown/new screens, buttons may still be reported even if their semantic identity is not known.
+
+Use neutral labels such as:
+
+```text
+button_1
+button_2
+button_3
+```
+
+Do not invent semantic names.
+
+If no buttons are detected:
+
+```json
+"buttons": {}
+```
+
+---
+
+## 8. Data Field
+
+When a recognized data field is present:
+
+```json
+"data_field": {
+  "bbox": [1060, 520, 1400, 650],
+  "value": "12"
+}
+```
+
+Another example:
+
+```json
+"data_field": {
+  "bbox": [1060, 520, 1400, 650],
+  "value": "LEVEL 2"
+}
+```
+
+If no data field exists or it cannot be identified reliably:
+
+```json
+"data_field": null
+```
+
+Do not fabricate values.
+
+---
+
+## 9. Left Display
+
+The left-display result should contain:
+
+- the 22 logical boxes
+- icon association for each box
+- analog speed indicator
+
+Example:
+
+```json
+"left_display": {
+  "boxes": {},
+  "speed_indicator": {}
+}
+```
+
+---
+
+## 10. Left-Side Boxes
+
+Use stable identities:
+
+```text
+box_1
+box_2
+...
+box_22
+```
+
+Each box should contain at least:
+
+- bounding box
+- center point
+- icon state
+
+Example:
+
+```json
+"box_5": {
+  "bbox": [400, 250, 520, 340],
+  "center": [460, 295],
+  "icon": "level1_icon"
+}
+```
+
+For an empty box:
+
+```json
+"box_5": {
+  "bbox": [400, 250, 520, 340],
+  "center": [460, 295],
+  "icon": null
+}
+```
+
+Box identities must remain consistent across frames.
+
+---
+
+## 11. Speed Indicator
+
+At minimum report its location.
+
+Example:
+
+```json
+"speed_indicator": {
+  "bbox": [300, 620, 480, 800],
+  "center": [390, 710]
+}
+```
+
+If interpretation of the analog value is added later, it may be added without changing the rest of the output structure.
+
+---
+
+## 12. Unknown and Missing Values
+
+Use explicit `null` values when information is expected but cannot be determined reliably.
+
+Examples:
+
+```json
+"title": null
+```
+
+```json
+"data_field": null
+```
+
+```json
+"icon": null
+```
+
+Use empty collections when the relevant collection exists but contains no detected elements:
+
+```json
+"buttons": {}
+```
+
+Do not use guessed values merely to make the output complete.
+
+---
+
+## 13. Optional Confidence
+
+Confidence values may be maintained internally when useful.
+
+They should only be exposed in the final JSON if they provide clear value.
+
+Avoid making the output unnecessarily complex.
+
+If confidence is included later, use a consistent range and document it here.
+
+---
+
+## 14. Video-Level JSON
+
+A complete video output may use a structure such as:
+
+```json
+{
+  "video": "driver_id_12.mp4",
+  "frames": [
+    {
+      "frame_index": 0,
+      "timestamp": 0.0,
+      "right_display": {
+        "state": "Driver ID",
+        "title": {
+          "text": "Driver ID",
+          "bbox": [1020, 180, 1450, 260]
+        },
+        "buttons": {},
+        "data_field": {
+          "bbox": [1060, 520, 1400, 650],
+          "value": "12"
+        }
+      },
+      "left_display": {
+        "boxes": {},
+        "speed_indicator": null
+      }
+    }
+  ]
+}
+```
+
+The exact schema may evolve when implementation begins, but changes should remain backward-consistent when practical.
+
+---
+
+## 15. Annotated Output
+
+Annotated video or frames must represent the same detections stored in the structured result.
+
+Do not draw visual boxes that are not represented in the corresponding structured output.
+
+Annotations may show:
+
+- display regions
+- screen state
+- titles
+- data fields
+- buttons
+- center points
+- left-side boxes
+- icons
+- speed indicator
+
+Keep overlays readable and useful for user review.
+
+---
+
+## 16. Output Consistency
+
+For the same logical element across frames:
+
+- labels should remain stable
+- coordinate conventions must remain unchanged
+- JSON structure should remain consistent
+- unknown values should use the same representation
+
+Do not change field names or coordinate conventions casually during development.
+
+If the output format changes, update this document and any related evaluation code.
+
+---
+
+## 17. Core Rule
+
+The structured output must describe what the pipeline actually detected.
+
+It must never contain hardcoded or fabricated information simply to match an expected result.
