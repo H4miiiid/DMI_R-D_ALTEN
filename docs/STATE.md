@@ -12,7 +12,7 @@ Do not use it as a detailed development diary.
 
 ## Current Phase
 
-**Phase 4 — Right Display**
+**Phase 5 — Left Display**
 
 Read and follow the corresponding phase in:
 
@@ -105,51 +105,58 @@ Limitation:
 
 ---
 
-For each completed phase, briefly record:
-
-- phase name
-- status: `Completed`
-- main files created or modified
-- important functions, methods, or components implemented
-- key verified result
-- important remaining limitation, only if the next phase needs to know it
-
-Example:
-
-```text
-### Phase 2 — Basic Processing Pipeline — Completed
+### Phase 4 — Right Display — Completed
 
 Files:
-- src/dmi/pipeline.py
-- scripts/run_video.py
+
+- `src/dmi/right_display.py`
+- `src/dmi/right_layout.py`
+- `src/dmi/temporal.py`
+- `src/dmi/pipeline.py`
+- `src/dmi/video.py`
+- `docs/OUTPUT_SPEC.md`
+- `tests/test_right_display.py`
 
 Implemented:
-- process_frame()
-- video frame loop
-- JSON result generation
-- annotated video output
+
+- `analyze_right_display()` rectifies the detected display to `600 x 960`,
+  recognizes `Main`, `Driver ID`, `Level`, or `unknown`, and maps detected
+  quadrilaterals back to original-frame coordinates
+- button geometry uses Canny/Hough line evidence filtered by blue-border color,
+  dominant orientation, length, and expected screen topology; each Main border
+  keeps its directly detected slope, while Driver ID and Level use coherent
+  repeated-line fitting to infer temporarily occluded grid members
+- Driver ID treats the keypad and action row as separate topologies, preserving
+  the distinct X, empty, TRN, and wrench divisions; Level similarly treats its
+  X button separately from the 3-by-3 level grid and More button
+- title geometry is fitted from its own blue/black transition bands, including
+  local slope and the visible right endpoint; data fields use bright,
+  low-saturation contour detection and a rotated minimum-area rectangle
+- `RightDisplayStabilizer` debounces state and OCR changes, smooths the header
+  separately, and tracks Driver ID/Level layouts with a robust screen-relative
+  projective transform, RANSAC inlier checks, motion limits, and adaptive EMA;
+  Main retains its locally detected border geometry with display-relative EMA
+- numeric OCR thresholds the field, extracts connected glyph components,
+  normalizes them to a fixed canvas, and correlates them with cached OpenCV
+  digit templates spanning several fonts and stroke widths; Driver ID returns
+  a digit sequence and Level returns the last reliable digit as `Level N`
+- annotations draw perspective-aware quadrilaterals and labels, with center
+  points on every right-display button and field but not on the title or the
+  overall right display; unknown screens emit only border-supported cells
 
 Verified:
-- representative development videos process from start to finish
+
+- all 32 automated tests and Python compilation pass
+- all 1,708 frames across the 7 development videos produce the expected stable
+  state and topology: 16 buttons for Driver ID and 11 for Level/Main
+- Main geometry retains the previously accepted zoom-precision behavior, while
+  Driver ID and Level follow zoom and perspective without frame-specific or
+  filename-specific rules
+- the user visually approved the final annotated videos in
+  `outputs/phase4_final/`
 
 Limitation:
-- UI detection is not implemented yet
-```
 
-Keep each completed-phase summary short.
-
----
-
-## After Completing a Phase
-
-When the current phase is verified:
-
-1. move it to `Completed Phases`
-2. mark it as `Completed`
-3. briefly record the important files, functions, methods, or components added or changed
-4. record the main verified result and any important limitation
-5. set the next phase from `docs/WORKFLOW.md` as the new `Current Phase`
-6. keep this file concise
-7. follow the Git workflow in `AGENTS.md`
-
-Do not advance to the next phase until the current phase satisfies its completion conditions.
+- OCR is a numeric template matcher rather than general text OCR; the supplied
+  overlays are visual references rather than numerical ground truth, so new
+  holdout camera conditions still require regression and visual validation

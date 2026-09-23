@@ -45,6 +45,46 @@ class ProcessFrameTest(unittest.TestCase):
         self.assertFalse(np.any(self.frame))
         self.assertTrue(np.any(annotated))
 
+    def test_right_content_centers_replace_right_display_center(self) -> None:
+        frame = np.zeros((300, 400, 3), dtype=np.uint8)
+        geometry = {
+            "corners": [[100, 30], [350, 30], [350, 270], [100, 270]],
+            "oriented_box": [[100, 30], [350, 30], [350, 270], [100, 270]],
+            "bbox": [100, 30, 350, 270],
+            "center": [225, 150],
+        }
+
+        def region(x1: int, y1: int, x2: int, y2: int) -> dict:
+            return {
+                "corners": [[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+                "bbox": [x1, y1, x2, y2],
+                "center": [(x1 + x2) // 2, (y1 + y2) // 2],
+            }
+
+        result = {
+            "frame_index": 0,
+            "timestamp": 0.0,
+            "right_display": {
+                "geometry": geometry,
+                "state": "Driver ID",
+                "title": {**region(250, 45, 330, 75), "text": "Driver ID"},
+                "data_field": {**region(120, 90, 320, 130), "value": "12"},
+                "buttons": {"digit_1": region(120, 190, 180, 240)},
+            },
+            "left_display": {
+                "geometry": None,
+                "boxes": {},
+                "speed_indicator": None,
+            },
+        }
+
+        annotated = annotate_frame(frame, result)
+
+        self.assertTrue(np.array_equal(annotated[150, 225], [0, 0, 0]))
+        self.assertTrue(np.array_equal(annotated[110, 220], [0, 165, 255]))
+        self.assertTrue(np.array_equal(annotated[215, 150], [255, 128, 0]))
+        self.assertTrue(np.array_equal(annotated[60, 290], [0, 0, 0]))
+
     def test_rejects_invalid_frame_shape(self) -> None:
         with self.assertRaisesRegex(ValueError, "three-channel BGR"):
             process_frame(np.zeros((20, 20), dtype=np.uint8), 0, 0.0)

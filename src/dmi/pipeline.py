@@ -12,7 +12,8 @@ import cv2
 import numpy as np
 
 from dmi.geometry import Frame, detect_displays
-from dmi.temporal import GeometryStabilizer
+from dmi.right_display import analyze_right_display
+from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
 
 FrameResult = dict[str, Any]
 
@@ -22,6 +23,7 @@ def process_frame(
     frame_index: int,
     timestamp: float,
     geometry_stabilizer: GeometryStabilizer | None = None,
+    right_display_stabilizer: RightDisplayStabilizer | None = None,
 ) -> FrameResult:
     """Process one source-independent BGR frame.
 
@@ -39,15 +41,26 @@ def process_frame(
         displays = geometry_stabilizer.update(displays, frame.shape[:2])
     left_geometry = displays["left"]
     right_geometry = displays["right"]
+    right_content = (
+        analyze_right_display(frame, right_geometry)
+        if right_geometry is not None
+        else {
+            "state": "unknown",
+            "title": None,
+            "buttons": {},
+            "data_field": None,
+        }
+    )
+    if right_display_stabilizer is not None:
+        right_content = right_display_stabilizer.update(
+            right_content, right_geometry
+        )
     return {
         "frame_index": int(frame_index),
         "timestamp": round(float(timestamp), 6),
         "right_display": {
             "geometry": right_geometry.as_result() if right_geometry else None,
-            "state": "unknown",
-            "title": None,
-            "buttons": {},
-            "data_field": None,
+            **right_content,
         },
         "left_display": {
             "geometry": left_geometry.as_result() if left_geometry else None,
@@ -89,8 +102,13 @@ def annotate_frame(frame: Frame, result: FrameResult) -> Frame:
             2,
             cv2.LINE_AA,
         )
-    _draw_geometry(annotated, left_geometry, "left display", (255, 255, 0))
-    _draw_geometry(annotated, right_geometry, "right display", (0, 255, 0))
+    _draw_geometry(
+        annotated, left_geometry, "left display", (255, 255, 0), draw_center=True
+    )
+    _draw_geometry(
+        annotated, right_geometry, "right display", (0, 255, 0), draw_center=False
+    )
+    _draw_right_content(annotated, result["right_display"])
     return annotated
 
 
@@ -99,6 +117,8 @@ def _draw_geometry(
     geometry: dict[str, Any] | None,
     label: str,
     color: tuple[int, int, int],
+    *,
+    draw_center: bool,
 ) -> None:
     if geometry is None:
         return
@@ -107,8 +127,9 @@ def _draw_geometry(
         frame, [oriented_box], isClosed=True, color=color, thickness=5,
         lineType=cv2.LINE_AA,
     )
-    center = tuple(geometry["center"])
-    cv2.circle(frame, center, 7, color, thickness=-1, lineType=cv2.LINE_AA)
+    if draw_center:
+        center = tuple(geometry["center"])
+        cv2.circle(frame, center, 7, color, thickness=-1, lineType=cv2.LINE_AA)
     origin = tuple(oriented_box[0] + (12, 32))
     cv2.putText(
         frame,
@@ -118,6 +139,62 @@ def _draw_geometry(
         0.85,
         color,
         2,
+        cv2.LINE_AA,
+    )
+
+
+def _draw_right_content(frame: Frame, display: dict[str, Any]) -> None:
+    title = display["title"]
+    if title is not None:
+        title_text = title["text"] if title["text"] is not None else "title: unknown"
+        _draw_region(frame, title, title_text, (255, 0, 255), draw_center=False)
+    field = display["data_field"]
+    if field is not None:
+        value = field["value"] if field["value"] is not None else "unknown"
+        _draw_region(
+            frame, field, f"field: {value}", (0, 165, 255), draw_center=True
+        )
+    for name, button in display["buttons"].items():
+        _draw_region(
+            frame,
+            button,
+            name,
+            (255, 128, 0),
+            thickness=2,
+            draw_center=True,
+        )
+
+
+def _draw_region(
+    frame: Frame,
+    region: dict[str, Any],
+    label: str,
+    color: tuple[int, int, int],
+    *,
+    thickness: int = 3,
+    draw_center: bool,
+) -> None:
+    corners = np.asarray(region["corners"], dtype=np.int32)
+    cv2.polylines(
+        frame,
+        [corners],
+        isClosed=True,
+        color=color,
+        thickness=thickness,
+        lineType=cv2.LINE_AA,
+    )
+    if draw_center:
+        center = tuple(np.rint(corners.mean(axis=0)).astype(int))
+        cv2.circle(frame, center, 5, color, thickness=-1, lineType=cv2.LINE_AA)
+    x1, y1 = corners[0]
+    cv2.putText(
+        frame,
+        label,
+        (x1 + 4, max(18, y1 - 7)),
+        cv2.FONT_HERSHEY_SIMPLEX,
+        0.45,
+        color,
+        1,
         cv2.LINE_AA,
     )
 

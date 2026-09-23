@@ -89,6 +89,11 @@ where:
 
 Coordinates should use pixels unless explicitly changed later.
 
+When a visible UI region is rotated or affected by perspective, also report
+its four detected corners in clockwise order starting at the top-left. The
+axis-aligned `bbox` remains available for rectangular-region consumers, while
+`corners` is the authoritative geometry for visual alignment.
+
 ---
 
 ## 5. Right Display
@@ -169,6 +174,7 @@ When a title is detected:
 ```json
 "title": {
   "text": "Driver ID",
+  "corners": [[1020, 180], [1450, 190], [1445, 260], [1015, 250]],
   "bbox": [1020, 180, 1450, 260]
 }
 ```
@@ -178,6 +184,9 @@ If no reliable title is available:
 ```json
 "title": null
 ```
+
+If the title region is reliable but its text is not, preserve the localized
+region and return `"text": null`.
 
 Do not fabricate OCR text.
 
@@ -192,6 +201,7 @@ Example:
 ```json
 "buttons": {
   "button_1": {
+    "corners": [[1100, 410], [1220, 414], [1218, 484], [1098, 480]],
     "bbox": [1100, 410, 1220, 480],
     "center": [1160, 445]
   },
@@ -230,6 +240,7 @@ When a recognized data field is present:
 
 ```json
 "data_field": {
+  "corners": [[1060, 520], [1400, 526], [1398, 656], [1058, 650]],
   "bbox": [1060, 520, 1400, 650],
   "value": "12"
 }
