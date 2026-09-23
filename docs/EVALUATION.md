@@ -233,6 +233,26 @@ For icons, check:
 
 Also verify that the analog speed indicator remains correctly localized.
 
+Phase 5 checks include:
+
+- independently drawn synthetic layouts with known corners, including exposure
+  reduction and perspective changes; the tests allow 5–6 pixels for raster
+  border thickness and interpolation, not as a claim about real-video accuracy
+- rejection of blank, uniform, and unrelated noisy frames
+- original-frame coordinate mapping and enclosing bounding boxes
+- motion-backed recovery limited to three consecutive missed measurements,
+  immediate loss on unsupported image changes, and reacquisition
+- full decoding of all seven development videos, reporting incomplete frames
+  explicitly and comparing right-display JSON against the approved Phase 4 run
+- visual inspection of original-resolution annotations and enlarged left crops
+
+Full box counts measure coverage, not border accuracy. No real-video IoU,
+border-error, or center-error claims are supported without verified annotations.
+The review output includes per-video `results.json` and `annotated.mp4`, selected
+full frames and left crops, and `verification.json` with coverage, regression,
+and end-to-end timing results. End-to-end timing includes decoding, annotation,
+encoding, and JSON writing; it is not a core-only inference benchmark.
+
 ---
 
 ## 7. OCR Evaluation

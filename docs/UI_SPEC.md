@@ -305,9 +305,21 @@ grouped:
 - 1 main lower region
 - 2 scroll-control regions
 
-These semantic groupings reconcile the 22-box count. A stable mapping from the
-generic `box_1` through `box_22` output identities to these physical regions
-still needs to be defined and verified before left-display implementation.
+The Phase 5 mapping follows the physical regions in the annotated reference:
+
+- `box_1`–`box_9`: sidebar regions R1–R9, from top to bottom
+- `box_10`: isolated first-row status region at the left of the speed panel
+- `box_11`–`box_13`: the three adjacent first-row status regions, left to right
+- `box_14`: power region at the right of that row
+- `box_15`: merged leftmost region of the second status row
+- `box_16`–`box_19`: the remaining four second-row regions, left to right
+- `box_20`: main lower region
+- `box_21`: upper scroll-control region
+- `box_22`: lower scroll-control region
+
+The unusually tall sidebar R2 is one logical region. Empty-looking regions
+retain their identities. This mapping is based on the reference's named regions;
+its generated annotations were visually approved by the user in Phase 5.
 
 ---
 
@@ -363,6 +375,12 @@ At minimum:
 - localize it
 - maintain its identity
 - track its position with the display
+
+The localization represents the rectangular `LEFT_SPEED` panel shown in the
+reference, not a tight circle around the dial. Its lower portion intentionally
+contains the first-row status and power regions; this overlap is part of the
+reference's region definitions. The reported center is the panel center, not
+a measurement of the needle pivot.
 
 Detailed interpretation of its analog value may be added later if required.
 

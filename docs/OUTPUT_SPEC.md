@@ -322,13 +322,24 @@ For an empty box:
 }
 ```
 
-Box identities must remain consistent across frames.
+Box identities must remain consistent across frames. The physical mapping is
+defined in `UI_SPEC.md` §5.1. Each detected box also includes authoritative
+perspective `corners`; the `bbox` encloses those corners. Left-region corners
+and centers retain two decimal places in original-frame pixels. The center is
+the rectified region center mapped back through the display transform.
+
+During Phase 5, `icon: null` means recognition has not been performed; it must
+not be interpreted as a verified empty box. Icon recognition belongs to Phase 6.
+A box without reliable current or short-term tracked geometry is omitted from
+`boxes`; a completely unsupported layout returns an empty collection.
 
 ---
 
 ## 11. Speed Indicator
 
-At minimum report its location.
+At minimum report its location. The speed indicator uses the same `corners`,
+`bbox`, and `center` conventions as left-side boxes, and is `null` when its
+panel cannot be localized reliably. Its panel extent is defined in `UI_SPEC.md`.
 
 Example:
 

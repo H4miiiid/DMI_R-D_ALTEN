@@ -13,6 +13,8 @@ import numpy as np
 
 from dmi.geometry import Frame, detect_displays
 from dmi.right_display import analyze_right_display
+from dmi.left_display import analyze_left_display
+from dmi.left_tracking import LeftDisplayStabilizer
 from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
 
 FrameResult = dict[str, Any]
@@ -24,6 +26,7 @@ def process_frame(
     timestamp: float,
     geometry_stabilizer: GeometryStabilizer | None = None,
     right_display_stabilizer: RightDisplayStabilizer | None = None,
+    left_display_stabilizer: LeftDisplayStabilizer | None = None,
 ) -> FrameResult:
     """Process one source-independent BGR frame.
 
@@ -55,6 +58,13 @@ def process_frame(
         right_content = right_display_stabilizer.update(
             right_content, right_geometry
         )
+    left_content = (
+        analyze_left_display(frame, left_geometry, left_display_stabilizer)
+        if left_geometry is not None
+        else {"boxes": {}, "speed_indicator": None}
+    )
+    if left_geometry is None and left_display_stabilizer is not None:
+        left_display_stabilizer.reset()
     return {
         "frame_index": int(frame_index),
         "timestamp": round(float(timestamp), 6),
@@ -64,8 +74,7 @@ def process_frame(
         },
         "left_display": {
             "geometry": left_geometry.as_result() if left_geometry else None,
-            "boxes": {},
-            "speed_indicator": None,
+            **left_content,
         },
     }
 
@@ -103,12 +112,13 @@ def annotate_frame(frame: Frame, result: FrameResult) -> Frame:
             cv2.LINE_AA,
         )
     _draw_geometry(
-        annotated, left_geometry, "left display", (255, 255, 0), draw_center=True
+        annotated, left_geometry, "left display", (255, 255, 0), draw_center=False
     )
     _draw_geometry(
         annotated, right_geometry, "right display", (0, 255, 0), draw_center=False
     )
     _draw_right_content(annotated, result["right_display"])
+    _draw_left_content(annotated, result["left_display"])
     return annotated
 
 
@@ -208,3 +218,28 @@ def _validate_frame(frame: Frame) -> None:
         raise ValueError("frame must be a three-channel BGR image")
     if frame.size == 0:
         raise ValueError("frame must not be empty")
+
+
+def _draw_left_content(frame: Frame, display: dict[str, Any]) -> None:
+    for name, region in display["boxes"].items():
+        corners = np.rint(region["corners"]).astype(np.int32)
+        cv2.polylines(frame, [corners], True, (80, 255, 80), 2, cv2.LINE_AA)
+        center = tuple(np.rint(region["center"]).astype(int))
+        cv2.circle(frame, center, 4, (0, 80, 255), -1, cv2.LINE_AA)
+        origin = tuple(corners[0] + (5, 19))
+        cv2.putText(
+            frame, name, origin, cv2.FONT_HERSHEY_SIMPLEX,
+            0.45, (0, 0, 0), 3, cv2.LINE_AA,
+        )
+        cv2.putText(
+            frame, name, origin, cv2.FONT_HERSHEY_SIMPLEX,
+            0.45, (80, 255, 80), 1, cv2.LINE_AA,
+        )
+    speed = display["speed_indicator"]
+    if speed is not None:
+        _draw_region(
+            frame, speed, "speed indicator", (0, 220, 255),
+            thickness=2, draw_center=False,
+        )
+        center = tuple(np.rint(speed["center"]).astype(int))
+        cv2.circle(frame, center, 4, (0, 220, 255), -1, cv2.LINE_AA)

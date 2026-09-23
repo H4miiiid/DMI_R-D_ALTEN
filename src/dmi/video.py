@@ -15,6 +15,7 @@ from typing import Any
 import cv2
 
 from dmi.pipeline import annotate_frame, process_frame
+from dmi.left_tracking import LeftDisplayStabilizer
 from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
 
 
@@ -74,6 +75,7 @@ def process_video(
         results: list[dict[str, Any]] = []
         geometry_stabilizer = GeometryStabilizer()
         right_display_stabilizer = RightDisplayStabilizer()
+        left_display_stabilizer = LeftDisplayStabilizer()
         frame_index = 0
         while max_frames is None or frame_index < max_frames:
             ok, frame = capture.read()
@@ -86,6 +88,7 @@ def process_video(
                 timestamp,
                 geometry_stabilizer,
                 right_display_stabilizer,
+                left_display_stabilizer,
             )
             writer.write(annotate_frame(frame, result))
             results.append(result)
