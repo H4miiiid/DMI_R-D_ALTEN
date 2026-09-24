@@ -17,6 +17,7 @@ from dmi.left_layout import (
     valid_quad,
 )
 from dmi.left_tracking import LeftDisplayStabilizer
+from dmi.icons import recognize_icons
 
 RECTIFIED_SIZE = (800, 1280)
 
@@ -34,6 +35,7 @@ def analyze_left_display(
     boxes = {name: points for name, points in boxes.items() if valid_quad(points)}
     if speed is not None and not valid_quad(speed):
         speed = None
+    icons = recognize_icons(rectified, boxes)
     width, height = RECTIFIED_SIZE
     source = np.array(
         [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], np.float32
@@ -41,7 +43,7 @@ def analyze_left_display(
     transform = cv2.getPerspectiveTransform(source, geometry.corners)
     return {
         "boxes": {
-            name: {**_region_result(points, transform), "icon": None}
+            name: {**_region_result(points, transform), "icon": icons[name]}
             for name, points in boxes.items()
         },
         "speed_indicator": _region_result(speed, transform)

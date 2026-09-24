@@ -226,13 +226,14 @@ def _draw_left_content(frame: Frame, display: dict[str, Any]) -> None:
         cv2.polylines(frame, [corners], True, (80, 255, 80), 2, cv2.LINE_AA)
         center = tuple(np.rint(region["center"]).astype(int))
         cv2.circle(frame, center, 4, (0, 80, 255), -1, cv2.LINE_AA)
+        label = name if region["icon"] is None else f'{name}: {region["icon"]}'
         origin = tuple(corners[0] + (5, 19))
         cv2.putText(
-            frame, name, origin, cv2.FONT_HERSHEY_SIMPLEX,
+            frame, label, origin, cv2.FONT_HERSHEY_SIMPLEX,
             0.45, (0, 0, 0), 3, cv2.LINE_AA,
         )
         cv2.putText(
-            frame, name, origin, cv2.FONT_HERSHEY_SIMPLEX,
+            frame, label, origin, cv2.FONT_HERSHEY_SIMPLEX,
             0.45, (80, 255, 80), 1, cv2.LINE_AA,
         )
     speed = display["speed_indicator"]

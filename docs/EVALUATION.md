@@ -255,6 +255,34 @@ encoding, and JSON writing; it is not a core-only inference benchmark.
 
 ---
 
+### Phase 6 icon checks
+
+- Asset-derived synthetic cases cover scale, exposure, blur, local perspective,
+  placement in differently named boxes, simultaneous icons in separate boxes,
+  ambiguous multiple icons in one box, and immediate appearance/change/removal.
+- Empty regions, noise, isolated digits/bars, circles, and triangles must not
+  receive a known level-icon identity. Annotation labels use the JSON identity.
+- Run all development recordings and compare every non-icon JSON value with
+  the approved baseline; icon recognition must preserve earlier behavior.
+- Inspect sampled source crops and annotated sequences, including abstentions.
+  Prediction counts and visual checks are not independent per-frame ground
+  truth or holdout accuracy. Thresholds are development settings, not calibrated
+  probabilities; new cameras and unseen symbols need further evaluation.
+
+Reproduce full-video validation into a new output directory:
+
+```sh
+python3 scripts/evaluate.py --output-dir outputs/phase6_validation_new --baseline outputs/phase5_validation
+```
+
+The script generates JSON, annotated MP4s, first/middle/last review images,
+regression comparisons, left-region integrity checks, complete annotated-video
+frame counts, icon-association counts, and end-to-end timing. It refuses to
+overwrite existing video results. It does not claim recognition accuracy from
+filenames or from previous predictions.
+
+---
+
 ## 7. OCR Evaluation
 
 When verified expected text exists, compare OCR output against the expected value.

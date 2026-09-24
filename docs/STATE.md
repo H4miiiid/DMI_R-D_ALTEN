@@ -2,77 +2,65 @@
 
 ## Current Phase
 
-**Phase 6 — Icon Processing**
+**Phase 7 — Temporal Stability**
 
-Phase 5 — Left Display is complete. The user visually approved the annotations
-and accepted the reported limitations, then authorized committing and pushing.
-Follow the Phase 6 requirements and completion conditions in `docs/WORKFLOW.md`.
-Icon recognition has not yet been implemented.
+Phases 1–6 are complete and visually approved. The user approved Phase 6,
+accepted its reported limitations, and authorized committing and pushing.
+Approved review artifacts: `outputs/phase6_validation/README.md`.
 
-## Previously Approved Functionality
+## Implemented Functionality
 
-Phases 1–4 are complete:
-
-- all seven development recordings, reference overlays, and level-icon assets
-  were inspected; UI and output requirements are documented
-- source-independent `process_frame()` and recorded-video processing produce
-  per-frame JSON and original-resolution annotated MP4s with overwrite protection
-- both physical displays have perspective localization and causal stabilization;
-  the user approved their annotations across all 1,708 development frames
-- the right display recognizes Main, Driver ID, and Level, localizes titles,
-  buttons, and data fields, reads numeric fields, and stabilizes geometry/OCR;
-  the approved reference runs are in `outputs/phase4_final/`
-
-Right-display OCR remains a numeric template matcher, not general text OCR.
-There are no verified machine-readable real-video coordinates or holdout sets.
-
-## Phase 5 — Completed and Approved
-
-- `src/dmi/left_layout.py`: exposure-normalized blue-border evidence, suppression
-  of bright glyphs, local line fitting, sidebar topology and geometry checks
-- `src/dmi/left_display.py`: 22 stable identities and the speed panel, individual
-  perspective borders, shared boundaries, and original-frame corners/centers
-- `src/dmi/left_tracking.py`: display-relative smoothing and motion-verified
-  optical-flow recovery for at most three missed frames, with loss/reset rules
-- `pipeline.py`, `video.py`: integrated left processing and matching annotations
-- `tests/test_left_display.py`: known synthetic corners, perspective, exposure,
-  source-coordinate mapping, abstention, motion/loss, annotation consistency,
-  and a real blurred-sequence regression
-
-The physical identity mapping belongs to `docs/UI_SPEC.md`. Search priors encode
-UI topology; reported borders require image evidence. No filenames, known OCR
-answers, or reference-frame coordinates control production detections.
-`icon` remains null until Phase 6; this is not proof that a box is empty.
+- Source-independent `process_frame()` and recorded-video processing produce
+  per-frame JSON and original-resolution annotated MP4s with overwrite protection.
+- Both physical displays have perspective localization and causal stabilization.
+- The right display recognizes Main, Driver ID, and Level, localizes titles,
+  buttons, and fields, reads numeric values, and stabilizes geometry/OCR.
+  Title text comes from state classification; OCR is not general text OCR.
+- The left display detects 22 stable box identities and the speed panel using
+  exposure-normalized border evidence and UI topology. Motion-verified optical
+  flow bridges at most three missed region measurements.
+- `icons.py` rectifies each detected left box independently and compares bright
+  foreground shapes with supplied level-0/1/2 assets and generic stroke-width
+  variants. Match strength and separation govern abstention. No box identity,
+  filename, reference-frame coordinates, or previous icon supplies the answer.
+- Icon labels appear in JSON and the corresponding box annotations. `null`
+  means no confident known-icon match, not verified emptiness. There is no icon
+  temporal persistence, so genuine changes are not delayed by a history buffer.
+- `scripts/evaluate.py` runs full-video validation against an approved baseline.
 
 ## Latest Verification
 
-- all **42 tests**, Python compilation, and `git diff --check` pass
-- all **1,708 frames in seven complete videos** processed and decoded
-- **1,701/1,708 frames** contain all 22 boxes and the speed panel
-- every emitted region passed finite/convex geometry, enclosing-bbox, and
-  center-inside-region checks; JSON and annotated-video frame counts match
-- right-display JSON is unchanged from the approved Phase 4 runs in every frame
-- full end-to-end processing averaged **6.01 FPS** on this run,
-  including decode, annotation, encoding, and JSON writing; not yet real-time
-- representative first/middle/last annotations and difficult frames were
-  inspected by the agent; the user approved the visual output and accepted
-  the remaining limitations
+- **48 tests pass**, including synthetic icon scale/exposure/blur/perspective,
+  association, negatives, multiplicity, changes/removal, and annotation checks.
+  Python compilation and `git diff --check` pass.
+- All **1,708 frames in seven complete videos** processed; all annotated videos
+  fully decoded with frame counts matching JSON.
+- **Every non-icon JSON value exactly matches the approved Phase 5 baseline**:
+  display geometry, left boxes/speed panel, and all right-display results.
+- All emitted left regions pass finite/convex geometry, enclosing-bbox, and
+  center-inside-region checks. Complete left layouts remain **1,701/1,708**.
+- Selected-level recordings: level 0 recognized in **262/264** frames, level 1
+  in **262/262**, level 2 in **239/239**; each association is `box_4`.
+  No known level-icon assignments occur in the other four recordings or boxes.
+- Average end-to-end throughput: **5.96 FPS**, including decode, annotation,
+  encoding, and JSON writing. The system is not yet real-time.
+- Agent inspected first/middle/last annotations for all recordings and periodic
+  source icon crops, including the uncertain opening frames. The user approved the visual output and accepted the limitations.
 
-Review artifacts: `outputs/phase5_validation/` (see `README.md`).
-`verification.json` records coverage/regression/timing; `integrity.json` records
-geometry consistency and full-video decoding checks. Coverage is not measured
-border accuracy: no real-video IoU or border-error claims are supported.
+These are development prediction counts and regression/consistency results,
+not holdout accuracy or real-video border-error measurements. There are no
+verified machine-readable real-video coordinates or holdout sets.
 
-## Known Gaps and Next Task
+## Known Limitations and Next Task
 
-Brief gaps during/after blur or weak border evidence remain in these frames:
+- Level-0 selected frames **0–1** return `icon: null` because blur makes the
+  asset scores insufficiently distinct. Recognition starts at frame 2.
+- Previously accepted left-layout gaps remain: `driver_id_12` frames 36–38;
+  `level_0` frames 26–28 and 34. Unsupported regions are omitted.
+- Only the three supplied level assets are recognized. Power/scroll symbols
+  remain unsupported; low exposure, heavier blur, and unseen symbols may cause
+  abstention or need additional validation. Real icon transitions are not in
+  the current recordings; change/removal tests are synthetic.
 
-- `driver_id_12`: 36, 37, 38 (zero-based frames)
-- `level_0`: 26, 27, 28, 34 (zero-based frames)
-
-Unsupported regions are omitted instead of retaining unreliable coordinates.
-These brief gaps and the current performance were accepted for Phase 5.
-
-Next: inspect the known icon assets and their video appearances, then implement
-Phase 6 icon recognition and box association while preserving the approved
-geometry and right-display behavior.
+Next: inspect existing stabilization and implement the smallest evidence-based
+Phase 7 improvement, preserving approved geometry and recognition behavior.

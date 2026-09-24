@@ -328,8 +328,14 @@ perspective `corners`; the `bbox` encloses those corners. Left-region corners
 and centers retain two decimal places in original-frame pixels. The center is
 the rectified region center mapped back through the display transform.
 
-During Phase 5, `icon: null` means recognition has not been performed; it must
-not be interpreted as a verified empty box. Icon recognition belongs to Phase 6.
+Icon recognition searches each detected box for the supplied level assets.
+`icon` is `level0_icon`, `level1_icon`, or `level2_icon` when supported by
+a sufficiently distinct full-shape match. `icon: null` means no known icon
+was confidently recognized: the box may be empty, contain an unsupported
+symbol, or have ambiguous/blurred evidence. It is not proof of emptiness.
+Recognition uses the current frame; it does not retain an earlier icon after
+the evidence disappears. Multiple accepted candidates within one box also
+return `null`, because the schema holds only one identity per box.
 A box without reliable current or short-term tracked geometry is omitted from
 `boxes`; a completely unsupported layout returns an empty collection.
 
