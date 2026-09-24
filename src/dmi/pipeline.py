@@ -55,9 +55,12 @@ def process_frame(
         }
     )
     if right_display_stabilizer is not None:
-        right_content = right_display_stabilizer.update(
-            right_content, right_geometry
-        )
+        if right_geometry is None:
+            right_display_stabilizer.reset()
+        else:
+            right_content = right_display_stabilizer.update(
+                right_content, right_geometry
+            )
     left_content = (
         analyze_left_display(frame, left_geometry, left_display_stabilizer)
         if left_geometry is not None

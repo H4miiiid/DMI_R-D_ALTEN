@@ -2,11 +2,14 @@
 
 ## Current Phase
 
-**Phase 7 — Temporal Stability**
+**Phase 7 — Temporal Stability: complete and visually approved.**
 
-Phases 1–6 are complete and visually approved. The user approved Phase 6,
+Phases 1–7 are complete and visually approved. The user approved Phase 7,
 accepted its reported limitations, and authorized committing and pushing.
-Approved review artifacts: `outputs/phase6_validation/README.md`.
+Approved Phase 7 artifacts: `outputs/phase7_validation/README.md`.
+
+**Phase 8 — Transitions has not started.** The user explicitly requested that
+work stop after committing and pushing Phase 7; await further instruction.
 
 ## Implemented Functionality
 
@@ -28,24 +31,41 @@ Approved review artifacts: `outputs/phase6_validation/README.md`.
   temporal persistence, so genuine changes are not delayed by a history buffer.
 - `scripts/evaluate.py` runs full-video validation against an approved baseline.
 
+## Phase 7 Implementation
+
+- Right-field OCR retains its previous value for at most three consecutive
+  unreadable observations within an unchanged recognized state, then returns
+  `null`. Missing OCR or uncertain state breaks changed-value confirmation.
+- Missing field clears value history. Missing physical right-display geometry
+  resets all right-display recognition/geometry history immediately; fresh
+  recognition is accepted on reacquisition.
+- Existing geometry stabilization, icon recognition, 15-frame numeric-change
+  confirmation, and five-frame state debounce remain in place. Full state
+  transitions remain Phase 8 work.
+- Seven new sequence tests and a labeled 35-frame synthetic loss/recovery demo
+  check bounded expiry, reset, and responsiveness. These limits count frames.
+
 ## Latest Verification
 
-- **48 tests pass**, including synthetic icon scale/exposure/blur/perspective,
-  association, negatives, multiplicity, changes/removal, and annotation checks.
-  Python compilation and `git diff --check` pass.
+- **55 tests pass**, including the seven new temporal sequence tests and all
+  earlier geometry, icon, recognition, and annotation checks. Python compilation
+  and `git diff --check` pass.
 - All **1,708 frames in seven complete videos** processed; all annotated videos
   fully decoded with frame counts matching JSON.
-- **Every non-icon JSON value exactly matches the approved Phase 5 baseline**:
-  display geometry, left boxes/speed panel, and all right-display results.
+- Final-source replay produces **exactly the approved Phase 6 JSON for every
+  frame**, including icons, geometry, and right-display results.
 - All emitted left regions pass finite/convex geometry, enclosing-bbox, and
   center-inside-region checks. Complete left layouts remain **1,701/1,708**.
 - Selected-level recordings: level 0 recognized in **262/264** frames, level 1
   in **262/262**, level 2 in **239/239**; each association is `box_4`.
   No known level-icon assignments occur in the other four recordings or boxes.
-- Average end-to-end throughput: **5.96 FPS**, including decode, annotation,
-  encoding, and JSON writing. The system is not yet real-time.
-- Agent inspected first/middle/last annotations for all recordings and periodic
-  source icon crops, including the uncertain opening frames. The user approved the visual output and accepted the limitations.
+- This end-to-end run averaged **5.46 FPS**, including decode, annotation,
+  encoding, and JSON writing, with concurrent validation work. This is not a
+  controlled performance comparison with Phase 6 (5.96 FPS); still not real-time.
+- Agent inspected representative Phase 7 annotations and synthetic expiry,
+  disappearance, and recovery frames. The 35-frame synthetic demo was fully
+  decoded and assertions verified its expected behavior. The user approved
+  the visual output and accepted the reported limitations.
 
 These are development prediction counts and regression/consistency results,
 not holdout accuracy or real-video border-error measurements. There are no
@@ -62,5 +82,5 @@ verified machine-readable real-video coordinates or holdout sets.
   abstention or need additional validation. Real icon transitions are not in
   the current recordings; change/removal tests are synthetic.
 
-Next: inspect existing stabilization and implement the smallest evidence-based
-Phase 7 improvement, preserving approved geometry and recognition behavior.
+Next: await the user's instruction. Phase 8 transition work is not authorized
+to start in this task.

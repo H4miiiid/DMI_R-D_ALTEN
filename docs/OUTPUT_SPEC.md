@@ -263,6 +263,13 @@ If no data field exists or it cannot be identified reliably:
 
 Do not fabricate values.
 
+For an unchanged recognized screen with a localized data field, temporal
+processing may retain the last value for up to three consecutive unreadable
+observations. The fourth returns `value: null`. A missing field clears its
+value history; loss of right-display geometry clears all right-display history
+immediately. Reacquisition starts from current evidence. These limits count
+processed frames, not wall-clock time.
+
 ---
 
 ## 9. Left Display

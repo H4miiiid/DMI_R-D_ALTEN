@@ -53,13 +53,22 @@ class RightDisplayStabilizer:
         self,
         confirmation_frames: int = 15,
         state_confirmation_frames: int = 5,
+        max_missing_frames: int = 3,
     ) -> None:
         if confirmation_frames <= 0:
             raise ValueError("confirmation_frames must be positive")
         if state_confirmation_frames <= 0:
             raise ValueError("state_confirmation_frames must be positive")
+        if max_missing_frames < 0:
+            raise ValueError("max_missing_frames must be non-negative")
+        self._max_missing_frames = max_missing_frames
         self._confirmation_frames = confirmation_frames
         self._state_confirmation_frames = state_confirmation_frames
+        self.reset()
+
+    def reset(self) -> None:
+        """Forget all recognition and geometry history after display loss."""
+        self._missing_value_frames = 0
         self._value: str | None = None
         self._candidate: str | None = None
         self._candidate_count = 0
@@ -86,6 +95,8 @@ class RightDisplayStabilizer:
             self._state_candidate = None
             self._state_candidate_count = 0
         else:
+            self._candidate = None
+            self._candidate_count = 0
             if current_state == self._state_candidate:
                 self._state_candidate_count += 1
             else:
@@ -104,11 +115,13 @@ class RightDisplayStabilizer:
                     [[0, 0], [1, 0], [1, 1], [0, 1]], dtype=np.float32
                 )
                 self._header_control = self._layout_control.copy()
+                self._missing_value_frames = 0
                 self._value = None
                 self._candidate = None
                 self._candidate_count = 0
         field = content["data_field"]
         if field is None:
+            self._missing_value_frames = 0
             self._value = None
             self._candidate = None
             self._candidate_count = 0
@@ -117,6 +130,15 @@ class RightDisplayStabilizer:
             return result
 
         current = field["value"]
+        if current is None:
+            self._missing_value_frames += 1
+            # Missing evidence cannot count toward consecutive confirmation.
+            self._candidate = None
+            self._candidate_count = 0
+            if self._missing_value_frames > self._max_missing_frames:
+                self._value = None
+        else:
+            self._missing_value_frames = 0
         if self._value is None and current is not None:
             self._value = current
         elif current == self._value:

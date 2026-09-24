@@ -326,6 +326,40 @@ A stabilization method is not successful if it hides genuine:
 
 ---
 
+### Phase 7 temporal checks
+
+The initial Phase 7 change bounds right-field OCR history and resets it on
+physical-display loss. Seven sequence tests cover short/prolonged OCR loss,
+interrupted confirmation (including an uncertain state), a genuine sustained
+value change, field removal, display loss/reacquisition, and explicit reset.
+Existing geometry, left optical-flow, state-debounce, and icon-change tests
+remain part of regression validation.
+
+Default behavior for an unchanged recognized screen:
+
+- Up to three unreadable field observations retain the previous value; the
+  fourth returns `null`. This is a short grace period, not verified current OCR.
+- Changed numeric values require 15 consecutive supporting observations;
+  missing OCR or an uncertain screen state breaks that candidate sequence.
+- Missing fields clear field history; missing display geometry clears all
+  right-display history immediately. Initial/reacquired values are accepted
+  from current recognition without comparison against stale history.
+
+The existing five-observation state debounce is unchanged and is separate from
+field-value expiry. It can replay prior content during a pending state change;
+full transition responsiveness and geometry during these intervals remain
+Phase 8 work. The limits are frame counts (three frames are about 0.1 s and
+15 frames about 0.5 s at 30 FPS), not elapsed-time guarantees for sparse input.
+
+A labeled synthetic sequence repeats a real frame, masks its field digits,
+restores them, removes the image, and restores it. This checks end-to-end
+expiry/recovery where development recordings lack controlled evidence loss.
+The mask uses predicted geometry only to place the perturbation; it creates no
+real-video ground-truth annotations. Full original-video results must also be
+compared against the approved Phase 6 output, including icon assignments.
+
+---
+
 ## 9. Screen Transitions
 
 Transition evaluation may be added after stable individual-screen processing works reliably.
