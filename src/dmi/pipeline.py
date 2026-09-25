@@ -48,6 +48,7 @@ def process_frame(
         analyze_right_display(frame, right_geometry)
         if right_geometry is not None
         else {
+            "visibility": "unknown",
             "state": "unknown",
             "title": None,
             "buttons": {},
@@ -94,7 +95,8 @@ def annotate_frame(frame: Frame, result: FrameResult) -> Frame:
     right_geometry = result["right_display"]["geometry"]
     lines = (
         f"frame {frame_index} | {timestamp:.3f}s",
-        f"right state: {state}",
+        f"right state: {state}" + (" | paused: obstruction"
+            if result["right_display"].get("visibility") == "occluded" else ""),
         "display geometry: "
         f"left={'found' if left_geometry else 'unknown'}, "
         f"right={'found' if right_geometry else 'unknown'}",

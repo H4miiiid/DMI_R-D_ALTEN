@@ -56,13 +56,16 @@ def inspect_video(directory, frames):
     return count
 
 
-def validate_geometry(frames):
+def validate_geometry(frames, side="left"):
     checked = 0
     for frame in frames:
-        left = frame["left_display"]
-        regions = list(left["boxes"].values())
-        if left["speed_indicator"] is not None:
-            regions.append(left["speed_indicator"])
+        display = frame[f"{side}_display"]
+        if side == "left":
+            regions = list(display["boxes"].values())
+            regions += [display["speed_indicator"]] if display["speed_indicator"] else []
+        else:
+            regions = list(display["buttons"].values())
+            regions += [display[key] for key in ("title", "data_field") if display[key]]
         for region in regions:
             corners = np.array(region["corners"], np.float32)
             x1, y1, x2, y2 = region["bbox"]
@@ -82,19 +85,32 @@ def main():
     parser.add_argument("--videos", type=Path, default=Path("data/videos/dev"))
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--baseline", type=Path, required=True)
+    parser.add_argument("--video", action="append", help="video stem to include (repeatable)")
+    parser.add_argument("--allow-new", action="store_true",
+                        help="process videos without baseline JSON; report comparison as unavailable")
+    parser.add_argument("--allow-changes", action="store_true",
+                        help="record baseline differences for investigation instead of stopping")
     args = parser.parse_args()
     report = {}
     for source in sorted(args.videos.glob("*.mp4")):
+        if args.video and source.stem not in args.video:
+            continue
+        baseline_path = args.baseline / source.stem / "results.json"
+        if not baseline_path.exists() and not args.allow_new:
+            raise FileNotFoundError(f"No approved baseline: {baseline_path}; use --allow-new for new inputs")
         directory = args.output_dir / source.stem
         start = time.perf_counter()
         run = process_video(source, directory)
         elapsed = time.perf_counter() - start
         frames = json.loads(run.json_path.read_text())["frames"]
-        baseline = json.loads((args.baseline / source.stem / "results.json").read_text())["frames"]
-        if len(frames) != len(baseline):
-            raise RuntimeError(f"Baseline frame count mismatch: {source}")
-        changed = [i for i, (a, b) in enumerate(zip(frames, baseline))
-                   if without_icons(a) != without_icons(b)]
+        baseline = json.loads(baseline_path.read_text())["frames"] if baseline_path.exists() else None
+        changed = all_changed = None
+        if baseline is not None:
+            if len(frames) != len(baseline):
+                raise RuntimeError(f"Baseline frame count mismatch: {source}")
+            changed = [i for i, (a, b) in enumerate(zip(frames, baseline))
+                       if without_icons(a) != without_icons(b)]
+            all_changed = [i for i, (a, b) in enumerate(zip(frames, baseline)) if a != b]
         counts, associations, no_match = Counter(), Counter(), []
         for i, frame in enumerate(frames):
             found = False
@@ -108,16 +124,19 @@ def main():
         report[source.stem] = {
             "frames": len(frames), "icon_counts": dict(counts),
             "associations": dict(associations), "no_match_frames": no_match,
+            "baseline_available": baseline is not None,
+            "all_field_changed_frames": all_changed,
             "non_icon_regression_frames": changed,
             "geometry_regions_checked": validate_geometry(frames),
+            "right_geometry_regions_checked": validate_geometry(frames, "right"),
             "decoded_annotated_frames": inspect_video(directory, frames),
             "end_to_end_seconds": elapsed, "fps": len(frames) / elapsed,
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)
         (args.output_dir / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
-        print(source.stem, len(frames), dict(counts), "regressions", len(changed), flush=True)
-        if changed:
-            raise RuntimeError(f"Non-icon regression: {source}")
+        print(source.stem, len(frames), dict(counts), "changed frames", len(all_changed) if all_changed is not None else "no baseline", flush=True)
+        if all_changed and not args.allow_changes:
+            raise RuntimeError(f"Baseline difference: {source}; inspect before accepting")
     if not report:
         raise RuntimeError("No input videos found")
 

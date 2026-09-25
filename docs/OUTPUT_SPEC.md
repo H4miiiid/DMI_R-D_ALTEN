@@ -104,6 +104,7 @@ A typical right-display result should contain:
 {
   "geometry": {},
   "state": "Driver ID",
+  "visibility": "clear",
   "title": {},
   "buttons": {},
   "data_field": {}
@@ -164,6 +165,17 @@ For an unrecognized screen:
 ```
 
 An unknown state must not prevent other visible elements from being reported.
+
+During confirmation of a different recognized screen, `state` is `unknown`.
+Regions come from the current frame, with neutral `button_N` identities,
+`title.text: null`, and `data_field.value: null` until the state is confirmed.
+The old screen's geometry and field are not replayed. A short unclassified
+observation may retain the last confirmed state label, but still uses current,
+neutral region detections. Once a different known-screen candidate has appeared,
+intervening uncertain frames cannot flash the previous state label again.
+
+A clearly localized light field on an unknown screen is preserved with
+`value: null`; no field meaning or text is inferred from the previous state.
 
 ---
 
@@ -268,7 +280,10 @@ processing may retain the last value for up to three consecutive unreadable
 observations. The fourth returns `value: null`. A missing field clears its
 value history; loss of right-display geometry clears all right-display history
 immediately. Reacquisition starts from current evidence. These limits count
-processed frames, not wall-clock time.
+processed frames, not wall-clock time. After a screen-state change, the initial
+field value must have consistent support throughout state confirmation;
+otherwise it stays `null` until normal numeric confirmation succeeds. This
+prevents one noisy observation from becoming a retained value on a new screen.
 
 ---
 
@@ -497,3 +512,22 @@ If the output format changes, update this document and any related evaluation co
 The structured output must describe what the pipeline actually detected.
 
 It must never contain hardcoded or fabricated information simply to match an expected result.
+
+### Right-display visibility and title OCR
+
+`visibility` is `clear`, `occluded`, or `unknown` (display unavailable).
+`clear` means the appearance gate found no qualifying obstruction; it is not a
+certification that the image is completely unobstructed. On `occluded`, state
+is `unknown`, title/data_field are null and buttons are empty. Outer display
+geometry remains available; the overlay explicitly says detection is paused.
+The unaffected left display continues processing.
+
+The obstruction gate is checked on every frame. It clears right recognition
+and region history immediately; the first clear frame is processed afresh,
+without a fixed cooldown or reuse of pre-occlusion geometry/values.
+
+`title.text` now contains confident OCR text rather than a label inferred from
+layout. Supported exact title words (case/whitespace normalized) select known
+layouts. Unsupported readable titles remain text with unknown state and only
+generic supported regions; unreadable titles do not select a known button
+layout. Pending-state semantics can still suppress title text temporarily.

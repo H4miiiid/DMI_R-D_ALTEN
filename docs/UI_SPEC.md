@@ -467,6 +467,12 @@ The pipeline should eventually avoid:
 - switching states because of one unclear frame
 - stopping element detection while a new state is being identified
 
+The Phase 8 recordings show mixed redraw frames with parts of both layouts
+visible. In `driverID_to_level.mp4`, frame 558 is mixed and frame 559 shows the
+clear Level screen. In `level_to_main.mp4`, frames 527–528 contain mixed content
+and frame 529 shows the clear Main screen. These zero-based frame observations
+come from source-image inspection; they are not geometry ground truth.
+
 Detailed transition evaluation belongs in:
 
 `docs/EVALUATION.md`
@@ -543,3 +549,13 @@ Detailed output representation belongs in:
 Detailed evaluation rules belong in:
 
 `docs/EVALUATION.md`
+
+### Obstructed right display
+
+During interaction, a hand or tool can hide parts of the right display. The
+requested behavior is to suspend right-display content detection/annotations
+while an obstruction overlaps the active UI, keep checking visibility, and
+resume from the current image as soon as it clears. Do not retain an initial
+occluded layout as a stable template. Unaffected left-display processing and
+outer display localization can continue. Presence outside the active display
+alone is not a reason to hide valid content.

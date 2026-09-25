@@ -66,7 +66,7 @@ class TemporalSequenceTest(unittest.TestCase):
         black = np.zeros((240, 640, 3), np.uint8)
         result = process_frame(black, 1, 1 / 30, right_display_stabilizer=tracker)
         self.assertEqual(result["right_display"], {
-            "geometry": None, "state": "unknown", "title": None,
+            "geometry": None, "visibility": "unknown", "state": "unknown", "title": None,
             "buttons": {}, "data_field": None})
         # Reacquisition is a fresh observation, not a vote against stale state.
         self.assertEqual(tracker.update(content("235"))["data_field"]["value"], "235")

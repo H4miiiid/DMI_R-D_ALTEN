@@ -269,11 +269,9 @@ encoding, and JSON writing; it is not a core-only inference benchmark.
   truth or holdout accuracy. Thresholds are development settings, not calibrated
   probabilities; new cameras and unseen symbols need further evaluation.
 
-Reproduce full-video validation into a new output directory:
-
-```sh
-python3 scripts/evaluate.py --output-dir outputs/phase6_validation_new --baseline outputs/phase5_validation
-```
+Historical Phase 6 runs are documented in Git history. Their generated output
+folders were removed after Phase 8 approval; use the retained Phase 8 baseline
+for the current transition-video regression command below.
 
 The script generates JSON, annotated MP4s, first/middle/last review images,
 regression comparisons, left-region integrity checks, complete annotated-video
@@ -345,10 +343,9 @@ Default behavior for an unchanged recognized screen:
   right-display history immediately. Initial/reacquired values are accepted
   from current recognition without comparison against stale history.
 
-The existing five-observation state debounce is unchanged and is separate from
-field-value expiry. It can replay prior content during a pending state change;
-full transition responsiveness and geometry during these intervals remain
-Phase 8 work. The limits are frame counts (three frames are about 0.1 s and
+The five-observation state debounce is separate from field-value expiry.
+Phase 8 replaces replay of prior content with current-frame regions during
+confirmation; see the transition checks below. The limits are frame counts (three frames are about 0.1 s and
 15 frames about 0.5 s at 30 FPS), not elapsed-time guarantees for sparse input.
 
 A labeled synthetic sequence repeats a real frame, masks its field digits,
@@ -383,6 +380,52 @@ When transition references are available, evaluate:
 - whether element detection continues while the state is uncertain
 
 Detailed per-frame bounding-box annotations are not required for every transition frame unless they are useful for a specific evaluation.
+
+### Phase 8 implementation and checks
+
+Phase 8 video validation uses only `driverID_to_level.mp4` and
+`level_to_main.mp4`, per user instruction. The seven original recordings are
+steady-state inputs and are not counted as transition evidence.
+
+- State selection now requires confident title OCR; title width, field presence
+  and glyph counts no longer guess the screen. Test readable unsupported titles
+  and unreadable titles as well as the three supported states.
+- Test obstruction at startup, pause with empty right content, immediate reset,
+  and fresh detection on the first clear frame. Verify early-frame alignment
+  after startup occlusion and shifted Main close-button border pairs.
+  Include neutral tool shapes in
+  synthetic checks; do not claim robot validation without robot recordings.
+- Unknown-screen buttons require image edges as well as blue border color on
+  all four sides, with bright glyph neighborhoods excluded. Uniform blue
+  background and text edges cannot validate extrapolated cells.
+- State confirmation continues for five supporting observations. A new known
+  candidate yields an unknown state with current-frame, neutral region labels;
+  a later uncertain frame cannot temporarily restore the obsolete state label.
+- Short raw-unknown intervals can retain the last confirmed state label, but
+  never its old regions. Unknown screens retain supported field geometry with
+  unknown value. Confirmed state changes reset geometry/OCR history.
+- New-screen OCR must be consistent across state confirmation or pass the normal
+  numeric confirmation window before a value is emitted.
+- Synthetic sequence tests cover current geometry under motion, field removal,
+  interrupted state confirmation, unknown screens, noisy reacquisition, absence
+  of old-state flashes, conservative title mapping, obstruction recovery, and
+  rejection of extrapolated cells on blue background without edges.
+- Inspect original and annotated frames around the source-observed boundaries
+  in UI_SPEC.md and through hand occlusions. Report transition delay relative to
+  those observations, current button/field availability, state runs, abstentions,
+  and geometry consistency. Prediction traces are diagnostics, not ground truth.
+
+Run both complete recordings into a fresh directory:
+
+```sh
+python3 scripts/evaluate.py --output-dir outputs/phase8_validation_new --baseline outputs/phase8_revision_final --video driverID_to_level --video level_to_main
+```
+
+Missing approved baselines are explicitly reported as unavailable (`null`
+comparison lists), not as zero regressions. `--allow-changes` records existing
+baseline differences without stopping, for investigation only; it does not
+approve them. All-field comparisons include icons. The retained Phase 8 JSON
+is the visually approved baseline; generated files remain local and Git-ignored.
 
 ---
 
@@ -560,3 +603,6 @@ user feedback
 These methods may be used together.
 
 Never claim higher confidence than the available evaluation evidence supports.
+
+Crossed or degenerate title-border fits must be omitted rather than emitted as
+regions. Validate the final rounded output polygons, including occluded intervals.

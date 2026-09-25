@@ -138,7 +138,7 @@ Visual reference overlays are examples only and are not automatically numerical 
 
 ### Current Development Dataset
 
-The current development set contains seven short MP4 recordings. All are
+The initial development set contains seven short MP4 recordings. All are
 `2304 × 1728` camera frames at approximately 29–30 frames per second and are
 about 6.1–9.6 seconds long. The MP4 container's nominal frame-count metadata is
 not reliable for these files; sequential decoding and media-duration metadata
@@ -155,6 +155,19 @@ The recordings use a dark environment with bright blue displays. They include
 small camera/display alignment differences, mild perspective distortion,
 brightness variation, blur, and occasional hand occlusion. Both physical
 displays remain visible throughout the currently supplied recordings.
+
+Two transition recordings were added for Phase 8:
+
+- `driverID_to_level.mp4`: 855 sequentially decoded frames, approximately
+  28.99 FPS / 29.49 seconds; numeric entry and hand occlusion before Driver ID
+  changes to Level.
+- `level_to_main.mp4`: 894 sequentially decoded frames, approximately
+  29.08 FPS / 30.74 seconds; hand occlusion before Level changes to Main and
+  the level-0 icon appears on the left display.
+
+These add real transitions and mixed/partially redrawn frames to development
+coverage. They are development inputs, not holdout data. Phase 8 video validation
+uses only these two recordings, as requested by the user.
 
 The current visual references comprise one full-camera annotated example and
 one rectified annotated example for each display. The icon assets comprise
@@ -299,3 +312,16 @@ Structured Output
 ```
 
 The final system should be accurate, stable, maintainable, reasonably efficient, and reusable for future live webcam processing.
+
+## Runtime Dependencies
+
+The Python pipeline uses NumPy and OpenCV. Title text recognition additionally
+requires Tesseract 5 with English (`eng`) language data on PATH. On macOS:
+`brew install tesseract`; on Debian/Ubuntu:
+`sudo apt install tesseract-ocr tesseract-ocr-eng`.
+The OCR model reads the observed title without custom word lists or recording
+answers. Missing Tesseract or language data produces an actionable runtime
+error; it does not silently fall back to shape-based state guessing.
+
+Tesseract's [command-line documentation](https://tesseract-ocr.github.io/tessdoc/Command-Line-Usage.html)
+describes the single-line OCR and word-confidence TSV output used here.

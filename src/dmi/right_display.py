@@ -10,13 +10,13 @@ import numpy as np
 from numpy.typing import NDArray
 
 from dmi.geometry import DisplayGeometry, Frame, rectify_display
+from dmi.title_ocr import read_title, title_state
+from dmi.visibility import right_display_obstructed
 from dmi.right_layout import (
-    BorderLines,
     detect_border_lines,
     detect_button_quads,
     detect_title_quad,
     field_quad_from_contour,
-    matches_known_layout,
 )
 
 RECTIFIED_SIZE = (600, 960)
@@ -27,11 +27,17 @@ def analyze_right_display(
 ) -> dict[str, Any]:
     """Recognize the visible right-display structure and original-frame boxes."""
     rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
+    if right_display_obstructed(rectified):
+        return {"state": "unknown", "title": None, "buttons": {},
+                "data_field": None, "visibility": "occluded"}
     border_lines = detect_border_lines(rectified)
     field_detection = _detect_data_field(rectified)
     field_box = field_detection[0] if field_detection is not None else None
     title_box = _detect_title_box(rectified, field_box)
-    state = _classify_state(rectified, title_box, field_box, border_lines)
+    title_crop = _title_crop(frame, geometry, title_box)
+    title_text = (read_title(title_crop, (0, 0, title_crop.shape[1], title_crop.shape[0]))
+                  if title_crop is not None else None)
+    state = title_state(title_text)
     title = None
     if title_box is not None:
         title = _region_result(
@@ -39,13 +45,20 @@ def analyze_right_display(
             geometry,
             frame.shape[:2],
         )
-        title["text"] = state if state != "unknown" else None
+        corners = np.asarray(title["corners"], dtype=np.float32)
+        if cv2.isContourConvex(corners) and cv2.contourArea(corners) > 0:
+            title["text"] = title_text
+        else:
+            # Occluded border fits can cross; do not publish invented geometry.
+            title = None
 
     data_field = None
-    if field_box is not None and state in {"Driver ID", "Level"}:
+    if field_box is not None:
         field_image = _crop_box(rectified, field_box)
-        digits = _read_digits(field_image, last_only=state == "Level")
-        value = digits if state == "Driver ID" else (f"Level {digits}" if digits else None)
+        value = None
+        if state in {"Driver ID", "Level"}:
+            digits = _read_digits(field_image, last_only=state == "Level")
+            value = digits if state == "Driver ID" else (f"Level {digits}" if digits else None)
         data_field = _region_result(
             field_quad_from_contour(field_detection[1]),
             geometry,
@@ -54,14 +67,39 @@ def analyze_right_display(
         data_field["value"] = value
 
     buttons = {}
-    for name, quad in detect_button_quads(rectified, state, border_lines).items():
+    detected_buttons = (detect_button_quads(rectified, state, border_lines)
+                        if title_text is not None else {})
+    for name, quad in detected_buttons.items():
         buttons[name] = _region_result(quad, geometry, frame.shape[:2])
     return {
+        "visibility": "clear",
         "state": state,
         "title": title,
         "buttons": buttons,
         "data_field": data_field,
     }
+
+
+def _title_crop(
+    frame: Frame, geometry: DisplayGeometry,
+    box: tuple[int, int, int, int] | None,
+) -> Frame | None:
+    """Read beyond the estimated left edge so rectification cannot cut letters."""
+    if box is None:
+        return None
+    x1, y1, x2, y2 = box
+    margin = round(RECTIFIED_SIZE[0] * .04)
+    x1 -= margin
+    x2 += margin
+    y1 -= 4
+    y2 += 4
+    source = _map_quad(np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]],
+                                dtype=np.float32), geometry)
+    width, height = x2 - x1, y2 - y1
+    destination = np.array([[0, 0], [width-1, 0], [width-1, height-1],
+                            [0, height-1]], np.float32)
+    transform = cv2.getPerspectiveTransform(source, destination)
+    return cv2.warpPerspective(frame, transform, (width, height))
 
 
 def _detect_title_box(
@@ -120,43 +158,6 @@ def _detect_data_field(
     return max(
         candidates,
         key=lambda item: (item[0][2] - item[0][0]) * (item[0][3] - item[0][1]),
-    )
-
-
-def _classify_state(
-    frame: Frame,
-    title_box: tuple[int, int, int, int] | None,
-    field_box: tuple[int, int, int, int] | None,
-    border_lines: BorderLines,
-) -> str:
-    if title_box is None:
-        return "unknown"
-    if field_box is None:
-        title_width = title_box[2] - title_box[0]
-        return (
-            "Main"
-            if title_width >= 45
-            and matches_known_layout(frame, "Main", border_lines)
-            else "unknown"
-        )
-    title_width = title_box[2] - title_box[0]
-    if title_width < 90:
-        return "Level"
-    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    mask = cv2.inRange(gray, 90, 255)
-    mask[: field_box[3] + 25] = 0
-    mask[round(frame.shape[0] * 0.92) :] = 0
-    count, _, stats, _ = cv2.connectedComponentsWithStats(mask)
-    visible_components = sum(
-        8 <= stats[index, cv2.CC_STAT_AREA] <= 2000
-        and stats[index, cv2.CC_STAT_HEIGHT] >= 4
-        for index in range(1, count)
-    )
-    candidate = "Level" if visible_components >= 28 else "Driver ID"
-    return (
-        candidate
-        if matches_known_layout(frame, candidate, border_lines)
-        else "unknown"
     )
 
 

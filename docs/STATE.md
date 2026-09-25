@@ -2,85 +2,78 @@
 
 ## Current Phase
 
-**Phase 7 — Temporal Stability: complete and visually approved.**
+**Phase 8 — complete, verified and visually approved on 2026-09-25.**
 
-Phases 1–7 are complete and visually approved. The user approved Phase 7,
-accepted its reported limitations, and authorized committing and pushing.
-Approved Phase 7 artifacts: `outputs/phase7_validation/README.md`.
-
-**Phase 8 — Transitions has not started.** The user explicitly requested that
-work stop after committing and pushing Phase 7; await further instruction.
+Phases 1–8 are complete. The user approved the revised Phase 8 output and
+requested cleanup, commit and push. Validation used only the two transition
+recordings, as requested. The sole retained generated-output folder is
+`outputs/phase8_revision_final/`; older runs and temporary review tools were
+removed. Original inputs remain unchanged. Generated outputs are local and
+Git-ignored; the approved JSON files are the current regression baseline.
 
 ## Implemented Functionality
 
-- Source-independent `process_frame()` and recorded-video processing produce
-  per-frame JSON and original-resolution annotated MP4s with overwrite protection.
-- Both physical displays have perspective localization and causal stabilization.
-- The right display recognizes Main, Driver ID, and Level, localizes titles,
-  buttons, and fields, reads numeric values, and stabilizes geometry/OCR.
-  Title text comes from state classification; OCR is not general text OCR.
-- The left display detects 22 stable box identities and the speed panel using
-  exposure-normalized border evidence and UI topology. Motion-verified optical
-  flow bridges at most three missed region measurements.
-- `icons.py` rectifies each detected left box independently and compares bright
-  foreground shapes with supplied level-0/1/2 assets and generic stroke-width
-  variants. Match strength and separation govern abstention. No box identity,
-  filename, reference-frame coordinates, or previous icon supplies the answer.
-- Icon labels appear in JSON and the corresponding box annotations. `null`
-  means no confident known-icon match, not verified emptiness. There is no icon
-  temporal persistence, so genuine changes are not delayed by a history buffer.
-- `scripts/evaluate.py` runs full-video validation against an approved baseline.
+- Source-independent frame processing, per-frame JSON and annotated videos;
+  both physical displays have perspective localization and causal tracking.
+- Right screen identity now comes from general English Tesseract title OCR.
+  Exact supported title words select Main, Driver ID or Level layouts, fitted
+  to observed borders. No title-width/field-shape state guessing remains.
+  Expanded original-image OCR crops avoid cutting off a title's first letter.
+- A frame-local appearance gate checks for foreground over the active right UI
+  before detection/OCR. On obstruction, content annotations disappear, state
+  becomes unknown, and all right recognition/region history is cleared.
+  Detection restarts on the first clear frame. Outer display geometry and the
+  unaffected left display continue. JSON exposes visibility explicitly.
+- This fixes the cause of the bad early keypad: an occluded first-frame fit
+  used to become a persistent anchor. Unknown/pending transitions use current
+  regions and neutral semantics, never the previous screen's geometry.
+- Five-frame state confirmation, 15-frame changed numeric-value confirmation,
+  and bounded missing-value retention remain. Missing display/field resets
+  relevant history. Invalid crossed title fits are omitted.
+- Main close-button localization fits a pair of borders by separation, so
+  camera/scale changes cannot turn the top border into an assumed bottom edge.
+- Left display: 22 box identities, speed panel, up to three-frame motion-verified
+  recovery, and evidence-based matching of supplied level-0/1/2 assets.
+- Tesseract 5 plus English data is a new runtime dependency; setup is documented
+  in PROJECT.md. No custom title vocabulary or video answers are fed to OCR.
 
-## Phase 7 Implementation
+## Verification
 
-- Right-field OCR retains its previous value for at most three consecutive
-  unreadable observations within an unchanged recognized state, then returns
-  `null`. Missing OCR or uncertain state breaks changed-value confirmation.
-- Missing field clears value history. Missing physical right-display geometry
-  resets all right-display recognition/geometry history immediately; fresh
-  recognition is accepted on reacquisition.
-- Existing geometry stabilization, icon recognition, 15-frame numeric-change
-  confirmation, and five-frame state debounce remain in place. Full state
-  transitions remain Phase 8 work.
-- Seven new sequence tests and a labeled 35-frame synthetic loss/recovery demo
-  check bounded expiry, reset, and responsiveness. These limits count frames.
+- 72 applicable tests pass: synthetic geometry, recognition, OCR integration,
+  transition/temporal sequences, obstruction/tool shapes, recovery, annotation
+  and video I/O. The one test reading an older development video is excluded
+  under the user's two-video constraint.
+- Both complete transition videos were processed from source: 1,749 frames.
+  Full annotation decode counts match JSON. All 40,055 left and 18,803 right
+  emitted regions pass finite/convex, bbox and center integrity checks.
+- Left-display JSON is unchanged on every frame relative to the previous
+  Phase 8 snapshot. Independent right replay matches both full pipeline runs.
+- Startup obstruction pauses Driver ID frames 0–60; processing resumes at 61
+  (~2.10 s), with confirmed Driver ID at 66 (~2.28 s) after title uncertainty.
+  Inspected early clear-frame comparisons show the corrected keypad alignment.
+- Driver ID → Level confirms at frame 563, four frames / 0.138 s after the clear
+  screen at 559. Level → Main confirms at 532, three frames / 0.103 s after
+  clear frame 529. No wrong known state occurs outside mixed redraw frames.
+- Obstruction gate pauses 155 and 245 frames respectively; some motion-blur
+  pauses are conservative. OCR uncertainty can briefly suppress annotations.
+- Agent inspected source/annotation pairs, early before/after grids, occlusions,
+  recovery and transition frames, including the corrected Main close button.
+- Full-run throughput is 4.12 FPS aggregate (decode/OCR/annotation/encode/JSON,
+  with some concurrent diagnostics), not a controlled performance benchmark.
+- Compilation and Git whitespace checks pass. Review videos, comparisons,
+  metrics and limitations: `outputs/phase8_revision_final/README.md`.
+- No numerical real-video geometry ground truth or holdout set exists. Source
+  transition boundaries are manual visual observations, not border annotations.
+  The previous Phase 8 run is a comparison snapshot, not an approved baseline.
 
-## Latest Verification
+## Limitations / Next Task
 
-- **55 tests pass**, including the seven new temporal sequence tests and all
-  earlier geometry, icon, recognition, and annotation checks. Python compilation
-  and `git diff --check` pass.
-- All **1,708 frames in seven complete videos** processed; all annotated videos
-  fully decoded with frame counts matching JSON.
-- Final-source replay produces **exactly the approved Phase 6 JSON for every
-  frame**, including icons, geometry, and right-display results.
-- All emitted left regions pass finite/convex geometry, enclosing-bbox, and
-  center-inside-region checks. Complete left layouts remain **1,701/1,708**.
-- Selected-level recordings: level 0 recognized in **262/264** frames, level 1
-  in **262/262**, level 2 in **239/239**; each association is `box_4`.
-  No known level-icon assignments occur in the other four recordings or boxes.
-- This end-to-end run averaged **5.46 FPS**, including decode, annotation,
-  encoding, and JSON writing, with concurrent validation work. This is not a
-  controlled performance comparison with Phase 6 (5.96 FPS); still not real-time.
-- Agent inspected representative Phase 7 annotations and synthetic expiry,
-  disappearance, and recovery frames. The 35-frame synthetic demo was fully
-  decoded and assertions verified its expected behavior. The user approved
-  the visual output and accepted the reported limitations.
+- The visibility gate detects appearance inconsistent with the blue UI, not
+  hand/robot identity. Robot behavior has only synthetic tool-shape coverage;
+  screen-colored objects and bright objects over white fields may be missed.
+  Motion blur can conservatively trigger pauses. Actual robot footage is needed.
+- Only three UI layouts and three level icon assets are supported. General
+  field OCR remains unimplemented; brief numeric entries can be filtered out.
+- Real-time performance remains unachieved.
 
-These are development prediction counts and regression/consistency results,
-not holdout accuracy or real-video border-error measurements. There are no
-verified machine-readable real-video coordinates or holdout sets.
-
-## Known Limitations and Next Task
-
-- Level-0 selected frames **0–1** return `icon: null` because blur makes the
-  asset scores insufficiently distinct. Recognition starts at frame 2.
-- Previously accepted left-layout gaps remain: `driver_id_12` frames 36–38;
-  `level_0` frames 26–28 and 34. Unsupported regions are omitted.
-- Only the three supplied level assets are recognized. Power/scroll symbols
-  remain unsupported; low exposure, heavier blur, and unseen symbols may cause
-  abstention or need additional validation. Real icon transitions are not in
-  the current recordings; change/removal tests are synthetic.
-
-Next: await the user's instruction. Phase 8 transition work is not authorized
-to start in this task.
+Next development phase: Phase 9 — End-to-End Integration. Not started.

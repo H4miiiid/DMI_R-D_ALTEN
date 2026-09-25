@@ -69,13 +69,16 @@ class RightDisplayStabilizer:
     def reset(self) -> None:
         """Forget all recognition and geometry history after display loss."""
         self._missing_value_frames = 0
+        self._require_value_confirmation = False
+        self._transition_value = None
+        self._transition_value_count = 0
+        self._transition_active = False
         self._value: str | None = None
         self._candidate: str | None = None
         self._candidate_count = 0
         self._state: str | None = None
         self._state_candidate: str | None = None
         self._state_candidate_count = 0
-        self._last_content: dict[str, Any] | None = None
         self._regions: dict[str, np.ndarray] = {}
         self._relative_region_anchors: dict[str, np.ndarray] = {}
         self._layout_control = np.array(
@@ -88,13 +91,21 @@ class RightDisplayStabilizer:
         content: dict[str, Any],
         geometry: DisplayGeometry | None = None,
     ) -> dict[str, Any]:
+        if content.get("visibility") == "occluded":
+            self.reset()
+            return deepcopy(content)
         current_state = content["state"]
         if self._state is None:
             self._state = current_state
         elif current_state == self._state:
+            self._transition_active = False
             self._state_candidate = None
             self._state_candidate_count = 0
+            self._transition_value = None
+            self._transition_value_count = 0
         else:
+            if current_state != "unknown":
+                self._transition_active = True
             self._candidate = None
             self._candidate_count = 0
             if current_state == self._state_candidate:
@@ -102,11 +113,30 @@ class RightDisplayStabilizer:
             else:
                 self._state_candidate = current_state
                 self._state_candidate_count = 1
+                self._transition_value = None
+                self._transition_value_count = 0
+            observed_value = (content["data_field"] or {}).get("value")
+            if observed_value is not None and observed_value == self._transition_value:
+                self._transition_value_count += 1
+            else:
+                self._transition_value = observed_value
+                self._transition_value_count = int(observed_value is not None)
             if self._state_candidate_count < self._state_confirmation_frames:
-                if self._last_content is not None:
-                    return deepcopy(self._last_content)
+                # Classify cautiously, but never replay obsolete pixel geometry.
+                pending = deepcopy(content)
+                pending["state"] = "unknown" if self._transition_active else self._state
+                if pending["title"] is not None:
+                    pending["title"]["text"] = None
+                if pending["data_field"] is not None:
+                    pending["data_field"]["value"] = None
+                pending["buttons"] = {
+                    f"button_{index}": region
+                    for index, region in enumerate(pending["buttons"].values(), 1)
+                }
+                return pending
             else:
                 self._state = current_state
+                self._transition_active = False
                 self._state_candidate = None
                 self._state_candidate_count = 0
                 self._regions.clear()
@@ -116,7 +146,10 @@ class RightDisplayStabilizer:
                 )
                 self._header_control = self._layout_control.copy()
                 self._missing_value_frames = 0
-                self._value = None
+                # Do not seed a new screen with a one-frame noisy OCR value.
+                supported_value = self._transition_value_count >= self._state_confirmation_frames
+                self._value = self._transition_value if supported_value else None
+                self._require_value_confirmation = not supported_value
                 self._candidate = None
                 self._candidate_count = 0
         field = content["data_field"]
@@ -126,7 +159,6 @@ class RightDisplayStabilizer:
             self._candidate = None
             self._candidate_count = 0
             result = self._stabilize_regions(content, geometry)
-            self._last_content = deepcopy(result)
             return result
 
         current = field["value"]
@@ -139,7 +171,7 @@ class RightDisplayStabilizer:
                 self._value = None
         else:
             self._missing_value_frames = 0
-        if self._value is None and current is not None:
+        if self._value is None and current is not None and not self._require_value_confirmation:
             self._value = current
         elif current == self._value:
             self._candidate = None
@@ -152,13 +184,13 @@ class RightDisplayStabilizer:
                 self._candidate_count = 1
             if self._candidate_count >= self._confirmation_frames:
                 self._value = current
+                self._require_value_confirmation = False
                 self._candidate = None
                 self._candidate_count = 0
 
         stabilized = dict(content)
         stabilized["data_field"] = {**field, "value": self._value}
         result = self._stabilize_regions(stabilized, geometry)
-        self._last_content = deepcopy(result)
         return result
 
     def _stabilize_regions(

@@ -386,10 +386,18 @@ class RightDisplayTest(unittest.TestCase):
 
         self.assertEqual(result["state"], "unknown")
         self.assertIsNotNone(result["title"])
-        self.assertIsNone(result["title"]["text"])
+        self.assertEqual(result["title"]["text"], "Other")
         self.assertEqual(set(buttons), {"button_1", "button_2"})
         self.assertLess(buttons["button_1"]["center"][0], 200)
         self.assertGreater(buttons["button_2"]["center"][0], 200)
+
+    def test_main_close_border_pair_can_move_below_initial_top_window(self):
+        frame = np.full((960, 600, 3), (45, 18, 4), dtype=np.uint8)
+        borders = ([(0., 850., 150.), (0., 940., 150.), (0., 959., 550.)],
+                   [(0., 0., 150.), (0., 150., 150.)])
+        close = detect_button_quads(frame, "Main", borders)["close"]
+        self.assertAlmostEqual(float(close[0, 1]), 850)
+        self.assertAlmostEqual(float(close[2, 1]), 940)
 
     @staticmethod
     def _base_screen(title: str) -> np.ndarray:

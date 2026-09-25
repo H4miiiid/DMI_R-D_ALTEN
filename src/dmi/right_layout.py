@@ -183,45 +183,6 @@ def detect_button_quads(
     return _detect_unknown_buttons(frame, horizontal, vertical)
 
 
-def matches_known_layout(
-    frame: Frame,
-    state: str,
-    border_lines: BorderLines | None = None,
-) -> bool:
-    """Require visible repeated-border evidence before assigning a known state."""
-    height, width = frame.shape[:2]
-    horizontal, vertical = border_lines or _line_candidates(frame)
-    if state == "Main":
-        fractions = (0.189, 0.274, 0.369, 0.454, 0.544, 0.634)
-        minimum_length = width * 0.65
-        minimum_matches = 3
-    elif state in {"Driver ID", "Level"}:
-        fractions = (0.49, 0.585, 0.68, 0.775, 0.88, 0.985)
-        minimum_length = width * 0.25
-        minimum_matches = 2
-    else:
-        return False
-    row_matches = sum(
-        any(
-            abs(_line_position(line, width / 2) - fraction * height)
-            <= height * 0.065
-            and line[2] >= minimum_length
-            for line in horizontal
-        )
-        for fraction in fractions
-    )
-    has_outer_border = any(
-        (
-            abs(_line_position(line, height / 2)) <= width * 0.07
-            or abs(_line_position(line, height / 2) - width * 0.93)
-            <= width * 0.07
-        )
-        and line[2] >= height * 0.08
-        for line in vertical
-    )
-    return row_matches >= minimum_matches and has_outer_border
-
-
 def detect_title_quad(frame: Frame, text_box: tuple[int, int, int, int]) -> Quad:
     band_quad = _detect_title_band_quad(frame)
     if band_quad is not None:
@@ -565,7 +526,14 @@ def _detect_unknown_buttons(
     v_lines = _cluster_lines(
         [line for line in vertical if line[2] >= height * 0.06], height / 2
     )
-    mask = _border_color_mask(frame)
+    # Blue background alone is not a border. Require local image edges too,
+    # otherwise extrapolated glyph/grid lines create large unsupported cells.
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    edges = cv2.Canny(gray, 8, 30)
+    # Antialiased white glyph edges can also touch blue pixels. Exclude their
+    # immediate neighborhoods so text strokes cannot become cell boundaries.
+    glyphs = cv2.dilate((gray >= 90).astype(np.uint8), np.ones((7, 7), np.uint8))
+    mask = _border_color_mask(frame) & (edges > 0).astype(np.uint8) & (glyphs == 0)
     cells: list[Quad] = []
     for top, bottom in zip(h_lines, h_lines[1:]):
         center_y = (_line_position((*top, 0.0), width / 2) + _line_position((*bottom, 0.0), width / 2)) / 2
@@ -649,41 +617,24 @@ def _fit_main_close(
         if height * 0.70 <= line[0] * center_x + line[1] <= height * 0.99
         and line[2] >= width * 0.16
     ]
-    top_options = [
-        line
-        for line in lower_lines
-        if line[0] * center_x + line[1] <= height * 0.87
-    ]
+    # Fit a border pair by its separation, rather than deciding that every
+    # line below a fixed y cutoff must be the bottom edge. Zoom can move both
+    # real edges down while the button remains fully visible.
+    pairs = []
+    for upper in lower_lines:
+        top_y = _line_position(upper, center_x)
+        for lower in lower_lines:
+            gap = _line_position(lower, center_x) - top_y
+            if height * 0.06 <= gap <= height * 0.18:
+                score = abs(gap - height * 0.092) + .15 * abs(top_y - height * .815)
+                pairs.append((score, upper, lower))
     bottom_candidates = [
-        line
-        for line in lower_lines
-        if line[0] * center_x + line[1] >= height * 0.84
+        line for line in lower_lines
+        if _line_position(line, center_x) >= height * .84
     ]
-    if top_options:
-        top_candidate = min(
-            top_options,
-            key=lambda line: abs(line[0] * center_x + line[1] - height * 0.815),
-        )
-        top = top_candidate[:2]
-        top_y = top[0] * center_x + top[1]
-        bottom_options = [
-            line
-            for line in bottom_candidates
-            if height * 0.06
-            <= line[0] * center_x + line[1] - top_y
-            <= height * 0.18
-        ]
-        bottom = (
-            min(
-                bottom_options,
-                key=lambda line: abs(
-                    line[0] * center_x + line[1]
-                    - (top_y + height * 0.092)
-                ),
-            )[:2]
-            if bottom_options
-            else (0.0, min(height - 1.0, top_y + height * 0.10))
-        )
+    if pairs:
+        _, upper, lower = min(pairs, key=lambda item: item[0])
+        top, bottom = upper[:2], lower[:2]
     elif bottom_candidates:
         bottom_candidate = min(
             bottom_candidates,

@@ -25,6 +25,7 @@ class ProcessFrameTest(unittest.TestCase):
             result["right_display"],
             {
                 "geometry": None,
+                "visibility": "unknown",
                 "state": "unknown",
                 "title": None,
                 "buttons": {},
