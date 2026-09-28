@@ -5,7 +5,7 @@ from dmi.geometry import (
     detect_displays,
     rectify_display,
 )
-from dmi.pipeline import annotate_frame, process_frame
+from dmi.pipeline import FrameProcessor, annotate_frame, process_frame
 from dmi.left_display import analyze_left_display
 from dmi.left_tracking import LeftDisplayStabilizer
 from dmi.right_display import analyze_right_display
@@ -13,6 +13,7 @@ from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
 from dmi.video import VideoRunSummary, process_video
 
 __all__ = [
+    "FrameProcessor",
     "VideoRunSummary",
     "DisplayGeometry",
     "GeometryStabilizer",

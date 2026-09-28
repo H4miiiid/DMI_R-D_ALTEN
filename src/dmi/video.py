@@ -15,9 +15,7 @@ from typing import Any
 
 import cv2
 
-from dmi.pipeline import annotate_frame, process_frame
-from dmi.left_tracking import LeftDisplayStabilizer
-from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
+from dmi.pipeline import FrameProcessor, annotate_frame
 
 
 @dataclass(frozen=True)
@@ -86,23 +84,14 @@ def process_video(
             raise RuntimeError(f"could not create annotated video: {video_path}")
 
         results: list[dict[str, Any]] = []
-        geometry_stabilizer = GeometryStabilizer()
-        right_display_stabilizer = RightDisplayStabilizer()
-        left_display_stabilizer = LeftDisplayStabilizer()
+        processor = FrameProcessor()
         frame_index = 0
         while max_frames is None or frame_index < max_frames:
             ok, frame = capture.read()
             if not ok:
                 break
             timestamp = frame_index / fps
-            result = process_frame(
-                frame,
-                frame_index,
-                timestamp,
-                geometry_stabilizer,
-                right_display_stabilizer,
-                left_display_stabilizer,
-            )
+            result = processor.process(frame, timestamp)
             writer.write(annotate_frame(frame, result))
             results.append(result)
             frame_index += 1

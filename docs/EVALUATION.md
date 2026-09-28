@@ -641,3 +641,42 @@ Never claim higher confidence than the available evaluation evidence supports.
 
 Crossed or degenerate title-border fits must be omitted rather than emitted as
 regions. Validate the final rounded output polygons, including occluded intervals.
+
+### Phase 11 input and live-session checks
+
+Run `python -m unittest discover -s tests`. Live tests use synthetic sources and
+controlled capture workers, without opening a physical webcam. Cover shared
+state equivalence, reset after gaps/size changes, increasing receipt timestamps,
+latest-frame replacement, no duplicate delivery, timeout/disconnect/open errors,
+resource release, incremental JSONL, skipped-frame accounting, preserved output,
+preview stop and Ctrl-C. Real-video fixtures also check that a warmed session
+forgets previous content after a long capture gap.
+
+Recheck representative full recordings against the approved Phase 9 outputs:
+
+```sh
+python scripts/evaluate.py --output-dir outputs/phase11_review/recorded --baseline outputs/phase9_final --video driver_id_12 --video driverID_to_level --video level_to_main
+```
+
+Replay a full recording through the live consumer, with actual monotonic receipt
+times and the same original frames supplied sequentially on demand:
+
+```sh
+python scripts/evaluate_live.py data/videos/dev/driver_id_12.mp4 --baseline outputs/phase9_final/driver_id_12/results.json --output-dir outputs/phase11_review/live_replay
+```
+
+The replay verifies live JSONL and result contracts, compares every detection
+against the approved recording output (excluding timestamps only), saves the
+last annotated frame and reports measured processing time. This is explicitly
+recorded replay, not a physical-camera test or camera-rate/dropped-frame accuracy
+claim. Use fresh output directories when repeating validation.
+
+User review must still exercise `python scripts/run_webcam.py --camera 0` with
+the real two-display setup: verify geometry/OCR, camera motion, UI transitions,
+startup and obstruction recovery, quit/interrupt and device disconnect. Inspect
+JSONL skip counts, receipt-to-result latency and processed FPS. Check actual
+resolution; camera defaults may be lower than the recordings. The one-slot
+worker bounds application backlog, but cannot establish sensor latency or
+real-time throughput. Timestamp-gap reset is conservative; observation-count
+confirmation delays need measurement on the user's live setup before changing
+recognition/temporal thresholds.

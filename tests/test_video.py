@@ -107,7 +107,7 @@ class ProcessVideoTest(unittest.TestCase):
             directory = root / "output"
             process_video(source, directory, max_frames=1)
             before = {p.name: p.read_bytes() for p in directory.iterdir()}
-            with patch("dmi.video.process_frame", side_effect=RuntimeError("injected failure")):
+            with patch("dmi.pipeline.process_frame", side_effect=RuntimeError("injected failure")):
                 with self.assertRaisesRegex(RuntimeError, "injected failure"):
                     process_video(source, directory, overwrite=True)
             self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir()}, before)
@@ -125,7 +125,7 @@ class ProcessVideoTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory);source = root / "source.mp4"
             self._write_test_video(source)
-            with patch("dmi.video.process_frame", return_value={"timestamp": float('nan')}), \
+            with patch("dmi.pipeline.process_frame", return_value={"timestamp": float('nan')}), \
                     patch("dmi.video.annotate_frame", side_effect=lambda image, _: image):
                 with self.assertRaises(ValueError):
                     process_video(source, root / "output")

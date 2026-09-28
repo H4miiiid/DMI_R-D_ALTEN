@@ -21,6 +21,61 @@ from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
 FrameResult = dict[str, Any]
 
 
+class FrameProcessor:
+    """One sequential source's temporal state, independent of frame acquisition.
+
+    Video callers supply index/FPS timestamps. Live callers supply elapsed
+    monotonic receipt times and may bound the gap across which history is used.
+    """
+
+    def __init__(self, *, max_gap_seconds: float | None = None) -> None:
+        if max_gap_seconds is not None and (
+            not math.isfinite(max_gap_seconds) or max_gap_seconds <= 0
+        ):
+            raise ValueError("max_gap_seconds must be finite and positive")
+        self.max_gap_seconds = max_gap_seconds
+        self.reset()
+
+    def reset(self) -> None:
+        """Begin a new source/session with no previous detections."""
+        self._index = 0
+        self._timestamp: float | None = None
+        self._shape: tuple[int, ...] | None = None
+        self.last_reset_reason: str | None = None
+        self._reset_history()
+
+    def _reset_history(self) -> None:
+        self._geometry = GeometryStabilizer()
+        self._right = RightDisplayStabilizer()
+        self._left = LeftDisplayStabilizer()
+
+    def process(self, frame: Frame, timestamp: float) -> FrameResult:
+        _validate_frame(frame)
+        if not math.isfinite(timestamp) or timestamp < 0:
+            raise ValueError("timestamp must be finite and non-negative")
+        if self._timestamp is not None and timestamp <= self._timestamp:
+            raise ValueError("timestamps must increase within a session")
+        reason = None
+        if self._shape is not None and frame.shape != self._shape:
+            reason = "frame_size_changed"
+        elif (self._timestamp is not None and self.max_gap_seconds is not None
+              and timestamp - self._timestamp > self.max_gap_seconds):
+            reason = "capture_gap"
+        if reason:
+            self._reset_history()
+        self.last_reset_reason = reason
+        try:
+            result = process_frame(frame, self._index, timestamp,
+                                   self._geometry, self._right, self._left)
+        except Exception:
+            self._reset_history()
+            raise
+        self._index += 1
+        self._timestamp = timestamp
+        self._shape = frame.shape
+        return result
+
+
 def process_frame(
     frame: Frame,
     frame_index: int,

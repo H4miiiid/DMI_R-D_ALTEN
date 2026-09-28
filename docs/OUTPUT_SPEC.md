@@ -562,3 +562,72 @@ layout. Supported exact title words (case/whitespace normalized) select known
 layouts. Unsupported readable titles remain text with unknown state and only
 generic supported regions; unreadable titles do not select a known button
 layout. Pending-state semantics can still suppress title text temporarily.
+
+### Live webcam execution (Phase 11)
+
+```sh
+python scripts/run_webcam.py --camera 0
+```
+
+The default camera index is 0, so `python scripts/run_webcam.py` also works.
+The preview shows the same full-resolution detections used in the results.
+Press Q, Escape, close the preview window, or press Ctrl-C to stop. Use
+`--no-preview` for a headless run and `--max-frames N` for a bounded number of
+**processed** frames. The existing Python/OpenCV/NumPy/Tesseract dependencies
+apply; the window additionally requires a GUI-enabled OpenCV installation and
+a desktop session. Grant camera access to the terminal/Python application if
+the operating system requests it.
+
+Each run creates `outputs/webcam_<camera>_<timestamp>/`, containing:
+
+- `results.jsonl`: an incrementally flushed, line-delimited JSON stream;
+- `last_annotated.png`: the last successfully processed annotated frame, saved
+  on exit (including handled failures, when at least one result exists).
+
+`--output-dir PATH` selects an exact directory. Existing session outputs are
+never overwritten. Live sessions do not accumulate all results in memory or
+encode a constant-FPS video that would misrepresent irregular processing times.
+Recorded-video JSON/MP4 output is unchanged.
+
+JSONL has a `session` record, one `frame` record per processed image, then a
+`summary`. The frame record's `result` uses the existing frame/display schema.
+Other fields are `capture_index`, `skipped_frames`, `frame_size` (width, height),
+`processing_seconds`, `receipt_to_result_seconds`, and `temporal_reset`.
+`frame_index` counts processed results, starting at zero. `capture_index` counts
+frames successfully read by the acquisition worker. `skipped_frames` counts
+worker-read frames bypassed before that result, including before the first
+result; it cannot measure sensor/driver drops or unread frames after stopping.
+
+`timestamp` is monotonic elapsed receipt time relative to the first processed
+frame, rounded to six decimals. It is **not** frame index divided by nominal
+camera FPS, a wall-clock date, or a sensor exposure timestamp. Receipt-to-result
+latency includes processing/annotation, but excludes hidden driver buffering,
+JSON writes and GUI display. `validate_results(frames, None)` checks live result
+geometry/contracts with nondecreasing receipt timestamps; video callers keep
+passing source FPS.
+
+The summary reports processed/skipped counts, elapsed and processing seconds,
+`stop_reason` (`max_frames`, `preview_closed`, `interrupted`, or `error`) and an
+optional error message. Completed records remain available after handled
+failures; absent summary or an incomplete final line indicates an abruptly
+terminated session. A failure is not reported as a successful capture.
+
+`--width W --height H` requests a camera resolution; hardware may choose another
+size, and each result records the actual dimensions. `--timeout S` bounds waits
+for camera frames (default 5 seconds). The worker holds at most one pending
+frame, replacing it with newer input while inference runs. A stopped/disconnected
+camera causes an explicit error; it never replays the previous frame as fresh.
+Some native camera backends can block inside open/read beyond this timeout;
+shutdown warns if the worker has not returned, and exiting the process releases
+the device. Driver behavior still needs physical-camera validation. See the
+[OpenCV video I/O property documentation](https://docs.opencv.org/4.12.0/d4/d15/group__videoio__flags__base.html)
+for backend-dependent camera properties and read timeout support.
+
+Both input paths use `dmi.pipeline.FrameProcessor`. Live sessions clear all
+geometry/recognition history after a frame-size change or a receipt gap above
+`--max-gap-seconds` (default 1 second, a configurable conservative guard rather
+than a measured recognition threshold). Video timestamps and temporal behavior
+remain unchanged for the existing fixed-size recordings. The existing 5/15/3
+confirmation/retention limits still count **processed observations**, so their
+wall-clock delays increase when processing is slow. No real-time recognition
+latency or accuracy on skipped-frame streams is claimed without camera testing.

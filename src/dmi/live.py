@@ -1,0 +1,142 @@
+"""Live frame orchestration, incremental output and optional annotated preview."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+import json
+import math
+from pathlib import Path
+import time
+from typing import Callable, Protocol
+
+import cv2
+
+from dmi.camera import CapturedFrame
+from dmi.geometry import Frame
+from dmi.pipeline import FrameProcessor, annotate_frame
+
+
+class LiveSource(Protocol):
+    def read(self) -> CapturedFrame: ...
+
+
+@dataclass(frozen=True)
+class LiveRunSummary:
+    jsonl_path: Path
+    preview_path: Path | None
+    processed_frames: int
+    skipped_frames: int
+    elapsed_seconds: float
+    processing_seconds: float
+    stop_reason: str
+
+
+class LivePreview:
+    """Main-thread OpenCV display; coordinates in saved results stay full size."""
+
+    def __init__(self) -> None:
+        self._opened = False
+        self._name = "DMI live - Q or Escape to stop"
+
+    def show(self, image: Frame) -> bool:
+        if not self._opened:
+            cv2.namedWindow(self._name, cv2.WINDOW_NORMAL)
+            cv2.resizeWindow(self._name, 1000, 750)
+            self._opened = True
+        cv2.imshow(self._name, image)
+        key = cv2.waitKey(1) & 0xFF
+        return key not in (ord('q'), ord('Q'), 27) and cv2.getWindowProperty(
+            self._name, cv2.WND_PROP_VISIBLE) >= 1
+
+    def close(self) -> None:
+        if self._opened:
+            cv2.destroyWindow(self._name)
+            self._opened = False
+
+
+def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dict | None = None,
+                 max_frames: int | None = None, max_gap_seconds: float = 1.0,
+                 preview: Callable[[Frame], bool] | None = None) -> LiveRunSummary:
+    """Consume received frames until a limit, preview stop, Ctrl-C or failure.
+
+    Sources are opened/closed by the caller. JSONL is flushed after each result;
+    a terminal record marks clean stops or errors. No frames/results accumulate
+    in memory. Existing session files are never overwritten.
+    """
+    if max_frames is not None and (type(max_frames) is not int or max_frames <= 0):
+        raise ValueError("max_frames must be a positive integer")
+    processor = FrameProcessor(max_gap_seconds=max_gap_seconds)
+    directory = Path(output_dir).expanduser().resolve()
+    directory.mkdir(parents=True, exist_ok=True)
+    jsonl_path, preview_path = directory / "results.jsonl", directory / "last_annotated.png"
+    if preview_path.exists():
+        raise FileExistsError(f"refusing to overwrite existing output: {preview_path}")
+    count = skipped = 0
+    processing_seconds = 0.0
+    first_received = last_received = None
+    previous_index = -1
+    last_image = None
+    start = time.monotonic()
+    reason = "max_frames"
+    failure: str | None = None
+    with jsonl_path.open("x", encoding="utf-8") as stream:
+        def write(record: dict) -> None:
+            stream.write(json.dumps(record, allow_nan=False) + "\n")
+            stream.flush()
+
+        write({"type": "session", "source": source_info or {"kind": "live_frames"},
+               "timestamp_basis": "monotonic_receipt_seconds_since_first_processed_frame",
+               "max_gap_seconds": max_gap_seconds})
+        try:
+            while max_frames is None or count < max_frames:
+                packet = source.read()
+                if (type(packet.capture_index) is not int or packet.capture_index <= previous_index
+                        or not math.isfinite(packet.received_at)
+                        or (last_received is not None and packet.received_at <= last_received)):
+                    raise ValueError("live capture indices and finite receipt times must increase")
+                if packet.received_at > time.monotonic():
+                    raise ValueError("live receipt time must not be in the future")
+                if first_received is None:
+                    first_received = packet.received_at
+                timestamp = packet.received_at - first_received
+                started_processing = time.monotonic()
+                result = processor.process(packet.image, timestamp)
+                annotated = annotate_frame(packet.image, result)
+                finished_processing = time.monotonic()
+                seconds = finished_processing - started_processing
+                dropped = packet.capture_index - previous_index - 1
+                write({"type": "frame", "capture_index": packet.capture_index,
+                       "skipped_frames": dropped,
+                       "frame_size": [packet.image.shape[1], packet.image.shape[0]],
+                       "processing_seconds": seconds,
+                       "receipt_to_result_seconds": finished_processing - packet.received_at,
+                       "temporal_reset": processor.last_reset_reason, "result": result})
+                count += 1
+                skipped += dropped
+                processing_seconds += seconds
+                previous_index, last_received = packet.capture_index, packet.received_at
+                last_image = annotated
+                if preview is not None and not preview(annotated):
+                    reason = "preview_closed"
+                    break
+        except KeyboardInterrupt:
+            reason = "interrupted"
+        except Exception as exc:
+            reason, failure = "error", str(exc)
+            raise
+        finally:
+            # Completed JSONL records survive failures; the summary is not a
+            # claim that an errored or forcibly killed session completed.
+            elapsed = time.monotonic() - start
+            try:
+                if last_image is not None and not cv2.imwrite(str(preview_path), last_image):
+                    raise RuntimeError(f"could not save preview: {preview_path}")
+            except Exception as exc:
+                reason, failure = "error", str(exc)
+                raise
+            finally:
+                write({"type": "summary", "processed_frames": count,
+                       "skipped_frames": skipped, "elapsed_seconds": elapsed,
+                       "processing_seconds": processing_seconds,
+                       "stop_reason": reason, "error": failure})
+    return LiveRunSummary(jsonl_path, preview_path if last_image is not None else None,
+                          count, skipped, elapsed, processing_seconds, reason)

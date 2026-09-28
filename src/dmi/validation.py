@@ -56,13 +56,16 @@ def _text(value: Any, path: str) -> None:
     _require(value is None or isinstance(value, str), path, 'expected text or null')
 
 
-def validate_results(frames: list[dict], fps: float) -> dict[str, int]:
+def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
     """Check frame order, timing, geometry, types and missing/paused semantics.
 
     This verifies the output contract, not recognition accuracy or border error.
     It does not mutate results, coerce uncertain values, or fill missing regions.
+    Pass fps=None for live receipt timestamps (nondecreasing after rounding,
+    starting at zero), instead of constant-rate video timestamps.
     """
-    _require(math.isfinite(fps) and fps > 0, 'fps', 'must be finite and positive')
+    if fps is not None:
+        _require(math.isfinite(fps) and fps > 0, 'fps', 'must be finite and positive')
     _require(isinstance(frames, list) and len(frames) > 0, 'frames', 'expected nonempty list')
     counts = {'frames': len(frames), 'display_geometries': 0,
               'left_regions': 0, 'right_regions': 0, 'occluded_frames': 0}
@@ -73,8 +76,13 @@ def validate_results(frames: list[dict], fps: float) -> dict[str, int]:
                  path, 'frame_index must be contiguous from zero')
         timestamp = frame['timestamp']
         _require(type(timestamp) in (int, float) and math.isfinite(timestamp)
-                 and abs(timestamp - index / fps) <= 1e-6,
-                 path, 'timestamp does not match source frame index/FPS')
+                 and timestamp >= 0, path, 'timestamp must be finite and nonnegative')
+        if fps is None:
+            _require(timestamp == 0 if index == 0 else timestamp >= frames[index - 1]['timestamp'],
+                     path, 'live timestamps must start at zero and not decrease')
+        else:
+            _require(abs(timestamp - index / fps) <= 1e-6,
+                     path, 'timestamp does not match source frame index/FPS')
         right = _mapping(frame['right_display'],
                          {'geometry', 'visibility', 'state', 'title', 'buttons', 'data_field'},
                          path + '.right_display')

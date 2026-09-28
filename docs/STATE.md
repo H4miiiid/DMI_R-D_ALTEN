@@ -2,18 +2,21 @@
 
 ## Current Phase
 
-**Phase 10 — complete and verified.** The CLI now runs the full pipeline with
-only an input video path and creates source-named JSON and annotated MP4 files
-in the repository's `outputs/<video-stem>/` directory. Optional output directories and
-overwrite protection remain available. See `docs/OUTPUT_SPEC.md` for usage.
+**Phase 11 — implementation accepted by the user**, with the documented
+limitations; commit and push approved on 2026-09-28.
+**The final system's real webcam has not been tested or validated with the
+physical DMI screens.** Laptop-webcam tests using a DMI photograph only checked
+capture/preview and exposed a detection limitation; they are not real-system
+validation. Automated recording/replay checks also do not replace that testing.
 
-Phase 9 remains user-approved, including the documented remaining limitations.
-All nine development videos were processed and reviewed in that phase.
+Run `python scripts/run_webcam.py --camera 0` for live preview and streamed JSONL.
+Review instructions and artifacts: `outputs/phase11_review/README.md`.
+Recorded-video execution remains `python scripts/run_video.py INPUT`, with
+source-named files in `outputs/<video-stem>/`. See `docs/OUTPUT_SPEC.md`.
 
-The user expanded validation to all nine development videos on 2026-09-28.
-Review deliverables: `outputs/phase9_final/README.md`. The approved two-video
-Phase 8 baseline remains in `outputs/phase8_revision_final/`. Generated outputs
-are local, Git-ignored; original inputs are unchanged.
+Phase 9's nine-video review and Phase 10 remain approved. Approved baselines are
+retained in `outputs/phase9_final/` and `outputs/phase8_revision_final/`.
+Generated outputs are local and Git-ignored; original inputs are unchanged.
 
 ## Implemented Functionality
 
@@ -34,41 +37,60 @@ are local, Git-ignored; original inputs are unchanged.
   Internal tracking bounds and all recognition/rendering behavior are unchanged.
   Video header frame counts are informational; these recordings' headers exceed
   their actual decoded frame counts.
-- Phase 10 changes only execution/output naming; evaluation and benchmark API
-  callers keep their existing per-run filenames. Recognition is unchanged.
+- Shared `FrameProcessor` owns one source's geometry/right/left temporal state;
+  recorded and live runners call the same detection and annotation functions.
+- Live capture continuously reads into one replaceable pending-frame slot.
+  Monotonic receipt timestamps, skipped-frame counts, processing/latency metrics,
+  incremental JSONL, annotated preview and a final PNG are implemented.
+- Live history resets on a frame-size change or receipt gap over the configurable
+  one-second default. Camera open/read failures are explicit; bounded waits,
+  Ctrl-C/preview stop, output protection and cleanup are covered.
+- Existing recorded-video output layouts and recognition algorithms are unchanged.
 
 ## Latest Verification
 
-- All 86 tests pass, including the test using an older development video and
-  new CLI integration checks for directory creation, source names with spaces,
-  multiple inputs, custom output directories, overwrite and missing inputs.
-  Compilation and Git whitespace checks pass.
-- Phase 10 path-only command processed the complete `driver_id_12.mp4`:
-  233 source/annotation/JSON frames, output-contract validation passed, JSON
-  exactly matches Phase 9 and annotated MP4 is byte-identical to the approved
-  baseline. Outputs: `outputs/driver_id_12.json` and
-  `outputs/driver_id_12_annotated.mp4`. No new visual approval is needed for
-  identical annotations; existing recognition limitations remain accepted.
-- The default-directory revision passes the CLI integration checks with each
-  input in its own folder; explicit `--output-dir` still uses the exact supplied
-  directory. The full-video evidence above predates this path-only revision.
-- The following full-dataset results are retained Phase 9 evidence:
-- All nine full videos processed: **3,457 frames**. Independently decoded source
-  and annotation lengths match JSON. Contract validation checked 6,914 display
-  geometries, 79,219 left regions and 41,912 right regions.
-- Two transition videos: 1,749 frames; annotated MP4s are byte-identical to
-  approved Phase 8. JSON differs only by the exact outer-display bbox correction.
-- Seven steady-state videos: 1,708 frames. No retained approved JSON baseline
-  exists for these seven, so comparison is explicitly unavailable, not a claim
-  of zero regressions. Source/annotation samples and left icon strips inspected.
-- Selected-level icon detections: level 0 in 262/264 frames, level 1 in 262/262,
-  level 2 in 239/239, all associated with box_4. Counts are predictions, not
-  numerical recognition ground truth.
-- Right visibility pauses in 465 frames; 19 frames have incomplete left output.
-  Aggregate run throughput approximately 4.24 FPS, including I/O/OCR/encoding;
-  not a controlled benchmark and not real-time.
+- All **100 tests pass**; compilation and Git whitespace checks pass. Live tests
+  cover shared-state equivalence, gap/size resets, timestamp validation, latest
+  frame replacement, no duplicate delivery, timeout/disconnect/open failure,
+  release, headless CLI, incremental JSONL, stop/interrupt and preserved output.
+- Three complete recordings processed through the refactored video path:
+  `driver_id_12` (233), `driverID_to_level` (855), `level_to_main` (894):
+  **1,982 frames**, JSON exactly equals approved Phase 9 and all annotated MP4s
+  are byte-identical. Contracts and decoded annotation counts pass.
+  Report: `outputs/phase11_review/recorded/verification.json`.
+- Full `driver_id_12` replay through the live consumer: **233 frames**, all
+  detections exactly match Phase 9 excluding receipt timestamps. Live result
+  contracts pass; last annotated PNG visually inspected. This is sequential
+  recorded replay, not hardware or camera-rate sampling evidence.
+  Report: `outputs/phase11_review/live_replay/verification.json`.
+- Replay measured **3.94 processed FPS**, mean processing/annotation **249.5 ms**;
+  other regression work was running concurrently, so this is not a controlled
+  benchmark or a real-time throughput claim.
+- Prior Phase 9 evidence covers all nine videos / 3,457 frames, including the
+  three supplied level icons. The other six videos were not rerun for Phase 11.
 
 ## Limitations / Review Findings
+
+- Laptop-webcam smoke tests use a rephotographed DMI image, not the final
+  system camera or physical DMI setup. Latest trial:
+  `outputs/webcam_0_20260928_105406_452553/`, 780 processed frames at 1280×720
+  in 27.98 seconds, 12 skipped, no run error; neither display localized.
+  The saved final image now contains both displays. Diagnostic replay finds
+  two blue components, but their convex hulls occupy only 8.82% and 8.77% of
+  the frame after color segmentation, below the existing 10% per-display gate.
+  Washed-out screen areas fail the saturation mask (minimum HSV S=80); sampled
+  interiors have median S=30 left / 82 right. Samples are diagnostic regions,
+  not verified geometry ground truth. Both fits return null before OCR runs.
+  Capture/preview work; this photo smoke test fails the existing detector.
+  Do not treat this test as final-system validation or tune thresholds solely
+  to force this one photograph to pass.
+- Camera resolution/driver behavior and live UI transitions still need
+  validation with the visible DMI setup. Backend open/read can remain blocked beyond
+  the consumer timeout; shutdown warns and process exit releases the device.
+- Live frame dropping avoids application backlog, but detection throughput is
+  below nominal webcam FPS. Temporal confirmation/retention remains based on
+  processed observations, so wall-clock delays grow at low FPS. The gap guard is
+  conservative and not calibrated on hardware. No dropped-frame accuracy claim.
 
 - Existing numeric matcher/temporal retention can emit incorrect text: in
   `driver_id_235`, frames 229–243 report `275` while the visible value is `235`.
@@ -87,5 +109,7 @@ are local, Git-ignored; original inputs are unchanged.
 
 ## Next Task
 
-Await user instruction before starting Phase 11 — Real-Time Readiness, using
-the current definition in `docs/WORKFLOW.md`.
+Test and validate the final system's real webcam with the physical DMI screens;
+this remains outstanding despite approval to commit the implementation.
+Any detector robustness change must
+be general, supported by representative cases and checked against approved videos.
