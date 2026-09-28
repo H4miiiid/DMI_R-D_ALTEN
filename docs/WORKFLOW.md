@@ -189,19 +189,33 @@ Representative full videos run reliably through the complete pipeline.
 
 ---
 
-## Phase 10 — Performance Optimization
+## Phase 10 — Simplified Pipeline Execution
 
-Optimize the verified pipeline for the real-time target defined in `docs/PROJECT.md`.
+Make the final pipeline easy to run with only the input video path.
 
-Measure performance using `docs/EVALUATION.md`.
+Example:
 
-Optimize based on measured bottlenecks rather than assumptions.
+```bash
+python scripts/run_video.py path/to/input_video.mp4
+```
 
-Do not trade away important correctness for minor speed improvements.
+The pipeline should automatically:
+
+- process the video
+- create the output folder if needed
+- save the annotated video using the input filename
+- save the structured JSON output
+
+Example outputs:
+
+```text
+outputs/driver_id_12_annotated.mp4
+outputs/driver_id_12.json
+```
 
 ### Complete when
 
-The pipeline satisfies the agreed accuracy, stability, and performance expectations.
+Providing only a valid input video path runs the full pipeline and automatically produces the expected outputs.
 
 ---
 

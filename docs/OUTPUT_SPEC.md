@@ -18,12 +18,33 @@ Detailed UI behavior belongs in `docs/UI_SPEC.md`.
 
 ## 2. Output Types
 
-Processing a video should eventually produce:
+Processing a video produces:
 
 - structured JSON results
 - annotated video or frames for visual verification
 
 Generated outputs must remain separate from the original files under `data/`.
+
+Run the full pipeline from the repository root with only an input path:
+
+```sh
+python scripts/run_video.py data/videos/dev/driver_id_12.mp4
+```
+
+The command creates the repository's `outputs/` directory if needed and writes
+`outputs/driver_id_12.json` and `outputs/driver_id_12_annotated.mp4`.
+The input filename stem determines both output names. JSON contains the source
+filename in `video` and all processed frame results in `frames`.
+
+Use `--output-dir PATH` to choose another directory; the filenames stay the
+same. Existing results are protected unless `--overwrite` is supplied. Inputs
+with the same stem share output names, so use separate output directories to
+retain both runs. `--max-frames N` optionally limits processing for quick checks.
+Input paths and explicit output directories are relative to the current working
+directory; the default output directory is always relative to the repository.
+
+Evaluation and benchmark callers retain their existing per-run
+`results.json` / `annotated.mp4` layout.
 
 ---
 

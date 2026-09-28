@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 from pathlib import Path
 import sys
 import tempfile
@@ -15,8 +16,54 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from dmi.video import process_video  # noqa: E402
 
+spec = importlib.util.spec_from_file_location("run_video", REPOSITORY_ROOT / "scripts/run_video.py")
+run_video = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(run_video)
+
 
 class ProcessVideoTest(unittest.TestCase):
+    def test_path_only_cli_creates_named_outputs_and_preserves_other_runs(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            with patch.object(run_video, "REPOSITORY_ROOT", root):
+                for name in ("first input", "second"):
+                    source = root / f"{name}.mp4"
+                    self._write_test_video(source)
+                    with patch.object(sys, "argv", ["run_video.py", str(source)]):
+                        self.assertEqual(run_video.main(), 0)
+                    output = root / "outputs"
+                    payload = json.loads((output / f"{name}.json").read_text())
+                    self.assertEqual(payload["video"], source.name)
+                    self.assertEqual(len(payload["frames"]), 6)
+                    capture = cv2.VideoCapture(str(output / f"{name}_annotated.mp4"))
+                    count = 0
+                    while capture.read()[0]:
+                        count += 1
+                    capture.release()
+                    self.assertEqual(count, 6)
+                before = {p.name: p.read_bytes() for p in output.iterdir()}
+                with patch.object(sys, "argv", ["run_video.py", str(source)]):
+                    self.assertEqual(run_video.main(), 1)
+                self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()}, before)
+                with patch.object(sys, "argv", ["run_video.py", str(source), "--overwrite"]):
+                    self.assertEqual(run_video.main(), 0)
+                self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()}, before)
+
+    def test_cli_custom_output_directory_and_missing_input(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.mp4"
+            output = root / "nested" / "custom"
+            args = ["run_video.py", str(source), "--output-dir", str(output)]
+            with patch.object(sys, "argv", args):
+                self.assertEqual(run_video.main(), 1)
+            self.assertFalse(output.exists())
+            self._write_test_video(source)
+            with patch.object(sys, "argv", args):
+                self.assertEqual(run_video.main(), 0)
+            self.assertEqual({p.name for p in output.iterdir()},
+                             {"source.json", "source_annotated.mp4"})
+
     def test_processes_synthetic_video_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

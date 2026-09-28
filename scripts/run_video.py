@@ -21,7 +21,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        help="output directory (default: outputs/<video-stem>)",
+        help="output directory (default: repository outputs/); filenames use the input stem",
     )
     parser.add_argument(
         "--overwrite",
@@ -40,7 +40,7 @@ def main() -> int:
     args = parse_args()
     output_dir = args.output_dir
     if output_dir is None:
-        output_dir = REPOSITORY_ROOT / "outputs" / args.input_video.stem
+        output_dir = REPOSITORY_ROOT / "outputs"
 
     try:
         summary = process_video(
@@ -48,8 +48,9 @@ def main() -> int:
             output_dir,
             overwrite=args.overwrite,
             max_frames=args.max_frames,
+            source_named=True,
         )
-    except (FileNotFoundError, FileExistsError, RuntimeError, ValueError) as exc:
+    except (OSError, RuntimeError, ValueError) as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1
 

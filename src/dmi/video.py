@@ -37,8 +37,14 @@ def process_video(
     *,
     overwrite: bool = False,
     max_frames: int | None = None,
+    source_named: bool = False,
 ) -> VideoRunSummary:
-    """Process a recorded video into frame JSON and an annotated MP4."""
+    """Process a recorded video into frame JSON and an annotated MP4.
+
+    ``source_named`` uses <stem>.json and <stem>_annotated.mp4, allowing
+    multiple inputs to share a directory. Evaluation callers retain the
+    existing results.json/annotated.mp4 layout by default.
+    """
     source = Path(input_path).expanduser().resolve()
     destination = Path(output_dir).expanduser().resolve()
     if not source.is_file():
@@ -46,8 +52,10 @@ def process_video(
     if max_frames is not None and (type(max_frames) is not int or max_frames <= 0):
         raise ValueError("max_frames must be a positive integer when provided")
 
-    json_path = destination / "results.json"
-    video_path = destination / "annotated.mp4"
+    json_path = destination / (f"{source.stem}.json" if source_named else "results.json")
+    video_path = destination / (f"{source.stem}_annotated.mp4" if source_named else "annotated.mp4")
+    if source in (json_path.resolve(), video_path.resolve()):
+        raise ValueError("output paths must not replace the input video")
     if not overwrite:
         existing = [path for path in (json_path, video_path) if path.exists()]
         if existing:
@@ -55,8 +63,8 @@ def process_video(
             raise FileExistsError(f"refusing to overwrite existing output: {names}")
 
     destination.mkdir(parents=True, exist_ok=True)
-    temporary_json = destination / ".results.tmp.json"
-    temporary_video = destination / ".annotated.tmp.mp4"
+    temporary_json = destination / f".{json_path.stem}.tmp.json"
+    temporary_video = destination / f".{video_path.stem}.tmp.mp4"
 
     capture = cv2.VideoCapture(str(source))
     if not capture.isOpened():

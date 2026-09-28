@@ -2,9 +2,13 @@
 
 ## Current Phase
 
-**Phase 9 — complete and user-approved**, including the documented remaining
-limitations. All nine development videos were processed and reviewed. Phase 10
-has not started.
+**Phase 10 — complete and verified.** The CLI now runs the full pipeline with
+only an input video path and creates source-named JSON and annotated MP4 files
+in the repository's `outputs/` directory. Optional output directories and
+overwrite protection remain available. See `docs/OUTPUT_SPEC.md` for usage.
+
+Phase 9 remains user-approved, including the documented remaining limitations.
+All nine development videos were processed and reviewed in that phase.
 
 The user expanded validation to all nine development videos on 2026-09-28.
 Review deliverables: `outputs/phase9_final/README.md`. The approved two-video
@@ -30,11 +34,22 @@ are local, Git-ignored; original inputs are unchanged.
   Internal tracking bounds and all recognition/rendering behavior are unchanged.
   Video header frame counts are informational; these recordings' headers exceed
   their actual decoded frame counts.
+- Phase 10 changes only execution/output naming; evaluation and benchmark API
+  callers keep their existing per-run filenames. Recognition is unchanged.
 
 ## Latest Verification
 
-- All 84 tests pass, including the test using an older development video.
+- All 86 tests pass, including the test using an older development video and
+  new CLI integration checks for directory creation, source names with spaces,
+  multiple inputs, custom output directories, overwrite and missing inputs.
   Compilation and Git whitespace checks pass.
+- Phase 10 path-only command processed the complete `driver_id_12.mp4`:
+  233 source/annotation/JSON frames, output-contract validation passed, JSON
+  exactly matches Phase 9 and annotated MP4 is byte-identical to the approved
+  baseline. Outputs: `outputs/driver_id_12.json` and
+  `outputs/driver_id_12_annotated.mp4`. No new visual approval is needed for
+  identical annotations; existing recognition limitations remain accepted.
+- The following full-dataset results are retained Phase 9 evidence:
 - All nine full videos processed: **3,457 frames**. Independently decoded source
   and annotation lengths match JSON. Contract validation checked 6,914 display
   geometries, 79,219 left regions and 41,912 right regions.
@@ -69,5 +84,5 @@ are local, Git-ignored; original inputs are unchanged.
 
 ## Next Task
 
-Phase 9 is approved for commit and push. Await user instruction before starting
-Phase 10; use the current phase definition in `docs/WORKFLOW.md`.
+Await user instruction before starting Phase 11 — Real-Time Readiness, using
+the current definition in `docs/WORKFLOW.md`.
