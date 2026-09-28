@@ -17,6 +17,7 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from dmi.video import process_video
+from dmi.validation import validate_results, compare_frames, compare_annotated_videos
 
 
 def without_icons(frame):
@@ -122,6 +123,9 @@ def main():
             if not found:
                 no_match.append(i)
         report[source.stem] = {
+            "contract": validate_results(frames, run.fps),
+            "comparison": compare_frames(frames, baseline) if baseline is not None else None,
+            "source_declared_frames": run.declared_frames,
             "frames": len(frames), "icon_counts": dict(counts),
             "associations": dict(associations), "no_match_frames": no_match,
             "baseline_available": baseline is not None,
@@ -130,6 +134,8 @@ def main():
             "geometry_regions_checked": validate_geometry(frames),
             "right_geometry_regions_checked": validate_geometry(frames, "right"),
             "decoded_annotated_frames": inspect_video(directory, frames),
+            "annotation_comparison": compare_annotated_videos(
+                directory / "annotated.mp4", args.baseline / source.stem / "annotated.mp4"),
             "end_to_end_seconds": elapsed, "fps": len(frames) / elapsed,
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)

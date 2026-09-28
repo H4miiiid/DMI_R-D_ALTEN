@@ -2,78 +2,72 @@
 
 ## Current Phase
 
-**Phase 8 — complete, verified and visually approved on 2026-09-25.**
+**Phase 9 — complete and user-approved**, including the documented remaining
+limitations. All nine development videos were processed and reviewed. Phase 10
+has not started.
 
-Phases 1–8 are complete. The user approved the revised Phase 8 output and
-requested cleanup, commit and push. Validation used only the two transition
-recordings, as requested. The sole retained generated-output folder is
-`outputs/phase8_revision_final/`; older runs and temporary review tools were
-removed. Original inputs remain unchanged. Generated outputs are local and
-Git-ignored; the approved JSON files are the current regression baseline.
+The user expanded validation to all nine development videos on 2026-09-28.
+Review deliverables: `outputs/phase9_final/README.md`. The approved two-video
+Phase 8 baseline remains in `outputs/phase8_revision_final/`. Generated outputs
+are local, Git-ignored; original inputs are unchanged.
 
 ## Implemented Functionality
 
-- Source-independent frame processing, per-frame JSON and annotated videos;
-  both physical displays have perspective localization and causal tracking.
-- Right screen identity now comes from general English Tesseract title OCR.
-  Exact supported title words select Main, Driver ID or Level layouts, fitted
-  to observed borders. No title-width/field-shape state guessing remains.
-  Expanded original-image OCR crops avoid cutting off a title's first letter.
-- A frame-local appearance gate checks for foreground over the active right UI
-  before detection/OCR. On obstruction, content annotations disappear, state
-  becomes unknown, and all right recognition/region history is cleared.
-  Detection restarts on the first clear frame. Outer display geometry and the
-  unaffected left display continue. JSON exposes visibility explicitly.
-- This fixes the cause of the bad early keypad: an occluded first-frame fit
-  used to become a persistent anchor. Unknown/pending transitions use current
-  regions and neutral semantics, never the previous screen's geometry.
+- Frame-source-independent pipeline with perspective display localization,
+  tracking, per-frame JSON and annotated video.
+- Right display: general Tesseract 5 English title OCR selects Main, Driver ID
+  or Level. Border-based title, field and button geometry; template numeric OCR.
+  Foreground appearance gate pauses right content under obstruction and clears
+  history; outer display geometry and left processing continue.
 - Five-frame state confirmation, 15-frame changed numeric-value confirmation,
-  and bounded missing-value retention remain. Missing display/field resets
-  relevant history. Invalid crossed title fits are omitted.
-- Main close-button localization fits a pair of borders by separation, so
-  camera/scale changes cannot turn the top border into an assumed bottom edge.
-- Left display: 22 box identities, speed panel, up to three-frame motion-verified
-  recovery, and evidence-based matching of supplied level-0/1/2 assets.
-- Tesseract 5 plus English data is a new runtime dependency; setup is documented
-  in PROJECT.md. No custom title vocabulary or video answers are fed to OCR.
+  and at most three missing observations retaining a field value. Unknown
+  states use current regions with neutral semantics, not old screen geometry.
+- Left display: 22 boxes, speed panel, motion-verified recovery up to three
+  frames, and level-0/1/2 asset matching without temporal icon persistence.
+- Phase 9 adds output-contract validation, exact JSON regression classification,
+  annotation comparisons, finite metadata/JSON checks and video failure tests.
+- Serialized outer-display bboxes now enclose both reported fitted outlines.
+  Internal tracking bounds and all recognition/rendering behavior are unchanged.
+  Video header frame counts are informational; these recordings' headers exceed
+  their actual decoded frame counts.
 
-## Verification
+## Latest Verification
 
-- 72 applicable tests pass: synthetic geometry, recognition, OCR integration,
-  transition/temporal sequences, obstruction/tool shapes, recovery, annotation
-  and video I/O. The one test reading an older development video is excluded
-  under the user's two-video constraint.
-- Both complete transition videos were processed from source: 1,749 frames.
-  Full annotation decode counts match JSON. All 40,055 left and 18,803 right
-  emitted regions pass finite/convex, bbox and center integrity checks.
-- Left-display JSON is unchanged on every frame relative to the previous
-  Phase 8 snapshot. Independent right replay matches both full pipeline runs.
-- Startup obstruction pauses Driver ID frames 0–60; processing resumes at 61
-  (~2.10 s), with confirmed Driver ID at 66 (~2.28 s) after title uncertainty.
-  Inspected early clear-frame comparisons show the corrected keypad alignment.
-- Driver ID → Level confirms at frame 563, four frames / 0.138 s after the clear
-  screen at 559. Level → Main confirms at 532, three frames / 0.103 s after
-  clear frame 529. No wrong known state occurs outside mixed redraw frames.
-- Obstruction gate pauses 155 and 245 frames respectively; some motion-blur
-  pauses are conservative. OCR uncertainty can briefly suppress annotations.
-- Agent inspected source/annotation pairs, early before/after grids, occlusions,
-  recovery and transition frames, including the corrected Main close button.
-- Full-run throughput is 4.12 FPS aggregate (decode/OCR/annotation/encode/JSON,
-  with some concurrent diagnostics), not a controlled performance benchmark.
-- Compilation and Git whitespace checks pass. Review videos, comparisons,
-  metrics and limitations: `outputs/phase8_revision_final/README.md`.
-- No numerical real-video geometry ground truth or holdout set exists. Source
-  transition boundaries are manual visual observations, not border annotations.
-  The previous Phase 8 run is a comparison snapshot, not an approved baseline.
+- All 84 tests pass, including the test using an older development video.
+  Compilation and Git whitespace checks pass.
+- All nine full videos processed: **3,457 frames**. Independently decoded source
+  and annotation lengths match JSON. Contract validation checked 6,914 display
+  geometries, 79,219 left regions and 41,912 right regions.
+- Two transition videos: 1,749 frames; annotated MP4s are byte-identical to
+  approved Phase 8. JSON differs only by the exact outer-display bbox correction.
+- Seven steady-state videos: 1,708 frames. No retained approved JSON baseline
+  exists for these seven, so comparison is explicitly unavailable, not a claim
+  of zero regressions. Source/annotation samples and left icon strips inspected.
+- Selected-level icon detections: level 0 in 262/264 frames, level 1 in 262/262,
+  level 2 in 239/239, all associated with box_4. Counts are predictions, not
+  numerical recognition ground truth.
+- Right visibility pauses in 465 frames; 19 frames have incomplete left output.
+  Aggregate run throughput approximately 4.24 FPS, including I/O/OCR/encoding;
+  not a controlled benchmark and not real-time.
 
-## Limitations / Next Task
+## Limitations / Review Findings
 
-- The visibility gate detects appearance inconsistent with the blue UI, not
-  hand/robot identity. Robot behavior has only synthetic tool-shape coverage;
-  screen-colored objects and bright objects over white fields may be missed.
-  Motion blur can conservatively trigger pauses. Actual robot footage is needed.
-- Only three UI layouts and three level icon assets are supported. General
-  field OCR remains unimplemented; brief numeric entries can be filtered out.
-- Real-time performance remains unachieved.
+- Existing numeric matcher/temporal retention can emit incorrect text: in
+  `driver_id_235`, frames 229–243 report `275` while the visible value is `235`.
+  The approved transition baseline also has `275` readings; recognition code
+  is unchanged. Accepted for Phase 9; remains a potential follow-up correction.
+- Title uncertainty suppresses buttons for the last 20 frames of `driver_id_5`.
+  `level_0_selected` frame 263 has a misplaced thin title outline above the text.
+  These visual limitations were disclosed and accepted with Phase 9 approval.
+- Blur can trigger conservative obstruction pauses. The gate detects appearance,
+  not hand/robot identity; actual robot footage is untested (synthetic coverage
+  only). Screen-colored or bright foreground objects may be missed.
+- Only three layouts and three supplied icon assets are supported. General field
+  OCR is unimplemented; brief numeric entries may be filtered out.
+- No numerical real-video geometry ground truth or holdout set exists. Contract
+  checks establish structural validity, not localization or OCR accuracy.
 
-Next development phase: Phase 9 — End-to-End Integration. Not started.
+## Next Task
+
+Phase 9 is approved for commit and push. Await user instruction before starting
+Phase 10; use the current phase definition in `docs/WORKFLOW.md`.

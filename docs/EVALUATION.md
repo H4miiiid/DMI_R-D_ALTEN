@@ -447,6 +447,41 @@ Whenever a verified failure case is useful and reproducible, consider adding it 
 
 ---
 
+### Phase 9 end-to-end checks
+
+Run all nine complete development videos with all components enabled, as
+requested on 2026-09-28. Retain Phase 8 as the approved reference for the two
+transition recordings; deleted historical steady-state outputs are not an
+available baseline. Report absent baselines explicitly and inspect those videos.
+
+```sh
+python3 scripts/evaluate.py --output-dir outputs/phase9_final --baseline outputs/phase8_revision_final --allow-new --allow-changes
+```
+
+Phase 9 corrects only serialized outer-display `bbox`: it now encloses both
+reported outlines instead of exposing smaller internal segmentation bounds.
+The comparison report isolates an exact correction derived from the previous
+outlines as `display_bbox_only_frames`. All other changes remain in
+`other_changed_frames` and require investigation. `--allow-changes` only lets
+the report be written; it is not automatic acceptance of differences.
+
+Contract validation covers frame indices/timing, required fields/types, finite
+clockwise convex geometry, enclosing bboxes/centers, box/icon identities and
+absence of content on unavailable/occluded displays. Fully decode annotations;
+compare their hashes or decoded pixels against the approved videos to verify
+that metadata-only corrections do not change visual output. Equality measures
+regression consistency, not detection accuracy or independent ground truth.
+
+Synthetic integration tests cover processing/serialization failures, preserving
+existing outputs on failure, invalid source metadata, approximate source frame
+counts, overwrite protection and bounded runs. Container frame counts are
+informational: compare actual decoded annotations with JSON and approved
+baseline counts. A header count alone is not reliable evidence of truncation.
+The full test suite, including the older development-video test, is included
+in the expanded Phase 9 scope.
+
+---
+
 ## 11. Holdout Evaluation
 
 Future unseen videos may be stored separately as holdout data.

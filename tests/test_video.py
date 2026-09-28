@@ -5,6 +5,7 @@ from pathlib import Path
 import sys
 import tempfile
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -50,6 +51,64 @@ class ProcessVideoTest(unittest.TestCase):
 
             with self.assertRaises(FileExistsError):
                 process_video(source, root / "output", max_frames=1)
+
+    def test_failed_processing_preserves_previous_outputs_and_cleans_temporary_files(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            source = root / "source.mp4"
+            self._write_test_video(source)
+            directory = root / "output"
+            process_video(source, directory, max_frames=1)
+            before = {p.name: p.read_bytes() for p in directory.iterdir()}
+            with patch("dmi.video.process_frame", side_effect=RuntimeError("injected failure")):
+                with self.assertRaisesRegex(RuntimeError, "injected failure"):
+                    process_video(source, directory, overwrite=True)
+            self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir()}, before)
+
+    def test_rejects_fractional_and_boolean_frame_limits(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory);source = root / "source.mp4"
+            self._write_test_video(source)
+            for limit in [0, -1, 2.5, True]:
+                with self.assertRaises(ValueError):
+                    process_video(source, root / "output", max_frames=limit)
+            self.assertFalse((root / "output").exists())
+
+    def test_nonfinite_json_is_not_published(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory);source = root / "source.mp4"
+            self._write_test_video(source)
+            with patch("dmi.video.process_frame", return_value={"timestamp": float('nan')}), \
+                    patch("dmi.video.annotate_frame", side_effect=lambda image, _: image):
+                with self.assertRaises(ValueError):
+                    process_video(source, root / "output")
+            self.assertEqual(list((root / "output").iterdir()), [])
+
+    def test_source_frame_count_is_informational_and_nonfinite_fps_is_rejected(self):
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory);source = root / "source.mp4"
+            self._write_test_video(source)
+            for fps in [float('nan'), 10.]:
+                with self.subTest(fps=fps):
+                    capture = cv2.VideoCapture(str(source))
+                    actual_get = capture.get
+                    def properties(key):
+                        if key == cv2.CAP_PROP_FPS:return fps
+                        if key == cv2.CAP_PROP_FRAME_COUNT:return 7
+                        return actual_get(key)
+                    with patch("dmi.video.cv2.VideoCapture") as factory:
+                        factory.return_value.isOpened.return_value = True
+                        factory.return_value.get.side_effect = properties
+                        factory.return_value.read.side_effect = capture.read
+                        if not np.isfinite(fps):
+                            with self.assertRaises(RuntimeError):
+                                process_video(source, root / "output")
+                            self.assertEqual(list((root / "output").iterdir()), [])
+                        else:
+                            run = process_video(source, root / "output")
+                            self.assertEqual(run.processed_frames, 6)
+                            self.assertEqual(run.declared_frames, 7)
+                    capture.release()
 
     @staticmethod
     def _write_test_video(path: Path) -> None:

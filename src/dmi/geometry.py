@@ -37,10 +37,15 @@ class DisplayGeometry:
 
     def as_result(self) -> dict[str, list[int] | list[list[int]]]:
         corners = np.rint(self.corners).astype(int)
+        oriented = np.rint(self.oriented_box).astype(int)
+        outline = np.concatenate((corners, oriented))
+        # The internal segmentation bounds support tracking, but serialized
+        # bounds must enclose both reported fitted outlines.
+        bbox = [*outline.min(axis=0).tolist(), *outline.max(axis=0).tolist()]
         return {
             "corners": corners.tolist(),
-            "oriented_box": np.rint(self.oriented_box).astype(int).tolist(),
-            "bbox": list(self.bbox),
+            "oriented_box": oriented.tolist(),
+            "bbox": bbox,
             "center": list(self.center),
         }
 

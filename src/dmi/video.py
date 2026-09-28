@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import json
+import math
 import os
 from pathlib import Path
 from typing import Any
@@ -27,6 +28,7 @@ class VideoRunSummary:
     processed_frames: int
     fps: float
     frame_size: tuple[int, int]
+    declared_frames: int | None = None
 
 
 def process_video(
@@ -41,8 +43,8 @@ def process_video(
     destination = Path(output_dir).expanduser().resolve()
     if not source.is_file():
         raise FileNotFoundError(f"input video does not exist: {source}")
-    if max_frames is not None and max_frames <= 0:
-        raise ValueError("max_frames must be positive when provided")
+    if max_frames is not None and (type(max_frames) is not int or max_frames <= 0):
+        raise ValueError("max_frames must be a positive integer when provided")
 
     json_path = destination / "results.json"
     video_path = destination / "annotated.mp4"
@@ -63,6 +65,9 @@ def process_video(
     writer: cv2.VideoWriter | None = None
     try:
         fps, width, height = _read_video_properties(capture, source)
+        declared_count = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
+        declared_frames = (round(declared_count) if math.isfinite(declared_count)
+                           and declared_count > 0 else None)
         writer = cv2.VideoWriter(
             str(temporary_video),
             cv2.VideoWriter_fourcc(*"mp4v"),
@@ -101,7 +106,7 @@ def process_video(
         writer = None
         payload = {"video": source.name, "frames": results}
         with temporary_json.open("w", encoding="utf-8") as stream:
-            json.dump(payload, stream, indent=2)
+            json.dump(payload, stream, indent=2, allow_nan=False)
             stream.write("\n")
 
         os.replace(temporary_video, video_path)
@@ -113,6 +118,7 @@ def process_video(
             processed_frames=len(results),
             fps=fps,
             frame_size=(width, height),
+            declared_frames=declared_frames,
         )
     finally:
         capture.release()
@@ -126,8 +132,10 @@ def _read_video_properties(
     capture: cv2.VideoCapture, source: Path
 ) -> tuple[float, int, int]:
     fps = float(capture.get(cv2.CAP_PROP_FPS))
-    width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
-    height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
-    if fps <= 0 or width <= 0 or height <= 0:
+    width = float(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
+    height = float(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
+    if not all(math.isfinite(value) and value > 0 for value in (fps, width, height)):
         raise RuntimeError(f"invalid video properties for: {source}")
-    return fps, width, height
+    if not width.is_integer() or not height.is_integer():
+        raise RuntimeError(f"noninteger video dimensions for: {source}")
+    return fps, int(width), int(height)

@@ -7,6 +7,7 @@ evidence-backed detections without changing video acquisition or output code.
 from __future__ import annotations
 
 from typing import Any
+import math
 
 import cv2
 import numpy as np
@@ -34,10 +35,10 @@ def process_frame(
     than fabricated detections.
     """
     _validate_frame(frame)
-    if frame_index < 0:
-        raise ValueError("frame_index must be non-negative")
-    if timestamp < 0:
-        raise ValueError("timestamp must be non-negative")
+    if type(frame_index) is not int or frame_index < 0:
+        raise ValueError("frame_index must be a non-negative integer")
+    if not math.isfinite(timestamp) or timestamp < 0:
+        raise ValueError("timestamp must be finite and non-negative")
 
     displays = detect_displays(frame)
     if geometry_stabilizer is not None:

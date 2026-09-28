@@ -133,8 +133,9 @@ top-left → top-right → bottom-right → bottom-left
 `corners` describes the perspective quadrilateral used for rectification.
 `oriented_box` is a detected minimum-area rectangle around the display. It is
 used for annotation, follows the display's rotation, and has perpendicular
-adjacent edges. `bbox` is the axis-aligned bounds retained for rectangular
-region consumers.
+adjacent edges. `bbox` is the axis-aligned union of both reported outlines
+(`corners` and `oriented_box`) for rectangular-region consumers. Internal
+segmentation bounds used by tracking are not the serialized display bounds.
 
 If a display cannot be localized reliably:
 
@@ -466,7 +467,15 @@ A complete video output may use a structure such as:
 }
 ```
 
-The exact schema may evolve when implementation begins, but changes should remain backward-consistent when practical.
+The examples above illustrate fields; emitted regions also contain the required
+`corners`, `bbox`, and `center`. Display geometry additionally contains
+`oriented_box`; the right display always includes `visibility`.
+
+Video output uses contiguous integer frame indices starting at zero and finite
+nonnegative timestamps rounded to six decimals from index/source FPS. JSON
+contains no NaN or Infinity. `dmi.validation.validate_results` checks these
+contracts, region geometry and missing/occluded-display consistency without
+claiming recognition accuracy.
 
 ---
 
