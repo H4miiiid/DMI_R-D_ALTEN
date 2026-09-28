@@ -31,7 +31,7 @@ class ProcessVideoTest(unittest.TestCase):
                     self._write_test_video(source)
                     with patch.object(sys, "argv", ["run_video.py", str(source)]):
                         self.assertEqual(run_video.main(), 0)
-                    output = root / "outputs"
+                    output = root / "outputs" / name
                     payload = json.loads((output / f"{name}.json").read_text())
                     self.assertEqual(payload["video"], source.name)
                     self.assertEqual(len(payload["frames"]), 6)

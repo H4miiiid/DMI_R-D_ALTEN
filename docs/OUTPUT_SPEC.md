@@ -31,8 +31,9 @@ Run the full pipeline from the repository root with only an input path:
 python scripts/run_video.py data/videos/dev/driver_id_12.mp4
 ```
 
-The command creates the repository's `outputs/` directory if needed and writes
-`outputs/driver_id_12.json` and `outputs/driver_id_12_annotated.mp4`.
+The command creates `outputs/<video-stem>/` in the repository if needed and writes
+`outputs/driver_id_12/driver_id_12.json` and
+`outputs/driver_id_12/driver_id_12_annotated.mp4`.
 The input filename stem determines both output names. JSON contains the source
 filename in `video` and all processed frame results in `frames`.
 

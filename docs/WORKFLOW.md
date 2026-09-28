@@ -209,8 +209,8 @@ The pipeline should automatically:
 Example outputs:
 
 ```text
-outputs/driver_id_12_annotated.mp4
-outputs/driver_id_12.json
+outputs/driver_id_12/driver_id_12_annotated.mp4
+outputs/driver_id_12/driver_id_12.json
 ```
 
 ### Complete when

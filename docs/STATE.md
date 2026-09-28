@@ -4,7 +4,7 @@
 
 **Phase 10 — complete and verified.** The CLI now runs the full pipeline with
 only an input video path and creates source-named JSON and annotated MP4 files
-in the repository's `outputs/` directory. Optional output directories and
+in the repository's `outputs/<video-stem>/` directory. Optional output directories and
 overwrite protection remain available. See `docs/OUTPUT_SPEC.md` for usage.
 
 Phase 9 remains user-approved, including the documented remaining limitations.
@@ -49,6 +49,9 @@ are local, Git-ignored; original inputs are unchanged.
   baseline. Outputs: `outputs/driver_id_12.json` and
   `outputs/driver_id_12_annotated.mp4`. No new visual approval is needed for
   identical annotations; existing recognition limitations remain accepted.
+- The default-directory revision passes the CLI integration checks with each
+  input in its own folder; explicit `--output-dir` still uses the exact supplied
+  directory. The full-video evidence above predates this path-only revision.
 - The following full-dataset results are retained Phase 9 evidence:
 - All nine full videos processed: **3,457 frames**. Independently decoded source
   and annotation lengths match JSON. Contract validation checked 6,914 display
