@@ -7,7 +7,7 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from dmi.icons import ASSET_DIRECTORY, recognize_icons
+from dmi.detection.icons import ASSET_DIRECTORY, recognize_icons
 
 
 class IconRecognitionTest(unittest.TestCase):
@@ -64,11 +64,11 @@ class IconRecognitionTest(unittest.TestCase):
 
     def test_annotation_uses_structured_icon_identity(self):
         from unittest.mock import patch
-        from dmi.pipeline import _draw_left_content
+        from dmi.output.annotation import _draw_left_content
         image, boxes = self.scene("level1_icon")
         region = {"corners": boxes["arbitrary_box"].tolist(),
                   "center": [135, 85], "icon": "level1_icon"}
-        with patch("dmi.pipeline.cv2.putText", wraps=cv2.putText) as draw:
+        with patch("dmi.output.annotation.cv2.putText", wraps=cv2.putText) as draw:
             _draw_left_content(image, {"boxes": {"arbitrary_box": region},
                                        "speed_indicator": None})
         self.assertTrue(draw.call_args_list)

@@ -6,11 +6,11 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from dmi.geometry import DisplayGeometry
-from dmi.right_display import analyze_right_display
-from dmi.temporal import RightDisplayStabilizer
-from dmi.title_ocr import read_title, title_state
-from dmi.visibility import right_display_obstructed
+from dmi.detection.display_geometry import DisplayGeometry
+from dmi.detection.right_display import analyze_right_display
+from dmi.temporal.smoothing import RightDisplayStabilizer
+from dmi.detection.title_ocr import read_title, title_state
+from dmi.detection.visibility import right_display_obstructed
 
 
 class TitleVisibilityTest(unittest.TestCase):
@@ -26,7 +26,7 @@ class TitleVisibilityTest(unittest.TestCase):
 
     def test_title_ocr_drives_state_without_field_shape_guess(self):
         cv2.putText(self.image, "Level", (10, 140), 0, 1, (240, 240, 240), 2)
-        with patch('dmi.right_display.read_title', return_value='Level'):
+        with patch('dmi.detection.right_display.read_title', return_value='Level'):
             result = analyze_right_display(self.image, self.geometry)
         self.assertEqual(result['state'], 'Level')
         self.assertIsNone(result['data_field'])
@@ -34,7 +34,7 @@ class TitleVisibilityTest(unittest.TestCase):
 
     def test_unreadable_title_does_not_infer_buttons_from_field(self):
         cv2.rectangle(self.image, (10, 190), (565, 290), (240, 240, 240), -1)
-        with patch('dmi.right_display.read_title', return_value=None):
+        with patch('dmi.detection.right_display.read_title', return_value=None):
             result = analyze_right_display(self.image, self.geometry)
         self.assertEqual(result['state'], 'unknown')
         self.assertEqual(result['buttons'], {})
@@ -60,7 +60,7 @@ class TitleVisibilityTest(unittest.TestCase):
         tracker = RightDisplayStabilizer()
         tracker.update({"state": "Driver ID", "title": None, "buttons": {},
                         "data_field": None, "visibility": "clear"})
-        with patch('dmi.right_display.read_title') as ocr:
+        with patch('dmi.detection.right_display.read_title') as ocr:
             paused = analyze_right_display(obstructed, self.geometry)
             ocr.assert_not_called()
         self.assertEqual(tracker.update(paused)['visibility'], 'occluded')
@@ -81,7 +81,7 @@ class TitleVisibilityTest(unittest.TestCase):
         self.assertEqual(result['title']['text'], 'Driver ID')
 
     def test_missing_ocr_dependency_reports_actionable_error(self):
-        with patch('dmi.title_ocr.shutil.which', return_value=None):
+        with patch('dmi.detection.title_ocr.shutil.which', return_value=None):
             with self.assertRaisesRegex(RuntimeError, 'Tesseract'):
                 read_title(self.image, (0, 70, 100, 140))
 

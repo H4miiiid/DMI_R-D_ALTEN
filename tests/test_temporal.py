@@ -6,8 +6,8 @@ import unittest
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from dmi.pipeline import process_frame
-from dmi.temporal import RightDisplayStabilizer
+from dmi.pipeline.frame_processor import process_frame
+from dmi.temporal.smoothing import RightDisplayStabilizer
 
 
 def content(value):

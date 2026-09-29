@@ -9,10 +9,10 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
-from dmi.geometry import DisplayGeometry, Frame, rectify_display
-from dmi.title_ocr import read_title, title_state
-from dmi.visibility import right_display_obstructed
-from dmi.right_layout import (
+from dmi.detection.display_geometry import DisplayGeometry, Frame, rectify_display
+from dmi.detection.title_ocr import read_title, title_state
+from dmi.detection.visibility import right_display_obstructed
+from dmi.detection.right_layout import (
     detect_border_lines,
     detect_button_quads,
     detect_title_quad,

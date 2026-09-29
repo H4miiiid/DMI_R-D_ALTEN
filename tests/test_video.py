@@ -14,7 +14,7 @@ import numpy as np
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from dmi.video import process_video  # noqa: E402
+from dmi.pipeline.video import process_video  # noqa: E402
 
 spec = importlib.util.spec_from_file_location("run_video", REPOSITORY_ROOT / "scripts/run_video.py")
 run_video = importlib.util.module_from_spec(spec)
@@ -107,7 +107,7 @@ class ProcessVideoTest(unittest.TestCase):
             directory = root / "output"
             process_video(source, directory, max_frames=1)
             before = {p.name: p.read_bytes() for p in directory.iterdir()}
-            with patch("dmi.pipeline.process_frame", side_effect=RuntimeError("injected failure")):
+            with patch("dmi.pipeline.frame_processor.process_frame", side_effect=RuntimeError("injected failure")):
                 with self.assertRaisesRegex(RuntimeError, "injected failure"):
                     process_video(source, directory, overwrite=True)
             self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir()}, before)
@@ -125,8 +125,8 @@ class ProcessVideoTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory);source = root / "source.mp4"
             self._write_test_video(source)
-            with patch("dmi.pipeline.process_frame", return_value={"timestamp": float('nan')}), \
-                    patch("dmi.video.annotate_frame", side_effect=lambda image, _: image):
+            with patch("dmi.pipeline.frame_processor.process_frame", return_value={"timestamp": float('nan')}), \
+                    patch("dmi.pipeline.video.annotate_frame", side_effect=lambda image, _: image):
                 with self.assertRaises(ValueError):
                     process_video(source, root / "output")
             self.assertEqual(list((root / "output").iterdir()), [])
@@ -143,7 +143,7 @@ class ProcessVideoTest(unittest.TestCase):
                         if key == cv2.CAP_PROP_FPS:return fps
                         if key == cv2.CAP_PROP_FRAME_COUNT:return 7
                         return actual_get(key)
-                    with patch("dmi.video.cv2.VideoCapture") as factory:
+                    with patch("dmi.pipeline.video.cv2.VideoCapture") as factory:
                         factory.return_value.isOpened.return_value = True
                         factory.return_value.get.side_effect = properties
                         factory.return_value.read.side_effect = capture.read

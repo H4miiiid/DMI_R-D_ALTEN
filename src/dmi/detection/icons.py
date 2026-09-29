@@ -9,7 +9,7 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ASSET_DIRECTORY = Path(__file__).resolve().parents[2] / "data/icons/levels"
+ASSET_DIRECTORY = Path(__file__).resolve().parents[3] / "data/icons/levels"
 
 
 def recognize_icons(frame: np.ndarray, boxes: dict) -> dict[str, str | None]:

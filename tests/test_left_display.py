@@ -7,11 +7,12 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from dmi.pipeline import annotate_frame, process_frame
-from dmi.geometry import DisplayGeometry
-from dmi.left_layout import valid_quad
-from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
-from dmi.left_display import (
+from dmi.pipeline.frame_processor import process_frame
+from dmi.output.annotation import annotate_frame
+from dmi.detection.display_geometry import DisplayGeometry
+from dmi.detection.left_layout import valid_quad
+from dmi.temporal.smoothing import GeometryStabilizer, RightDisplayStabilizer
+from dmi.detection.left_display import (
     analyze_left_display,
     detect_left_regions,
     LeftDisplayStabilizer,

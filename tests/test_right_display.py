@@ -10,11 +10,11 @@ import numpy as np
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from dmi.geometry import DisplayGeometry  # noqa: E402
-from dmi.pipeline import annotate_frame  # noqa: E402
-from dmi.right_display import analyze_right_display  # noqa: E402
-from dmi.right_layout import detect_button_quads, detect_title_quad  # noqa: E402
-from dmi.temporal import RightDisplayStabilizer  # noqa: E402
+from dmi.detection.display_geometry import DisplayGeometry  # noqa: E402
+from dmi.output.annotation import annotate_frame  # noqa: E402
+from dmi.detection.right_display import analyze_right_display  # noqa: E402
+from dmi.detection.right_layout import detect_button_quads, detect_title_quad  # noqa: E402
+from dmi.temporal.smoothing import RightDisplayStabilizer  # noqa: E402
 
 
 class RightDisplayTest(unittest.TestCase):

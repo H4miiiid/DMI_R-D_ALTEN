@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
-from dmi.geometry import Frame
+from dmi.detection.display_geometry import Frame
 
 
 def right_display_obstructed(frame: Frame) -> bool:

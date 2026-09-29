@@ -1,16 +1,17 @@
 """DMI video screen-understanding package."""
 
-from dmi.geometry import (
+from dmi.detection.display_geometry import (
     DisplayGeometry,
     detect_displays,
     rectify_display,
 )
-from dmi.pipeline import FrameProcessor, annotate_frame, process_frame
-from dmi.left_display import analyze_left_display
-from dmi.left_tracking import LeftDisplayStabilizer
-from dmi.right_display import analyze_right_display
-from dmi.temporal import GeometryStabilizer, RightDisplayStabilizer
-from dmi.video import VideoRunSummary, process_video
+from dmi.pipeline.frame_processor import FrameProcessor, process_frame
+from dmi.output.annotation import annotate_frame
+from dmi.detection.left_display import analyze_left_display
+from dmi.temporal.left_tracking import LeftDisplayStabilizer
+from dmi.detection.right_display import analyze_right_display
+from dmi.temporal.smoothing import GeometryStabilizer, RightDisplayStabilizer
+from dmi.pipeline.video import VideoRunSummary, process_video
 
 __all__ = [
     "FrameProcessor",

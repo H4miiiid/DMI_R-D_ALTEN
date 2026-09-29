@@ -12,7 +12,7 @@ import subprocess
 
 import cv2
 
-from dmi.geometry import Frame
+from dmi.detection.display_geometry import Frame
 
 
 def read_title(frame: Frame, box: tuple[int, int, int, int] | None) -> str | None:

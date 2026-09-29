@@ -15,7 +15,8 @@ from typing import Any
 
 import cv2
 
-from dmi.pipeline import FrameProcessor, annotate_frame
+from dmi.pipeline.frame_processor import FrameProcessor
+from dmi.output.annotation import annotate_frame
 
 
 @dataclass(frozen=True)

@@ -7,9 +7,9 @@ import tempfile
 import cv2
 import numpy as np
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / 'src'))
-from dmi.geometry import DisplayGeometry
-from dmi.pipeline import process_frame
-from dmi.validation import validate_results, compare_frames, compare_annotated_videos
+from dmi.detection.display_geometry import DisplayGeometry
+from dmi.pipeline.frame_processor import process_frame
+from dmi.evaluation.validation import validate_results, compare_frames, compare_annotated_videos
 
 
 def region():

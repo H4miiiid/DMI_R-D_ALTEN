@@ -9,7 +9,7 @@ import warnings
 
 import cv2
 
-from dmi.geometry import Frame
+from dmi.detection.display_geometry import Frame
 
 
 @dataclass(frozen=True)

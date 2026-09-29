@@ -8,7 +8,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from dmi.geometry import DisplayGeometry, PointArray
+from dmi.detection.display_geometry import DisplayGeometry, PointArray
 
 
 class GeometryStabilizer:

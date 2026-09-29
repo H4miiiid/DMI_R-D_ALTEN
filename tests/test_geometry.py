@@ -11,12 +11,12 @@ import numpy as np
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from dmi.geometry import (  # noqa: E402
+from dmi.detection.display_geometry import (  # noqa: E402
     DisplayGeometry,
     detect_displays,
     rectify_display,
 )
-from dmi.temporal import GeometryStabilizer  # noqa: E402
+from dmi.temporal.smoothing import GeometryStabilizer  # noqa: E402
 
 
 class DisplayGeometryTest(unittest.TestCase):

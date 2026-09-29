@@ -9,7 +9,8 @@ import numpy as np
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from dmi.pipeline import annotate_frame, process_frame  # noqa: E402
+from dmi.pipeline.frame_processor import process_frame
+from dmi.output.annotation import annotate_frame  # noqa: E402
 
 
 class ProcessFrameTest(unittest.TestCase):

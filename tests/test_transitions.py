@@ -9,10 +9,10 @@ import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
-from dmi.geometry import DisplayGeometry
-from dmi.right_display import analyze_right_display
-from dmi.right_layout import detect_button_quads
-from dmi.temporal import RightDisplayStabilizer
+from dmi.detection.display_geometry import DisplayGeometry
+from dmi.detection.right_display import analyze_right_display
+from dmi.detection.right_layout import detect_button_quads
+from dmi.temporal.smoothing import RightDisplayStabilizer
 
 
 def region(x):
@@ -110,7 +110,7 @@ class TransitionTest(unittest.TestCase):
         q = np.array([[0, 0], [599, 0], [599, 959], [0, 959]], np.float32)
         crossed = np.array([[0, 30], [550, 60], [550, 40], [0, 80]], np.float32)
         geometry = DisplayGeometry(q, q.copy(), (0, 0, 599, 959))
-        with patch("dmi.right_display._detect_title_box", return_value=(10, 30, 80, 60)), patch("dmi.right_display.detect_title_quad", return_value=crossed):
+        with patch("dmi.detection.right_display._detect_title_box", return_value=(10, 30, 80, 60)), patch("dmi.detection.right_display.detect_title_quad", return_value=crossed):
             self.assertIsNone(analyze_right_display(image, geometry)["title"])
 
     def test_unknown_screen_preserves_visible_field_without_invented_value(self):

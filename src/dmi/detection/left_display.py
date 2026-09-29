@@ -6,8 +6,8 @@ from typing import Any
 import cv2
 import numpy as np
 
-from dmi.geometry import DisplayGeometry, Frame, rectify_display
-from dmi.left_layout import (
+from dmi.detection.display_geometry import DisplayGeometry, Frame, rectify_display
+from dmi.detection.left_layout import (
     BorderEvidence,
     Line,
     consistent_sidebar,
@@ -16,8 +16,8 @@ from dmi.left_layout import (
     sidebar_borders,
     valid_quad,
 )
-from dmi.left_tracking import LeftDisplayStabilizer
-from dmi.icons import recognize_icons
+from dmi.temporal.left_tracking import LeftDisplayStabilizer
+from dmi.detection.icons import recognize_icons
 
 RECTIFIED_SIZE = (800, 1280)
 
