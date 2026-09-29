@@ -1,200 +1,216 @@
-# PROJECT.md — DMI Video Screen Understanding
+# PROJECT.md — DMI Detection V2
 
 ## Project Goal
 
-Build a reliable computer-vision pipeline that understands a physical two-display interface recorded by a webcam.
+Version 2 improves the existing DMI video-processing pipeline while keeping V1 as the working baseline.
 
-The system must process video frames, detect and recognize the relevant UI elements, extract required text and coordinates, and produce structured results together with visual annotations.
+The system must continue to process webcam-style video of the physical DMI interface and produce reliable structured results together with annotated output.
 
-Recorded videos are the first development target.
+V2 focuses on:
 
-The same core pipeline should later support live webcam frames without requiring a redesign.
+- faster and lighter processing
+- more compact and useful JSON output
+- support for additional right-display screens
+- support for additional icons
+- stronger temporal stability
+- preserving or improving detection accuracy
+
+The final target remains real-time webcam processing using the same core pipeline.
 
 ---
 
-## Real Input
+## V1 Baseline
 
-Current development videos are stored under:
+V1 already provides the main end-to-end pipeline for:
+
+- display localization
+- right-display detection
+- left-display detection
+- OCR
+- button and field detection
+- icon recognition
+- temporal handling
+- annotated video output
+- structured JSON output
+- recorded-video and webcam input
+
+V2 should improve this existing implementation rather than rebuild working components unnecessarily.
+
+Changes should preserve verified V1 behavior unless there is a clear reason to replace it.
+
+---
+
+## Development Input
+
+Development videos are stored under:
 
 `data/videos/dev/`
 
-These videos represent the real type of input the final system must process.
+V2 adds new videos including:
 
-Future recorded videos and live webcam input are expected to show the same physical interface under similar real-world conditions.
+- `train_data_gamma.mp4`
+- `validate_train_data.mp4`
+- `train_numbers.mp4`
 
-The pipeline must not assume:
+These videos extend the current development set and introduce additional right-display states and values.
 
-- identical pixel coordinates
-- perfectly fixed camera position
-- identical scale
-- identical lighting
-- perfectly stable perspective
+Previous V1 development videos should also remain part of V2 validation. Use them to compare detection accuracy, annotation stability, regressions, and processing speed before and after V2 changes.
 
-Reasonable webcam variation should be expected.
+Detailed UI behavior is defined in:
+
+`docs/UI_SPEC.md`
+
+Reference images are stored under:
+
+`data/reference/`
+
+Known icon assets are stored under:
+
+`data/icons/`
+
+Original input data must not be modified.
 
 ---
 
-## Interface Scope
+## V2 Scope
 
-The interface contains two main display regions.
+### Additional Screens
 
-### Right Display
+V2 should support additional right-display screens related to:
 
-The right display is stateful and may switch between screens such as:
+- Train Data
+- Train Data validation
+- Train Running Number
 
-- `Main`
-- `Driver ID`
-- `Level`
-- other screens discovered later
+The pipeline must detect and annotate the relevant visible elements such as:
 
-Depending on the active screen, it may contain:
-
-- a title
+- titles
 - buttons
-- a data field
-- changing text or values
+- fields
+- OCR values
 
-Detailed behavior belongs in:
-
-`docs/UI_SPEC.md`
-
-### Left Display
-
-The left display contains:
-
-- 22 logical UI boxes
-- optional icons inside the boxes
-- one analog speed indicator
-
-Element identities should remain consistent across frames even when the camera or screen position changes.
-
-Detailed behavior belongs in:
-
-`docs/UI_SPEC.md`
+Detailed screen definitions belong in `docs/UI_SPEC.md`.
 
 ---
 
-## Required Result
+### Additional Icons
 
-The pipeline should ultimately provide structured information describing the visible interface.
+New icon assets may be added to the existing icon set.
 
-Typical results include:
+The pipeline should be extendable so that additional supported icons can be introduced without redesigning the complete icon-recognition system.
 
-### Right Display
+---
 
-- active UI state
-- title text
-- visible buttons
-- button center coordinates
-- data-field presence
-- data-field value
+### Compact Output
 
-### Left Display
+V1 may produce large frame-level JSON output because similar information is repeated across many consecutive frames.
 
-- box identities
-- box positions
-- box center coordinates
-- icon presence
-- icon identity
-- icon-to-box association
-- speed-indicator position
+V2 should provide a more compact default representation while preserving the important information required by downstream users.
 
-The exact JSON structure and coordinate conventions belong in:
+The exact JSON structure is defined in:
 
 `docs/OUTPUT_SPEC.md`
 
----
-
-## Visual Output
-
-The system should also generate annotated frames or videos during development and evaluation.
-
-These outputs help verify:
-
-- geometry
-- alignment
-- detections
-- OCR
-- labels
-- icon associations
-
-Visual output is a validation aid and does not replace structured evaluation when verified ground truth is available.
+Detailed per-frame output may remain available when useful for debugging or evaluation.
 
 ---
 
-## Existing Data
+### Faster Processing
 
-Project data is stored under:
+V2 should reduce unnecessary processing and improve execution speed.
 
-`data/`
+The implementation should be designed for real-time-oriented use and should avoid repeatedly performing expensive operations when they are not required.
 
-Current sources include:
+Performance improvements must be based on measurement rather than assumptions.
 
-- development videos in `data/videos/dev/`
-- visual reference overlays in `data/reference/overlays/`
-- known icon assets in `data/icons/`
-
-Visual reference overlays are examples only and are not automatically numerical ground truth.
-
-### Current Development Dataset
-
-The initial development set contains seven short MP4 recordings. All are
-`2304 × 1728` camera frames at approximately 29–30 frames per second and are
-about 6.1–9.6 seconds long. The MP4 container's nominal frame-count metadata is
-not reliable for these files; sequential decoding and media-duration metadata
-agree on the usable duration.
-
-Observed coverage is:
-
-- three `Driver ID` recordings showing the visible values `5`, `12`, and `235`
-- one `Level` recording showing `Level 0`
-- three recordings of the `Main` screen after selecting level 0, 1, or 2; the
-  corresponding level icon is visible on the left display
-
-The recordings use a dark environment with bright blue displays. They include
-small camera/display alignment differences, mild perspective distortion,
-brightness variation, blur, and occasional hand occlusion. Both physical
-displays remain visible throughout the currently supplied recordings.
-
-Two transition recordings were added for Phase 8:
-
-- `driverID_to_level.mp4`: 855 sequentially decoded frames, approximately
-  28.99 FPS / 29.49 seconds; numeric entry and hand occlusion before Driver ID
-  changes to Level.
-- `level_to_main.mp4`: 894 sequentially decoded frames, approximately
-  29.08 FPS / 30.74 seconds; hand occlusion before Level changes to Main and
-  the level-0 icon appears on the left display.
-
-These add real transitions and mixed/partially redrawn frames to development
-coverage. They are development inputs, not holdout data. Phase 8 video validation
-uses only these two recordings, as requested by the user.
-
-The current visual references comprise one full-camera annotated example and
-one rectified annotated example for each display. The icon assets comprise
-three `52 × 21` bitmap images for levels 0, 1, and 2.
-
----
-
-## Ground Truth
-
-The project may initially have incomplete or no machine-readable ground-truth annotations.
-
-This is acceptable.
-
-Do not fabricate annotation files or exact verified coordinates.
-
-The project must distinguish between:
-
-- input data
-- visual references
-- generated predictions
-- verified ground truth
-
-When verified annotations become available, they may be used for numerical evaluation and regression testing.
-
-Evaluation rules belong in:
+Performance evaluation belongs in:
 
 `docs/EVALUATION.md`
+
+---
+
+### Improved Stability
+
+V2 should reduce unnecessary frame-to-frame movement in detected UI geometry.
+
+This includes improving stability of:
+
+- displays
+- boxes
+- buttons
+- fields
+- center points
+- OCR values
+- screen states
+- icons
+
+Stabilization must still react correctly to genuine movement and UI changes.
+
+Detailed temporal behavior belongs in:
+
+`docs/UI_SPEC.md`.
+
+---
+
+## Real-Time Requirement
+
+The final system is intended for live webcam processing.
+
+The implementation should therefore remain:
+
+- fast
+- lightweight
+- accurate
+- stable
+
+Recorded-video processing should use the same core detection logic intended for live operation.
+
+Video and webcam input should remain separate from the screen-understanding logic.
+
+---
+
+## Implementation Principle
+
+Do not choose or replace techniques only because they appear more advanced.
+
+For every important V2 change:
+
+- understand the current V1 behavior
+- identify the actual limitation
+- measure the problem when possible
+- implement the simplest reliable improvement
+- verify that previous behavior has not regressed
+
+Different parts of the pipeline may use different methods when justified by the data.
+
+---
+
+## Generalization
+
+V2 must not be optimized only for the currently available videos.
+
+Avoid:
+
+- filename-specific behavior
+- frame-specific coordinates
+- hardcoded OCR answers
+- special cases created only to pass one reference example
+
+The system should remain useful on future recordings of the same physical DMI interface under reasonable camera and lighting variation.
+
+---
+
+## Generated Outputs
+
+Normal video processing should produce the required structured output and annotated video without overwriting source data.
+
+Generated outputs should be stored separately from `data/`.
+
+Long processing jobs should provide visible progress and should avoid unnecessary memory usage.
+
+Output requirements are defined in:
+
+`docs/OUTPUT_SPEC.md`.
 
 ---
 
@@ -203,125 +219,41 @@ Evaluation rules belong in:
 Use this general priority:
 
 1. correctness
-2. geometry and detection accuracy
-3. OCR and recognition accuracy
-4. temporal stability
-5. maintainability
-6. performance
+2. stability
+3. speed and efficiency
+4. maintainability
 
-Do not sacrifice major correctness or accuracy for small performance improvements.
+A faster pipeline is not an improvement if it introduces significant detection errors.
 
----
-
-## Real-Time Performance
-
-The final pipeline is intended for real-time webcam processing.
-
-The implementation should therefore remain **fast, lightweight, and efficient** while preserving the required accuracy and stability.
-
-Design choices should consider computational cost from the beginning. Avoid unnecessarily expensive processing, repeated work, or operations that provide little measurable benefit.
-
-Not every operation must run on every frame if a lighter strategy can provide equivalent accuracy and responsiveness.
-
-Recorded-video development should use the same core processing design intended for future real-time operation.
-
-Exact performance targets and benchmarks are defined in `docs/EVALUATION.md`.
+Likewise, unnecessary expensive processing should not be kept when a lighter method provides equivalent reliability.
 
 ---
 
-## Implementation Principle
+## Documentation
 
-Do not assume a specific computer-vision technique before inspecting the data.
+Detailed requirements are separated into dedicated documents:
 
-Choose methods based on:
-
-- actual video behavior
-- observed failure cases
-- measurable results
-
-Different parts of the interface may use different techniques when justified.
-
-Prefer simpler solutions when they provide equivalent reliability.
-
----
-
-## Library Guidance
-
-Use OpenCV as the default library for general computer-vision and video-processing operations where appropriate.
-
-Do not treat OpenCV as a mandatory solution for every task. Other libraries or models may be used when they provide a clear advantage in accuracy, robustness, or maintainability.
-
----
-
-## Generalization
-
-Do not optimize the implementation only for the currently available videos.
-
-Avoid video-specific or frame-specific shortcuts.
-
-The pipeline should remain useful on new recordings of the same physical interface under reasonable variations.
-
----
-
-## Frame-Source Independence
-
-Core processing should operate on frames independently of their source.
-
-Conceptually:
-
-```text
-Recorded Video ─┐
-                ├─> Frame → Screen Understanding → Structured Result
-Live Webcam ────┘
-```
-
-Video reading and webcam capture should remain separate from the core detection logic.
-
----
-
-## Project Structure
-
-Detailed information is split across dedicated documentation:
-
-- `AGENTS.md` — agent behavior and engineering rules
-- `docs/PROJECT.md` — project scope and objectives
-- `docs/UI_SPEC.md` — UI structure and behavior
-- `docs/OUTPUT_SPEC.md` — output and coordinates
-- `docs/EVALUATION.md` — testing and metrics
-- `docs/WORKFLOW.md` — development phases
+- `AGENTS.md` — engineering and agent rules
+- `docs/PROJECT.md` — V2 scope and objectives
+- `docs/UI_SPEC.md` — screens, UI elements and temporal behavior
+- `docs/OUTPUT_SPEC.md` — structured output format
+- `docs/EVALUATION.md` — validation, regression and performance
+- `docs/WORKFLOW.md` — V2 development phases
 - `docs/STATE.md` — current verified project state
 
-Avoid duplicating the same requirement across multiple documents.
+Avoid duplicating detailed requirements across these files.
 
 ---
 
 ## Final Objective
 
-Transform real webcam-style video into stable structured information describing the physical interface:
+V2 should provide a more efficient and extensible version of the existing DMI pipeline that:
 
-```text
-Video Frame
-    ↓
-Screen Understanding
-    ↓
-Right Display + Left Display
-    ↓
-Text + Buttons + Fields + Boxes + Icons + Coordinates
-    ↓
-Structured Output
-```
+- supports the expanded UI
+- produces compact structured output
+- generates stable annotations
+- processes videos faster
+- remains accurate
+- is suitable for later real-time webcam use
 
-The final system should be accurate, stable, maintainable, reasonably efficient, and reusable for future live webcam processing.
-
-## Runtime Dependencies
-
-The Python pipeline uses NumPy and OpenCV. Title text recognition additionally
-requires Tesseract 5 with English (`eng`) language data on PATH. On macOS:
-`brew install tesseract`; on Debian/Ubuntu:
-`sudo apt install tesseract-ocr tesseract-ocr-eng`.
-The OCR model reads the observed title without custom word lists or recording
-answers. Missing Tesseract or language data produces an actionable runtime
-error; it does not silently fall back to shape-based state guessing.
-
-Tesseract's [command-line documentation](https://tesseract-ocr.github.io/tessdoc/Command-Line-Usage.html)
-describes the single-line OCR and word-confidence TSV output used here.
+V1 provides the baseline; V2 should improve it through measured, verified changes.

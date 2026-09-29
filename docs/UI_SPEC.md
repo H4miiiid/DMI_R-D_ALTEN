@@ -2,560 +2,513 @@
 
 ## 1. Purpose
 
-This document defines the visual structure and expected behavior of the physical interface shown in the input videos.
+This document defines the UI elements that the pipeline must recognize, detect, annotate, and extract from the DMI displays.
 
-The interface contains two main regions:
+V2 extends the V1 interface with new Train Data and Train Running Number screens while preserving support for the existing screens.
 
-- **Right display**
+This document defines **what should be detected**, not which computer-vision method must be used.
+
+---
+
+## 2. Input and Visual References
+
+Development videos are stored under:
+
+`data/videos/dev/`
+
+V2 includes:
+
+- `train_data_gamma.mp4`
+- `validate_train_data.mp4`
+- `train_numbers.mp4`
+
+Previous V1 videos remain valid development and regression inputs.
+
+Reference screenshots for the new layouts may be stored under:
+
+`data/reference/`
+
+Use reference images to understand screen structure and expected borders, but do not use them as fixed pixel-coordinate templates.
+
+---
+
+# 3. Display Behavior
+
+The physical interface contains:
+
 - **Left display**
+- **Right display**
 
-The pipeline must understand these regions consistently across video frames.
+Both displays may change their content depending on the active workflow.
 
-This document defines **what should be detected and understood**, not which computer-vision algorithm should be used.
+V2 must therefore not assume that the left display always contains the previous 22-box layout.
 
----
-
-## 2. Visual References
-
-Annotated reference images may be used to understand the expected UI regions, element identities, borders, and annotation style.
-
-Current references include:
-
-- Left display: `data/reference/overlays/left_rectified_annotated_01.png`
-- Right display: `data/reference/overlays/right_rectified_annotated_01.png`
-- Example Main screen: `data/reference/overlays/main0_01.png`
-
-Additional annotated examples may be added for individual right-display states such as:
+Known UI states now include:
 
 - `Main`
 - `Driver ID`
 - `Level`
-- other useful screen examples
+- `Train Data`
+- `Validate Train Data`
+- `Train Data (1/2)`
+- `Train Data (2/2)`
+- `Train Running Number`
 
-When new reference images are added, document their paths in this section.
-
-These images are **visual references**, not fixed coordinate templates.
-
-The pipeline must not assume that elements always appear at exactly the same pixel coordinates as the examples.
-
----
-
-## 3. General Interface Behavior
-
-The interface is recorded by a webcam.
-
-Its appearance may vary because of:
-
-- small camera or display movement
-- camera-distance and scale changes
-- small rotations or perspective changes
-- lighting and brightness changes
-- reflections
-- blur
-- temporary instability
-
-Detected geometry must follow the real visible interface.
-
-A previously correct pixel coordinate is not automatically correct for another frame.
+Other screens may still appear and must remain processable as unknown/new states.
 
 ---
 
-# 4. Right Display
+# 4. Existing V1 Screens
 
-The right display is a **stateful UI** that can switch between different screens.
-
-Known examples currently include:
+Existing behavior for:
 
 - `Main`
 - `Driver ID`
 - `Level`
 
-Other screens may appear later.
+must continue to work.
 
-Each screen may contain a different combination of:
+This includes the previously supported:
+
+- titles
+- buttons
+- fields
+- OCR values
+- left-display boxes
+- icons
+- speed indicator
+- unknown-screen handling
+
+V2 changes must not unnecessarily regress these screens.
+
+---
+
+# 5. Train Data
+
+The `Train Data` workflow uses both displays.
+
+## 5.1 Left Display
+
+Expected elements:
+
+- title: `Train data`
+- selected train type summary
+- bottom grey `Yes` button
+
+The pipeline should detect and annotate:
 
 - title
-- buttons
-- data fields
-- other bordered UI elements
-- displayed text or values
+- `Yes` button
+- button center
 
-The pipeline must understand the visible structure rather than depending only on a fixed list of known screens.
-
-### 4.0.1 Observed Development Layouts
-
-The current development recordings show these stable screen structures:
-
-- `Main`: a title, a two-column grid of menu buttons, and a close button near
-  the lower-left of the display. The visible menu labels include `Start`,
-  `Driver ID`, `Train Data`, `Level`, `Train running number`, `Shunting`,
-  `Non-Leading`, `Maintain Shunting`, and `Radio Data`. One grid cell is
-  visibly empty.
-- `Driver ID`: a title, a light data field, a numeric keypad, and a bottom row
-  of action controls. The development recordings show values `5`, `12`, and
-  `235`.
-- `Level`: a title, a light data field, a three-column option grid, an
-  additional ellipsis control, and a close button. The current recording shows
-  `Level 0` in the field.
-
-These observations describe current coverage, not a closed list of layouts or
-values.
+The other summary text does not currently require detailed extraction unless needed later.
 
 ---
 
-## 4.1 Screen State
+## 5.2 Right Display
 
-The pipeline should identify the current right-display state whenever possible.
-
-Known states should use stable names:
+The top field contains:
 
 ```text
-Main
-Driver ID
-Level
+Train type | Gamma
 ```
 
-If the visible screen does not correspond reliably to a known state, classify it as an **unknown/new screen** rather than forcing it into a known category.
-
-An unknown screen must **not stop further processing**.
-
-Screen recognition and UI-element detection are separate responsibilities.
-
-Therefore:
+or:
 
 ```text
-Known screen
+Train type | Lambda
+```
+
+The selected value is dynamic.
+
+The pipeline must:
+
+- detect the field
+- read the selected value using OCR
+- store the value in structured output
+
+Expected values currently include:
+
+- `Gamma`
+- `Lambda`
+
+Middle buttons:
+
+- `Gamma`
+- `Lambda`
+
+Bottom buttons:
+
+- `close` — X button
+- `enter_data` — Enter Data button
+
+All required buttons should be detected and annotated with their center points.
+
+---
+
+## 5.3 Train Data Transitions
+
+From this screen:
+
+```text
+Yes
+ ↓
+Validate Train Data
+```
+
+and:
+
+```text
+Enter Data
     ↓
-Recognize state + detect its visible elements
-
-Unknown/new screen
-    ↓
-Unknown state + still detect visible elements
+Train Data (1/2)
 ```
 
-The current state may change during a video.
-
-Real state changes should be detected without unnecessary frame-to-frame flickering.
+The pipeline should recognize the resulting screen change rather than keeping the previous state through temporal smoothing.
 
 ---
 
-## 4.2 Unknown and New Screens
+# 6. Validate Train Data
 
-The pipeline must remain useful when a previously unseen right-display screen appears.
+## 6.1 Left Display
 
-For a new or unknown screen:
+Expected title:
 
-- mark the screen state as unknown/new
-- continue locating the right display
-- detect visible title regions when possible
-- apply OCR to visible title text when possible
-- detect visible buttons
-- calculate button centers
-- detect other clearly bordered UI regions when their role can be determined safely
-- annotate detected elements normally
+`Validate train data`
 
-Do not ignore the screen simply because its layout was not previously documented.
+The display also shows a summary of the selected train data.
 
-For example, if an unknown screen visibly contains:
+The summary values do not currently require detailed OCR.
+
+---
+
+## 6.2 Right Display
+
+The top grey field contains the currently selected confirmation value.
+
+Typical values:
+
+- `Yes`
+- `No`
+
+This value must be read using OCR and written to structured output.
+
+Expected buttons:
+
+- `No`
+- `Yes`
+- `close` — X button
+
+The `Yes` and `No` buttons modify the value shown in the grey field.
+
+The pipeline must therefore distinguish between:
+
+- the two selectable buttons
+- the dynamic value displayed in the field
+
+All buttons should be detected and annotated with their center points.
+
+---
+
+# 7. Train Data (1/2)
+
+## 7.1 Left Display
+
+Expected title:
+
+`Train data (1/2)`
+
+The screen contains several train-data summary values.
+
+These values are **not required for OCR in V2 at this stage**.
+
+The bottom grey `Yes` button should be detected and annotated.
+
+---
+
+## 7.2 Right Display
+
+The upper part contains several train-data fields and values.
+
+These values are not currently required for extraction.
+
+The lower part contains a numeric keypad:
 
 ```text
-Title
-Button
-Button
-Button
+1  2  3
+4  5  6
+7  8  9
+Del 0  .
 ```
 
-the pipeline should still detect and annotate those elements even though the overall screen state is unknown.
+Additional bottom buttons include:
 
-Visible borders and UI structure should be used to localize elements where reliable.
+- `close` — X
+- `left_arrow`
+- `right_arrow`
+- `select_type`
 
-Do not invent semantic labels for elements whose meaning is unknown.
+The pipeline should detect and annotate these buttons and their center points.
 
-A new screen can later be added as a known state once its structure and meaning are understood and documented.
-
----
-
-## 4.3 Title
-
-The right display contains a title region when the active UI screen provides one.
-
-The title should be:
-
-- localized correctly
-- read using OCR
-- associated with the current screen
-
-Known examples include:
+Pressing the right arrow may move to:
 
 ```text
-Main
-Driver ID
-Level
+Train Data (1/2)
+        ↓
+Train Data (2/2)
 ```
 
-For an unknown screen, the title should still be detected and read when visible.
+---
 
-The title value must come from the visible interface.
+# 8. Train Data (2/2)
 
-Do not hardcode it based on the video filename or previous state.
+## 8.1 Left Display
 
-Temporary OCR noise should not cause unnecessary title changes.
+Expected title:
+
+`Train data (2/2)`
+
+The left display continues showing the train-data summary.
+
+Detailed OCR of these summary values is not currently required.
+
+The bottom grey `Yes` button should remain detectable.
 
 ---
 
-## 4.4 Buttons
+## 8.2 Right Display
 
-Different buttons may appear depending on the active screen.
+The upper section contains additional train-data values.
 
-For every relevant visible button, determine:
+These values do not currently require extraction.
 
-- its location
-- its logical identity when known
-- its center point
+Visible selection buttons may include:
 
-Buttons should still be detected on unknown screens when their visible geometry can be identified reliably.
+- `G1`
+- `GA`
+- `GB`
+- `GC`
+- `Out of GC`
 
-If the semantic identity of a button is unknown, preserve the detection without inventing a meaning.
+Bottom controls include:
 
-Button geometry must follow the real visible button when:
+- `close` — X
+- `left_arrow`
+- `right_arrow`
+- `select_type`
 
-- the camera moves
-- the display shifts
-- scale changes
+Detect and annotate the visible buttons and their center points.
 
-Do not keep an old button position when the actual interface has moved.
+The page-navigation buttons must remain distinguishable from the train-data selection buttons.
 
 ---
 
-## 4.5 Data Fields
+# 9. Train Running Number
 
-Some right-display screens contain a data field.
+The `Train Running Number` screen is structurally similar to the existing `Driver ID` screen.
+
+## 9.1 Right Display
+
+Expected title:
+
+`Train running number`
+
+The title must be detected and read using OCR.
+
+A grey input field appears below the title.
+
+Its value is dynamic and must also be read using OCR.
+
+The current V2 development video contains examples such as:
+
+- `1`
+- `12`
+- `128`
+
+These are examples only and must not be hardcoded as the only possible values.
+
+Expected keypad:
+
+```text
+1  2  3
+4  5  6
+7  8  9
+Del 0  .
+```
+
+Bottom button:
+
+- `close` — X
+
+The pipeline must detect and annotate:
+
+- title
+- input field
+- OCR value
+- keypad buttons
+- close button
+- button center points
+
+---
+
+# 10. Left Display Modes
+
+The left display can now appear in different layouts.
+
+### Normal / Existing Layout
+
+For relevant V1 states, continue supporting:
+
+- 22 logical boxes
+- icon associations
+- speed indicator
+
+### Train Data Workflow
+
+During Train Data states, the left display may instead contain:
+
+- title
+- summary text
+- grey confirmation button
+
+Do **not** force the 22-box layout onto these screens.
+
+Detection should follow the actual active UI state.
+
+---
+
+# 11. Unknown and New Screens
+
+A screen that is not one of the known states must not stop processing.
+
+For an unknown screen:
+
+- mark the state as unknown
+- continue locating both displays
+- detect visible bordered UI regions where reliable
+- detect title regions when possible
+- apply OCR when appropriate
+- detect buttons and center points
+- annotate successfully detected elements
+
+Do not invent semantic names for elements whose meaning is unknown.
+
+---
+
+# 12. OCR Requirements
+
+OCR is required for dynamic values that matter to the structured output.
+
+Current V2 examples include:
+
+- screen titles
+- Train Type value: `Gamma` / `Lambda`
+- Validate Train Data value: `Yes` / `No`
+- Train Running Number input value
+
+Do not hardcode expected OCR values from filenames or known video content.
+
+If a value cannot be read reliably, report an unknown/null result rather than fabricate it.
+
+---
+
+# 13. Button Detection
+
+For required visible buttons, provide:
+
+- detected border/region
+- stable logical identity when known
+- center point
+
+Button geometry should follow the visible screen borders.
 
 Examples include:
 
-- Driver ID values
-- Level values
-- values appearing on other screens
+- numeric keypad buttons
+- Gamma / Lambda
+- Yes / No
+- X / close
+- Enter Data
+- arrows
+- Select Type
+- G1 / GA / GB / GC / Out of GC
 
-When a known data field exists, determine:
-
-- whether it is present
-- where it is located
-- its displayed value
-
-If an unknown screen contains a clearly visible bordered field, it may still be localized and annotated when reliable, but do not assign an unsupported semantic meaning to it.
-
-If no data field is present, do not invent one.
-
-OCR cleaning may be used when justified, but uncertain text must not be converted into a fabricated result.
+Do not use remembered coordinates when the real display moves.
 
 ---
 
-# 5. Left Display
+# 14. Temporal Stability
 
-The left display is structurally more stable than the right display.
+V2 should improve stability across consecutive frames.
 
-It contains:
+Reduce unnecessary:
 
-- **22 logical UI boxes**
-- optional icons inside those boxes
-- **1 analog speed indicator**
+- display shaking
+- box shaking
+- button-border shaking
+- center-point movement
+- OCR flickering
+- state flickering
+- field-value flickering
 
-Its position and scale in the camera frame may change.
-
-The pipeline must maintain consistent logical identities for these elements across frames.
-
----
-
-## 5.1 Left-Side Boxes
-
-All 22 logical boxes should be identified using stable identities:
-
-```text
-box_1
-box_2
-box_3
-...
-box_22
-```
-
-The mapping between each physical box and its logical label must remain consistent.
-
-For every box determine at least:
-
-- location
-- center point
-
-The detected geometry should closely follow the intended visible borders.
-
-Avoid boxes that:
-
-- include large unrelated areas
-- overlap neighboring boxes incorrectly
-- drift unnecessarily
-- remain fixed while the display moves
-- resize because of temporary brightness changes rather than real geometry changes
-
-The current annotated reference indicates how the 22 non-speed regions are
-grouped:
-
-- 9 vertically stacked sidebar regions
-- 4 first-row status regions plus 1 power region
-- 1 merged second-row status region plus 4 additional second-row regions
-- 1 main lower region
-- 2 scroll-control regions
-
-The Phase 5 mapping follows the physical regions in the annotated reference:
-
-- `box_1`–`box_9`: sidebar regions R1–R9, from top to bottom
-- `box_10`: isolated first-row status region at the left of the speed panel
-- `box_11`–`box_13`: the three adjacent first-row status regions, left to right
-- `box_14`: power region at the right of that row
-- `box_15`: merged leftmost region of the second status row
-- `box_16`–`box_19`: the remaining four second-row regions, left to right
-- `box_20`: main lower region
-- `box_21`: upper scroll-control region
-- `box_22`: lower scroll-control region
-
-The unusually tall sidebar R2 is one logical region. Empty-looking regions
-retain their identities. This mapping is based on the reference's named regions;
-its generated annotations were visually approved by the user in Phase 5.
-
----
-
-## 5.2 Icons
-
-Icons may appear inside one or more left-side boxes.
-
-Known icon assets are stored under:
-
-`data/icons/`
-
-For every box determine:
-
-- whether an icon is present
-- which known icon it is
-- which box contains it
-
-The important relationship is:
-
-```text
-box → icon
-```
+Temporal smoothing should improve stable detections without delaying genuine UI changes excessively.
 
 For example:
 
 ```text
-box_5 → level1_icon
+Train Data
+    ↓
+Train Data (1/2)
 ```
 
-An empty box should remain:
+must still be recognized promptly when the screen actually changes.
 
-```text
-box_5 → null
-```
-
-Do not assign an icon when evidence is insufficient.
-
-Only use icon identities supported by the available assets or documented UI definitions.
-
-The current assets and recordings cover `level0_icon`, `level1_icon`, and
-`level2_icon`. Each appears in the same left-sidebar region in its corresponding
-selected-level recording. The asset bitmaps are clean UI renderings; the video
-appearance is affected by camera blur, scale, perspective, and brightness.
+Do not use smoothing to hide incorrect underlying detections.
 
 ---
 
-## 5.3 Analog Speed Indicator
+# 15. Annotation Requirements
 
-The left display contains one analog speed indicator.
+Annotated output should clearly show the detections represented in the structured result.
 
-At minimum:
+Depending on the active state, annotations may include:
 
-- localize it
-- maintain its identity
-- track its position with the display
-
-The localization represents the rectangular `LEFT_SPEED` panel shown in the
-reference, not a tight circle around the dial. Its lower portion intentionally
-contains the first-row status and power regions; this overlap is part of the
-reference's region definitions. The reported center is the panel center, not
-a measurement of the needle pivot.
-
-Detailed interpretation of its analog value may be added later if required.
-
----
-
-# 6. Geometry and Bounding Boxes
-
-UI geometry must follow real visual movement.
-
-The system should tolerate reasonable:
-
-- horizontal and vertical movement
-- scale changes
-- camera-distance changes
-- small rotations
-- perspective changes
-
-Bounding boxes should closely represent the intended visible UI regions.
-
-Check:
-
-- left border
-- right border
-- top border
-- bottom border
-- center point
-
-Stable geometry should produce stable detections.
-
-Real movement should cause the detections to move accordingly.
-
----
-
-# 7. Temporal Behavior
-
-Video frames are related over time.
-
-Temporal information may be used to improve stability.
-
-Avoid unnecessary:
-
-- bounding-box jumping
-- center-point oscillation
-- OCR flickering
-- icon flickering
-- screen-state flickering
-
-At the same time, stabilization must not hide genuine changes.
-
-The system should react when:
-
-- the screen state changes
-- a new/unknown screen appears
-- a title changes
-- a data value changes
-- a button appears or disappears
-- an icon appears or disappears
-- the display physically moves
-
-The goal is a balance between **stability and responsiveness**.
-
----
-
-# 8. Screen Transitions
-
-Transitions may occur between known or unknown right-display states.
-
-Examples include:
-
-```text
-Main → Driver ID
-Driver ID → Level
-Level → Main
-Known Screen → Unknown Screen
-Unknown Screen → Known Screen
-```
-
-Transition handling does not need to be completed before stable individual-screen processing works reliably.
-
-The pipeline should eventually avoid:
-
-- rapid state oscillation
-- keeping an old state too long
-- switching states because of one unclear frame
-- stopping element detection while a new state is being identified
-
-The Phase 8 recordings show mixed redraw frames with parts of both layouts
-visible. In `driverID_to_level.mp4`, frame 558 is mixed and frame 559 shows the
-clear Level screen. In `level_to_main.mp4`, frames 527–528 contain mixed content
-and frame 529 shows the clear Main screen. These zero-based frame observations
-come from source-image inspection; they are not geometry ground truth.
-
-Detailed transition evaluation belongs in:
-
-`docs/EVALUATION.md`
-
----
-
-# 9. Unclear Frames
-
-Some frames may be difficult to interpret because of:
-
-- blur
-- reflection
-- camera movement
-- partial visibility
-- brightness changes
-- poor OCR visibility
-
-When reliable information is unavailable, prefer an unknown or null result rather than inventing a confident detection.
-
-Previous-frame information may be preserved only when temporally justified.
-
----
-
-# 10. Visual Annotation
-
-Generated annotated frames and videos should make verification easy.
-
-Useful annotations may include:
-
-- right-display region
-- left-display region
+- display boundaries
 - screen state
-- title region and OCR text
-- data-field region and value
+- titles
+- OCR text
+- dynamic fields and values
 - buttons
-- button centers
-- other detected bordered UI regions
-- left-side boxes
-- icon identities
-- box centers
+- button center points
+- left-display boxes
+- icons
 - speed indicator
 
-Unknown screens should still receive normal visual annotations for elements that were detected successfully.
+Do not annotate UI elements that are intentionally outside the current V2 extraction scope as though they were verified detections.
 
-Keep annotations readable and avoid excessive debug text.
-
-Visual annotations must correspond to the same detections represented in the structured output.
+Keep annotations readable and consistent.
 
 ---
 
-# 11. Core UI Requirements
+# 16. Core V2 UI Requirements
 
-The final pipeline should maintain these properties:
+V2 should:
 
-1. known right-display states are identified when reliable
-2. unseen screens remain processable as unknown/new states
-3. detection continues even when the screen state is unknown
-4. visible titles are localized and read when possible
-5. visible buttons are detected and their centers calculated
-6. data fields are localized and read when their role is known
-7. unsupported semantic meanings are not invented
-8. all 22 left-side boxes retain stable identities
-9. left-display geometry follows real movement
-10. icons are assigned to the correct boxes
-11. empty boxes remain empty
-12. the speed indicator remains localized
-13. stable frames produce stable results
-14. genuine UI changes are detected without excessive delay
+1. preserve existing `Main`, `Driver ID`, and `Level` behavior
+2. recognize the new Train Data workflow states
+3. recognize `Train Running Number`
+4. detect required titles, fields and buttons
+5. OCR required dynamic values
+6. provide button center points
+7. handle both normal and Train Data left-display layouts
+8. continue processing unknown screens
+9. reduce unnecessary geometry and OCR instability
+10. react correctly to genuine screen transitions
 
-Detailed output representation belongs in:
+Structured output conventions are defined in:
 
 `docs/OUTPUT_SPEC.md`
 
-Detailed evaluation rules belong in:
+Validation and regression rules are defined in:
 
 `docs/EVALUATION.md`
-
-### Obstructed right display
-
-During interaction, a hand or tool can hide parts of the right display. The
-requested behavior is to suspend right-display content detection/annotations
-while an obstruction overlaps the active UI, keep checking visibility, and
-resume from the current image as soon as it clears. Do not retain an initial
-occluded layout as a stable template. Unaffected left-display processing and
-outer display localization can continue. Presence outside the active display
-alone is not a reason to hide valid content.

@@ -1,104 +1,243 @@
-# OUTPUT_SPEC.md — Structured Output and Coordinates
+# OUTPUT_SPEC.md — V2 Output Format
 
 ## 1. Purpose
 
-This document defines the structured output produced by the video-processing pipeline.
+This document defines the outputs produced by the V2 DMI pipeline.
 
-The output should be:
+V2 should produce:
 
-- simple
-- consistent
-- machine-readable
-- human-readable
-- stable across the project
+- an annotated output video
+- a compact JSONL log
+- optional detailed debug output when explicitly requested
 
-Detailed UI behavior belongs in `docs/UI_SPEC.md`.
+The default JSONL should contain useful state information without repeating nearly identical results for every processed frame.
+
+Detailed UI requirements are defined in `docs/UI_SPEC.md`.
 
 ---
 
-## 2. Output Types
+## 2. Default Output
 
-Processing a video produces:
+Given:
 
-- structured JSON results
-- annotated video or frames for visual verification
-
-Generated outputs must remain separate from the original files under `data/`.
-
-Run the full pipeline from the repository root with only an input path:
-
-```sh
-python scripts/run_video.py data/videos/dev/driver_id_12.mp4
+```text
+data/videos/dev/train_numbers.mp4
 ```
 
-The command creates `outputs/<video-stem>/` in the repository if needed and writes
-`outputs/driver_id_12/driver_id_12.json` and
-`outputs/driver_id_12/driver_id_12_annotated.mp4`.
-The input filename stem determines both output names. JSON contains the source
-filename in `video` and all processed frame results in `frames`.
+the default outputs should use a predictable source-based location such as:
 
-Use `--output-dir PATH` to choose another directory; the filenames stay the
-same. Existing results are protected unless `--overwrite` is supplied. Inputs
-with the same stem share output names, so use separate output directories to
-retain both runs. `--max-frames N` optionally limits processing for quick checks.
-Input paths and explicit output directories are relative to the current working
-directory; the default output directory is always relative to the repository.
+```text
+outputs/Version 2/train_numbers/
+├── train_numbers_annotated.mp4
+└── train_numbers.jsonl
+```
 
-Evaluation and benchmark callers retain their existing per-run
-`results.json` / `annotated.mp4` layout.
+Original files under `data/` must never be modified.
 
 ---
 
-## 3. Frame-Level Output
+# 3. JSONL Instead of One Large JSON
 
-Results should be stored per processed frame.
+The default structured output should use **JSONL**.
 
-Each frame should include at least:
+Each line is an independent JSON record:
 
-- frame index
-- timestamp
-- right-display result
-- left-display result
+```text
+{record 1}
+{record 2}
+{record 3}
+```
+
+This allows the pipeline to:
+
+- write results incrementally
+- avoid keeping a complete video result in memory
+- preserve already written results during long processing
+- support future real-time processing more naturally
+
+The JSONL file is primarily a compact structured log for debugging, validation, and future integration.
+
+---
+
+# 4. Compact Output Principle
+
+Do not write a complete copy of the same UI state for every frame.
+
+For example, avoid:
+
+```text
+frame 100 → Train Running Number = 128
+frame 101 → Train Running Number = 128
+frame 102 → Train Running Number = 128
+frame 103 → Train Running Number = 128
+```
+
+when nothing meaningful changed.
+
+Write a new record when important information changes or when a new UI state needs to be represented.
+
+Important changes include:
+
+- screen/state change
+- title change
+- field value change
+- button appearance/disappearance
+- icon change
+- important layout change
+
+Small coordinate jitter alone should not create unnecessary JSONL records.
+
+This is output compaction, not the future backend publication policy.
+
+---
+
+# 5. Record Types
+
+Keep the number of record types small.
+
+Recommended types are:
+
+```text
+session_start
+snapshot
+update
+session_end
+```
+
+---
+
+## 5.1 Session Start
+
+The first record describes the input.
 
 Example:
 
 ```json
 {
-  "frame_index": 120,
-  "timestamp": 4.0,
-  "right_display": {},
-  "left_display": {}
+  "type": "session_start",
+  "source": "train_numbers.mp4",
+  "width": 2304,
+  "height": 1728,
+  "fps": 10.0
 }
 ```
 
-Each display result includes nullable display geometry. Geometry uses the
-original-frame coordinates defined below.
+---
+
+## 5.2 Snapshot
+
+A `snapshot` contains the current relevant DMI state.
+
+Use it when:
+
+- processing begins
+- the active screen changes
+- the UI layout changes significantly
+- a complete current state is useful
+
+Example:
+
+```json
+{
+  "type": "snapshot",
+  "frame": 120,
+  "timestamp": 12.0,
+  "right_display": {
+    "state": "Train Running Number",
+    "title": "Train running number",
+    "field": {
+      "value": "128"
+    },
+    "buttons": {
+      "digit_1": [1210, 650],
+      "digit_2": [1350, 650],
+      "digit_3": [1490, 650],
+      "close": [1160, 940]
+    }
+  }
+}
+```
+
+For compact output, button values may contain only their center coordinates unless additional geometry is useful.
 
 ---
 
-## 4. Coordinate System
+## 5.3 Update
 
-All final coordinates must refer to the **original input video frame**.
+An `update` contains only information that changed from the previous stable state.
 
-Internal processing may:
+Example:
 
-- resize
-- crop
-- rectify
-- warp
-- transform
+```json
+{
+  "type": "update",
+  "frame": 245,
+  "timestamp": 24.5,
+  "right_display": {
+    "field": {
+      "value": "12"
+    }
+  }
+}
+```
 
-but reported coordinates must be mapped correctly back to the original frame.
+Another example:
 
-Use:
+```json
+{
+  "type": "update",
+  "frame": 380,
+  "timestamp": 38.0,
+  "right_display": {
+    "state": "Train Data",
+    "train_type": "Lambda"
+  }
+}
+```
+
+Do not repeat unchanged information unnecessarily.
+
+---
+
+## 5.4 Session End
+
+The last record may summarize the processing run.
+
+Example:
+
+```json
+{
+  "type": "session_end",
+  "processed_frames": 2400,
+  "duration_seconds": 240.0,
+  "processing_seconds": 310.4
+}
+```
+
+Additional performance information may be included when useful.
+
+---
+
+# 6. Coordinate System
+
+All coordinates in final structured output must refer to the **original input frame**.
+
+Internal processing may use:
+
+- crops
+- resized images
+- rectified displays
+- perspective transforms
+
+but final coordinates must be mapped back to original-frame coordinates.
+
+For a center point use:
 
 ```text
 [x, y]
 ```
 
-for points.
-
-For rectangular regions use:
+For a rectangular region use:
 
 ```text
 [x1, y1, x2, y2]
@@ -109,525 +248,315 @@ where:
 - `x1`, `y1` = top-left
 - `x2`, `y2` = bottom-right
 
-Coordinates should use pixels unless explicitly changed later.
-
-When a visible UI region is rotated or affected by perspective, also report
-its four detected corners in clockwise order starting at the top-left. The
-axis-aligned `bbox` remains available for rectangular-region consumers, while
-`corners` is the authoritative geometry for visual alignment.
-
 ---
 
-## 5. Right Display
+# 7. Right Display Output
 
-A typical right-display result should contain:
+Depending on the active screen, relevant information may include:
 
 ```json
 {
-  "geometry": {},
-  "state": "Driver ID",
-  "visibility": "clear",
-  "title": {},
-  "buttons": {},
-  "data_field": {}
+  "state": "Train Data",
+  "title": "Train data",
+  "fields": {},
+  "buttons": {}
 }
 ```
 
-### Display Geometry
+Known V2 states include those defined in `docs/UI_SPEC.md`.
 
-When a display is localized reliably:
+For an unknown screen:
 
 ```json
-"geometry": {
-  "corners": [[1020, 180], [1640, 195], [1610, 1450], [990, 1435]],
-  "oriented_box": [[1000, 175], [1640, 190], [1610, 1450], [970, 1435]],
-  "bbox": [990, 180, 1640, 1450],
-  "center": [1315, 815]
+{
+  "state": "unknown"
 }
 ```
 
-Corners are ordered clockwise starting at the top-left corner:
-
-```text
-top-left → top-right → bottom-right → bottom-left
-```
-
-`corners` describes the perspective quadrilateral used for rectification.
-`oriented_box` is a detected minimum-area rectangle around the display. It is
-used for annotation, follows the display's rotation, and has perpendicular
-adjacent edges. `bbox` is the axis-aligned union of both reported outlines
-(`corners` and `oriented_box`) for rectangular-region consumers. Internal
-segmentation bounds used by tracking are not the serialized display bounds.
-
-If a display cannot be localized reliably:
-
-```json
-"geometry": null
-```
-
-### State
-
-Known examples:
-
-```json
-"state": "Main"
-```
-
-```json
-"state": "Driver ID"
-```
-
-```json
-"state": "Level"
-```
-
-For an unrecognized screen:
-
-```json
-"state": "unknown"
-```
-
-An unknown state must not prevent other visible elements from being reported.
-
-During confirmation of a different recognized screen, `state` is `unknown`.
-Regions come from the current frame, with neutral `button_N` identities,
-`title.text: null`, and `data_field.value: null` until the state is confirmed.
-The old screen's geometry and field are not replayed. A short unclassified
-observation may retain the last confirmed state label, but still uses current,
-neutral region detections. Once a different known-screen candidate has appeared,
-intervening uncertain frames cannot flash the previous state label again.
-
-A clearly localized light field on an unknown screen is preserved with
-`value: null`; no field meaning or text is inferred from the previous state.
+Unknown state must not prevent detected elements from being reported.
 
 ---
 
-## 6. Title
+## 7.1 Titles
 
-When a title is detected:
+Store the recognized title text when required.
+
+Example:
 
 ```json
-"title": {
-  "text": "Driver ID",
-  "corners": [[1020, 180], [1450, 190], [1445, 260], [1015, 250]],
-  "bbox": [1020, 180, 1450, 260]
-}
+"title": "Train running number"
 ```
 
-If no reliable title is available:
+If the title cannot be read reliably:
 
 ```json
 "title": null
 ```
 
-If the title region is reliable but its text is not, preserve the localized
-region and return `"text": null`.
-
-Do not fabricate OCR text.
-
 ---
 
-## 7. Buttons
+## 7.2 Fields
 
-Buttons should be reported using stable logical labels when their identity is known.
+Only fields required by `docs/UI_SPEC.md` need to be included.
 
 Example:
 
 ```json
-"buttons": {
-  "button_1": {
-    "corners": [[1100, 410], [1220, 414], [1218, 484], [1098, 480]],
-    "bbox": [1100, 410, 1220, 480],
-    "center": [1160, 445]
-  },
-  "button_2": {
-    "bbox": [1240, 410, 1360, 480],
-    "center": [1300, 445]
+"fields": {
+  "train_type": {
+    "value": "Gamma"
   }
 }
 ```
 
-The center point is an important required output.
-
-For unknown/new screens, buttons may still be reported even if their semantic identity is not known.
-
-Use neutral labels such as:
-
-```text
-button_1
-button_2
-button_3
-```
-
-Do not invent semantic names.
-
-If no buttons are detected:
+Train Running Number:
 
 ```json
-"buttons": {}
-```
-
----
-
-## 8. Data Field
-
-When a recognized data field is present:
-
-```json
-"data_field": {
-  "corners": [[1060, 520], [1400, 526], [1398, 656], [1058, 650]],
-  "bbox": [1060, 520, 1400, 650],
-  "value": "12"
+"fields": {
+  "train_running_number": {
+    "value": "128"
+  }
 }
 ```
 
-Another example:
+Validate Train Data:
 
 ```json
-"data_field": {
-  "bbox": [1060, 520, 1400, 650],
-  "value": "LEVEL 2"
+"fields": {
+  "validation": {
+    "value": "Yes"
+  }
 }
 ```
 
-If no data field exists or it cannot be identified reliably:
-
-```json
-"data_field": null
-```
-
-Do not fabricate values.
-
-For an unchanged recognized screen with a localized data field, temporal
-processing may retain the last value for up to three consecutive unreadable
-observations. The fourth returns `value: null`. A missing field clears its
-value history; loss of right-display geometry clears all right-display history
-immediately. Reacquisition starts from current evidence. These limits count
-processed frames, not wall-clock time. After a screen-state change, the initial
-field value must have consistent support throughout state confirmation;
-otherwise it stays `null` until normal numeric confirmation succeeds. This
-prevents one noisy observation from becoming a retained value on a new screen.
+Field geometry may also be included when useful for debugging or downstream use.
 
 ---
 
-## 9. Left Display
+## 7.3 Buttons
 
-The left-display result should contain:
+Buttons should use stable logical names when known.
 
-- the 22 logical boxes
-- icon association for each box
-- analog speed indicator
+The compact default representation should prioritize the center point:
 
-Example:
+```json
+"buttons": {
+  "gamma": [1200, 610],
+  "lambda": [1450, 610],
+  "close": [1130, 930],
+  "enter_data": [1480, 930]
+}
+```
+
+If full geometry is required later, it may be represented as:
+
+```json
+"gamma": {
+  "center": [1200, 610],
+  "bbox": [1100, 560, 1300, 660]
+}
+```
+
+Do not invent semantic button names on unknown screens.
+
+---
+
+# 8. Left Display Output
+
+For V1-style left-display layouts, relevant output may include:
+
+- logical box IDs
+- box centers
+- icon associations
+- speed indicator
+
+Compact example:
 
 ```json
 "left_display": {
-  "geometry": {},
-  "boxes": {},
-  "speed_indicator": {}
+  "boxes": {
+    "box_1": {
+      "center": [320, 410],
+      "icon": null
+    },
+    "box_2": {
+      "center": [470, 410],
+      "icon": "level1_icon"
+    }
+  }
 }
 ```
+
+During Train Data workflows, only the required elements defined in `docs/UI_SPEC.md` should be reported.
+
+Do not force the 22-box representation onto a different left-display layout.
 
 ---
 
-## 10. Left-Side Boxes
+# 9. Icons
 
-Use stable identities:
-
-```text
-box_1
-box_2
-...
-box_22
-```
-
-Each box should contain at least:
-
-- bounding box
-- center point
-- icon state
-
-Example:
+When an icon is confidently identified:
 
 ```json
-"box_5": {
-  "bbox": [400, 250, 520, 340],
-  "center": [460, 295],
-  "icon": "level1_icon"
-}
+"icon": "level1_icon"
 ```
 
-For an empty box:
-
-```json
-"box_5": {
-  "bbox": [400, 250, 520, 340],
-  "center": [460, 295],
-  "icon": null
-}
-```
-
-Box identities must remain consistent across frames. The physical mapping is
-defined in `UI_SPEC.md` §5.1. Each detected box also includes authoritative
-perspective `corners`; the `bbox` encloses those corners. Left-region corners
-and centers retain two decimal places in original-frame pixels. The center is
-the rectified region center mapped back through the display transform.
-
-Icon recognition searches each detected box for the supplied level assets.
-`icon` is `level0_icon`, `level1_icon`, or `level2_icon` when supported by
-a sufficiently distinct full-shape match. `icon: null` means no known icon
-was confidently recognized: the box may be empty, contain an unsupported
-symbol, or have ambiguous/blurred evidence. It is not proof of emptiness.
-Recognition uses the current frame; it does not retain an earlier icon after
-the evidence disappears. Multiple accepted candidates within one box also
-return `null`, because the schema holds only one identity per box.
-A box without reliable current or short-term tracked geometry is omitted from
-`boxes`; a completely unsupported layout returns an empty collection.
-
----
-
-## 11. Speed Indicator
-
-At minimum report its location. The speed indicator uses the same `corners`,
-`bbox`, and `center` conventions as left-side boxes, and is `null` when its
-panel cannot be localized reliably. Its panel extent is defined in `UI_SPEC.md`.
-
-Example:
-
-```json
-"speed_indicator": {
-  "bbox": [300, 620, 480, 800],
-  "center": [390, 710]
-}
-```
-
-If interpretation of the analog value is added later, it may be added without changing the rest of the output structure.
-
----
-
-## 12. Unknown and Missing Values
-
-Use explicit `null` values when information is expected but cannot be determined reliably.
-
-Examples:
-
-```json
-"title": null
-```
-
-```json
-"data_field": null
-```
+When no supported icon is present:
 
 ```json
 "icon": null
 ```
 
-Use empty collections when the relevant collection exists but contains no detected elements:
+Icon labels should come from the supported asset set under:
+
+`data/icons/`
+
+---
+
+# 10. Unknown and Missing Values
+
+Use `null` when information exists conceptually but cannot be determined reliably.
+
+Example:
+
+```json
+"value": null
+```
+
+Use an empty collection when no elements of that type are detected:
 
 ```json
 "buttons": {}
 ```
 
-Do not use guessed values merely to make the output complete.
+Do not fabricate values only to keep the JSON complete.
 
 ---
 
-## 13. Optional Confidence
+# 11. Geometry and Small Jitter
 
-Confidence values may be maintained internally when useful.
+Internal detections may vary slightly between frames.
 
-They should only be exposed in the final JSON if they provide clear value.
+For example:
 
-Avoid making the output unnecessarily complex.
-
-If confidence is included later, use a consistent range and document it here.
-
----
-
-## 14. Video-Level JSON
-
-A complete video output may use a structure such as:
-
-```json
-{
-  "video": "driver_id_12.mp4",
-  "frames": [
-    {
-      "frame_index": 0,
-      "timestamp": 0.0,
-      "right_display": {
-        "geometry": {
-          "corners": [[1020, 180], [1640, 195], [1610, 1450], [990, 1435]],
-          "oriented_box": [[1000, 175], [1640, 190], [1610, 1450], [970, 1435]],
-          "bbox": [990, 180, 1640, 1450],
-          "center": [1315, 815]
-        },
-        "state": "Driver ID",
-        "title": {
-          "text": "Driver ID",
-          "bbox": [1020, 180, 1450, 260]
-        },
-        "buttons": {},
-        "data_field": {
-          "bbox": [1060, 520, 1400, 650],
-          "value": "12"
-        }
-      },
-      "left_display": {
-        "geometry": {
-          "corners": [[200, 150], [850, 175], [820, 1460], [180, 1430]],
-          "oriented_box": [[190, 145], [850, 170], [820, 1460], [160, 1435]],
-          "bbox": [180, 150, 850, 1460],
-          "center": [513, 804]
-        },
-        "boxes": {},
-        "speed_indicator": null
-      }
-    }
-  ]
-}
+```text
+[1200, 600]
+[1202, 599]
+[1199, 602]
 ```
 
-The examples above illustrate fields; emitted regions also contain the required
-`corners`, `bbox`, and `center`. Display geometry additionally contains
-`oriented_box`; the right display always includes `visibility`.
+Such small movement should not automatically create separate compact JSONL records.
 
-Video output uses contiguous integer frame indices starting at zero and finite
-nonnegative timestamps rounded to six decimals from index/source FPS. JSON
-contains no NaN or Infinity. `dmi.validation.validate_results` checks these
-contracts, region geometry and missing/occluded-display consistency without
-claiming recognition accuracy.
+The compact logger may use reasonable geometric tolerance when deciding whether the structured state meaningfully changed.
+
+Full-precision detections should remain available internally for annotation and debugging.
+
+Exact compaction tolerances should be validated in `docs/EVALUATION.md`.
 
 ---
 
-## 15. Annotated Output
+# 12. Optional Verbose Debug Mode
 
-Annotated video or frames must represent the same detections stored in the structured result.
+When detailed investigation is required, an optional mode may save per-frame structured output.
 
-Do not draw visual boxes that are not represented in the corresponding structured output.
+Example:
 
-Annotations may show:
+```text
+train_numbers_debug.jsonl
+```
 
-- display regions
-- screen state
-- titles
-- data fields
+Verbose mode may contain:
+
+- every processed frame
+- full bounding boxes
+- detection confidence/evidence
+- intermediate geometry
+- OCR observations
+- timing information
+
+This should not be the default output because it may become very large.
+
+---
+
+# 13. Annotated Video
+
+The annotated video should represent the detections used by the structured output.
+
+Depending on the active UI state, annotations may show:
+
+- display boundaries
+- title
+- fields and OCR values
 - buttons
-- center points
-- left-side boxes
+- button centers
+- left-display boxes
 - icons
 - speed indicator
 
-Keep overlays readable and useful for user review.
+The annotated video may contain per-frame geometry even when the compact JSONL does not store every small geometric change.
+
+Keep annotations readable.
 
 ---
 
-## 16. Output Consistency
+# 14. Incremental Writing
 
-For the same logical element across frames:
+JSONL records should be written while processing is running.
 
-- labels should remain stable
-- coordinate conventions must remain unchanged
-- JSON structure should remain consistent
-- unknown values should use the same representation
+Do not wait until the complete video has finished before writing all structured output.
 
-Do not change field names or coordinate conventions casually during development.
+Long-running processing should also show visible progress, for example:
 
-If the output format changes, update this document and any related evaluation code.
-
----
-
-## 17. Core Rule
-
-The structured output must describe what the pipeline actually detected.
-
-It must never contain hardcoded or fabricated information simply to match an expected result.
-
-### Right-display visibility and title OCR
-
-`visibility` is `clear`, `occluded`, or `unknown` (display unavailable).
-`clear` means the appearance gate found no qualifying obstruction; it is not a
-certification that the image is completely unobstructed. On `occluded`, state
-is `unknown`, title/data_field are null and buttons are empty. Outer display
-geometry remains available; the overlay explicitly says detection is paused.
-The unaffected left display continues processing.
-
-The obstruction gate is checked on every frame. It clears right recognition
-and region history immediately; the first clear frame is processed afresh,
-without a fixed cooldown or reuse of pre-occlusion geometry/values.
-
-`title.text` now contains confident OCR text rather than a label inferred from
-layout. Supported exact title words (case/whitespace normalized) select known
-layouts. Unsupported readable titles remain text with unknown state and only
-generic supported regions; unreadable titles do not select a known button
-layout. Pending-state semantics can still suppress title text temporarily.
-
-### Live webcam execution (Phase 11)
-
-```sh
-python scripts/run_webcam.py --camera 0
+```text
+Processing: 1240 / 2400 frames
+Elapsed: 02:43
+Processing FPS: 7.6
 ```
 
-The default camera index is 0, so `python scripts/run_webcam.py` also works.
-The preview shows the same full-resolution detections used in the results.
-Press Q, Escape, close the preview window, or press Ctrl-C to stop. Use
-`--no-preview` for a headless run and `--max-frames N` for a bounded number of
-**processed** frames. The existing Python/OpenCV/NumPy/Tesseract dependencies
-apply; the window additionally requires a GUI-enabled OpenCV installation and
-a desktop session. Grant camera access to the terminal/Python application if
-the operating system requests it.
+Progress reporting should not significantly slow the pipeline.
 
-Each run creates `outputs/webcam_<camera>_<timestamp>/`, containing:
+---
 
-- `results.jsonl`: an incrementally flushed, line-delimited JSON stream;
-- `last_annotated.png`: the last successfully processed annotated frame, saved
-  on exit (including handled failures, when at least one result exists).
+# 15. Future Backend Use
 
-`--output-dir PATH` selects an exact directory. Existing session outputs are
-never overwritten. Live sessions do not accumulate all results in memory or
-encode a constant-FPS video that would misrepresent irregular processing times.
-Recorded-video JSON/MP4 output is unchanged.
+The V2 JSONL format is not itself the final backend communication protocol.
 
-JSONL has a `session` record, one `frame` record per processed image, then a
-`summary`. The frame record's `result` uses the existing frame/display schema.
-Other fields are `capture_index`, `skipped_frames`, `frame_size` (width, height),
-`processing_seconds`, `receipt_to_result_seconds`, and `temporal_reset`.
-`frame_index` counts processed results, starting at zero. `capture_index` counts
-frames successfully read by the acquisition worker. `skipped_frames` counts
-worker-read frames bypassed before that result, including before the first
-result; it cannot measure sensor/driver drops or unread frames after stopping.
+However, its state representation should be designed so the same compact detection result can later be passed to a real-time publisher.
 
-`timestamp` is monotonic elapsed receipt time relative to the first processed
-frame, rounded to six decimals. It is **not** frame index divided by nominal
-camera FPS, a wall-clock date, or a sensor exposure timestamp. Receipt-to-result
-latency includes processing/annotation, but excludes hidden driver buffering,
-JSON writes and GUI display. `validate_results(frames, None)` checks live result
-geometry/contracts with nondecreasing receipt timestamps; video callers keep
-passing source FPS.
+Conceptually:
 
-The summary reports processed/skipped counts, elapsed and processing seconds,
-`stop_reason` (`max_frames`, `preview_closed`, `interrupted`, or `error`) and an
-optional error message. Completed records remain available after handled
-failures; absent summary or an incomplete final line indicates an abruptly
-terminated session. A failure is not reported as a successful capture.
+```text
+Detection
+    ↓
+Temporal stabilization
+    ↓
+Structured DMI state
+   / \
+JSONL  Future backend publisher
+```
 
-`--width W --height H` requests a camera resolution; hardware may choose another
-size, and each result records the actual dimensions. `--timeout S` bounds waits
-for camera frames (default 5 seconds). The worker holds at most one pending
-frame, replacing it with newer input while inference runs. A stopped/disconnected
-camera causes an explicit error; it never replays the previous frame as fresh.
-Some native camera backends can block inside open/read beyond this timeout;
-shutdown warns if the worker has not returned, and exiting the process releases
-the device. Driver behavior still needs physical-camera validation. See the
-[OpenCV video I/O property documentation](https://docs.opencv.org/4.12.0/d4/d15/group__videoio__flags__base.html)
-for backend-dependent camera properties and read timeout support.
+Do not couple detection logic directly to network communication.
 
-Both input paths use `dmi.pipeline.FrameProcessor`. Live sessions clear all
-geometry/recognition history after a frame-size change or a receipt gap above
-`--max-gap-seconds` (default 1 second, a configurable conservative guard rather
-than a measured recognition threshold). Video timestamps and temporal behavior
-remain unchanged for the existing fixed-size recordings. The existing 5/15/3
-confirmation/retention limits still count **processed observations**, so their
-wall-clock delays increase when processing is slow. No real-time recognition
-latency or accuracy on skipped-frame streams is claimed without camera testing.
+---
+
+# 16. Output Consistency
+
+Across the project:
+
+- use stable state names
+- use stable button names
+- use stable field names
+- keep coordinate conventions unchanged
+- use `null` consistently
+- avoid unnecessary duplicate records
+- keep JSONL valid even if processing stops before the video ends
+
+Any intentional schema change must also update this document.
+
+---
+
+## Core Rule
+
+The default V2 output should provide the **important stable information from the DMI without reproducing the complete detection state for every frame**.
+
+Keep detailed frame-level information available only when it is genuinely useful for debugging or evaluation.

@@ -1,121 +1,245 @@
-# AGENTS.md — DMI Video Screen Understanding
+# AGENTS.md — DMI Detection V2
 
 ## Mission
 
-Build a reliable video-processing pipeline that understands the physical two-display interface shown in the recorded webcam videos.
+Develop Version 2 of the DMI video-processing pipeline.
 
-The current videos under `data/videos/dev/` represent the same kind of input the final system must process.
+V1 is the working baseline. V2 should improve it without unnecessarily rebuilding functionality that already works.
 
-Recorded-video processing comes first. The same core pipeline should later support live webcam frames without requiring a redesign.
+Main V2 goals:
 
-Priority order:
+- faster and lighter processing
+- compact and useful JSON output
+- support for additional right-display screens
+- support for additional icon assets
+- stronger temporal stability
+- maintain or improve detection accuracy
 
-1. correctness
-2. geometry and detection accuracy
-3. recognition and OCR accuracy
-4. temporal stability
-5. maintainability
-6. performance
-
----
-
-## Documentation
-
-Keep this file short.
-
-Detailed project knowledge belongs in:
-
-- `docs/PROJECT.md` — project goals, inputs, scope, constraints
-- `docs/UI_SPEC.md` — displays, UI states, elements, geometry, temporal behavior
-- `docs/OUTPUT_SPEC.md` — JSON structure and coordinate conventions
-- `docs/EVALUATION.md` — references, metrics, testing, regression rules
-- `docs/WORKFLOW.md` — development phases and phase gates
-- `docs/STATE.md` — current verified implementation state
-
-When continuing existing work, read `docs/STATE.md` first.
-
-Read only the other documentation relevant to the current task. Do not load every document unnecessarily.
+The final target remains reliable real-time webcam processing.
 
 ---
 
-## Input Data
+## Documentation Routing
 
-Original project data is under `data/`.
+Always read:
 
-Current development videos:
+- `docs/STATE.md` — current phase and verified progress
+- the corresponding phase in `docs/WORKFLOW.md`
+
+Read only when relevant:
+
+- `docs/PROJECT.md` — V2 goals and constraints
+- `docs/UI_SPEC.md` — screens, UI elements, icons and temporal behavior
+- `docs/OUTPUT_SPEC.md` — compact JSON and output conventions
+- `docs/EVALUATION.md` — accuracy, stability and performance validation
+
+Do not load every document unnecessarily.
+
+---
+
+## Development Videos
+
+Development videos are stored under:
 
 `data/videos/dev/`
 
-Visual examples:
+V2 adds these new inputs:
 
-`data/reference/overlays/`
+- `train_data_gamma.mp4` — train-data input screens
+- `validate_train_data.mp4` — train-data confirmation/validation screens
+- `train_numbers.mp4` — train-number input screen with values such as `1`, `12`, and `128`
 
-Known icon assets:
+The pipeline must detect and annotate the relevant buttons, fields, and OCR values in these videos.
+
+Detailed screen behavior and expected elements are defined in `docs/UI_SPEC.md`.
+
+Do not modify the original videos or hardcode behavior from their filenames.
+
+---
+
+## V1 as Baseline
+
+Treat the existing V1 implementation as a verified baseline, not disposable code.
+
+Before changing existing behavior:
+
+1. understand how the current implementation works
+2. identify the measured problem
+3. make the smallest justified improvement
+4. compare V2 against the V1 behavior
+5. check for regressions
+
+Do not rewrite working components only to make the architecture look different.
+
+---
+
+## V2 Priorities
+
+Use this general priority:
+
+```text
+correctness
+↓
+stability
+↓
+speed and efficiency
+↓
+maintainability
+```
+
+Performance improvements must not introduce important detection regressions.
+
+At the same time, avoid unnecessarily expensive processing when a lighter method provides equivalent results.
+
+---
+
+## Compact JSON
+
+The default output should contain the useful information needed by downstream users without repeating large amounts of unchanged frame-level data.
+
+Important information includes:
+
+- screen/state changes
+- titles
+- buttons and their center points
+- fields and their values
+- left-display boxes
+- icon identities and associations
+- relevant geometry
+- important timestamps or frame ranges
+
+Avoid storing identical full detection results for every frame when nothing has changed.
+
+Prefer summarized, change-based, or interval-based representation where appropriate.
+
+Detailed per-frame information may remain available as an optional debug output if useful.
+
+The exact format belongs in `docs/OUTPUT_SPEC.md`.
+
+---
+
+## Long Video Processing
+
+Long videos must provide visible progress.
+
+Do not keep all results only in memory until the entire video finishes.
+
+Where practical:
+
+- write output incrementally
+- report processing progress
+- preserve already completed results if processing stops unexpectedly
+- avoid unnecessary accumulation of per-frame data in memory
+
+A user should be able to tell that a long video is actively being processed.
+
+---
+
+## New Right-Display Screens
+
+V2 adds support for additional known screens, including:
+
+- `Train Running Number`
+- `Train Data`
+
+New reference images may be stored under:
+
+`data/reference/`
+
+Use them to understand the visual structure of the new screens.
+
+They are references, not fixed coordinate templates.
+
+Detection must continue to support unknown/new screens as defined in `docs/UI_SPEC.md`.
+
+Do not design screen detection so that adding another screen requires rewriting the complete pipeline.
+
+---
+
+## Icons
+
+Additional icon assets may be added under:
 
 `data/icons/`
 
-Do not modify original input assets.
+Icon recognition should be driven by the available asset set where practical.
 
-Visual overlays are references only. They are not automatically numerical ground truth.
+Adding a new supported icon should require minimal changes to the detection logic.
 
-Do not fabricate annotation files or verified coordinates when ground truth does not exist.
-
-Pipeline predictions must never automatically become ground truth.
+Do not hardcode icon results for specific videos, frames, or boxes.
 
 ---
 
-## Understand Before Implementing
+## Temporal Stability
 
-Do not assume a predefined:
+V2 should reduce visible shaking and unnecessary frame-to-frame variation.
 
-- detection method
-- alignment method
-- tracking method
-- OCR method
-- stabilization method
-- bounding-box strategy
+Improve stability of:
 
-Inspect the actual videos, interface behavior, visual references, and assets before choosing an approach.
+- display geometry
+- UI boxes
+- button borders
+- center points
+- fields
+- OCR values
+- state recognition
+- icon detection
 
-Base implementation decisions on observed data and measured results.
+Temporal smoothing must not hide genuine movement or UI changes.
 
-Different parts of the interface may use different techniques when justified.
-
-Prefer the simplest solution that provides equivalent reliability.
+Fix incorrect single-frame detection before attempting to hide it with smoothing.
 
 ---
 
-## No Video-Specific Hardcoding
+## Performance
 
-Do not hardcode production behavior only to make the current videos or reference images pass.
+Performance is a core V2 requirement.
 
-Do not embed:
+Measure where processing time is spent before optimizing.
 
-- known OCR answers
-- frame-specific expected coordinates
-- results based on video filenames
-- manually encoded icon assignments
-- special cases that exist only for one known reference frame
+Avoid unnecessary work such as:
 
-Reference material is for understanding and evaluation, not for bypassing detection.
+- repeating expensive detection when the scene has not meaningfully changed
+- repeated image transformations
+- repeated OCR without new evidence
+- repeated icon recognition on unchanged regions
+- unnecessary copies or conversions
+- processing data that is not needed for the final output
 
-When numerical ground truth is incomplete or unavailable, evaluation may also include visual inspection of generated annotated videos or frames. In these cases, ask the user to review the output and provide feedback on alignment, detections, OCR, labels, or other visible issues.
+Reuse reliable information across frames when justified.
 
-Treat this user feedback as evaluation evidence, not as permission to hardcode fixes for individual frames or videos.
+Do not assume an optimization is faster; measure it.
+
+Performance results belong in `docs/EVALUATION.md`.
 
 ---
 
 ## Frame-Source Independence
 
-Keep frame acquisition separate from screen-understanding logic.
+Core detection logic must remain independent from frame acquisition.
 
-Core processing should operate on image frames regardless of whether they come from:
+The same processing components should support:
 
-- a prerecorded video
-- another future video
-- a live webcam
+- recorded video
+- live webcam
 
-Do not tightly couple detection logic to the current MP4 files.
+Do not create separate detection implementations for video and webcam.
+
+---
+
+## No Video-Specific Hardcoding
+
+Do not embed:
+
+- known OCR answers
+- coordinates copied from a reference frame
+- results based on video filenames
+- manually assigned icon results
+- special cases created only for one known video
+
+Reference material is for understanding and evaluation.
+
+Fix general causes rather than individual examples.
 
 ---
 
@@ -125,221 +249,123 @@ Production code belongs under:
 
 `src/dmi/`
 
-Scripts under `scripts/` are entry points and utilities.
+Organize related modules into a small number of clear subpackages based on responsibility.
 
-Current intended entry points are:
+Recommended structure:
 
-- `scripts/run_video.py`
-- `scripts/evaluate.py`
-- `scripts/benchmark.py`
+```text
+src/dmi/
+├── __init__.py
+├── pipeline/
+│   ├── frame_processor.py
+│   └── orchestration.py
+├── detection/
+│   ├── display_geometry.py
+│   ├── left_display.py
+│   ├── right_display.py
+│   ├── right_layout.py
+│   ├── icons.py
+│   └── ocr.py
+├── temporal/
+│   ├── smoothing.py
+│   └── state_tracking.py
+├── output/
+│   ├── json_writer.py
+│   ├── summary_builder.py
+│   └── annotation.py
+├── io/
+│   ├── video_reader.py
+│   ├── webcam_reader.py
+│   └── video_writer.py
+└── utils/
+    ├── geometry.py
+    ├── image_ops.py
+    └── timing.py
+```
 
-Keep these scripts focused on orchestration. Do not place the full computer-vision implementation inside them.
+Use this structure as guidance, not as a requirement to create every file immediately.
+Create or move modules only when their responsibility clearly belongs to one of these areas.
 
-`src/dmi/pipeline.py` should coordinate the main processing flow. It must not become a monolithic implementation containing the entire project.
+Keep:
 
-Split substantial responsibilities into focused modules when needed.
+- pipeline/ for orchestration and frame processing
+- detection/ for computer-vision, OCR, screen, layout and icon detection
+- temporal/ for smoothing, tracking and frame-to-frame state
+- output/ for compact JSON, annotations and output generation
+- io/ for video and webcam input/output
+- utils/ only for genuinely shared helpers
 
-Possible responsibilities may include:
+Avoid:
 
-- geometry
-- right-display processing
-- left-display processing
-- OCR
-- temporal logic
-- output formatting
-- visualization
+- keeping all production files directly under src/dmi/ as the project grows
+- deep directory hierarchies
+- unnecessary subpackages
+- dozens of tiny files
+- duplicated V1/V2 implementations
+- files named new, final, v2_final, or similar
 
-These are examples, not required filenames or required architectural choices.
-
----
-
-## Avoid Monolithic Files
-
-Prefer a small number of cohesive Python modules.
-
-Do not put thousands of lines of unrelated logic into one file.
-
-As a guideline:
-
-- when a production file approaches roughly 400–500 lines, reconsider whether it contains multiple responsibilities
-- files substantially above roughly 700 lines should have a clear justification
-- do not split code only to satisfy a line-count target
-
-Avoid the opposite extreme as well: do not create dozens of tiny files or unnecessary abstraction layers.
-
-Use Git history instead of keeping files such as:
-
-- `detector_v2.py`
-- `pipeline_new.py`
-- `final_fixed.py`
-
----
-
-## Development Style
-
-Work incrementally.
-
-For each substantial step:
-
-1. inspect the relevant data
-2. understand the requirement or failure
-3. implement the smallest coherent change
-4. test representative cases
-5. inspect structured output
-6. inspect visual output when geometry is involved
-7. check previously working behavior
-8. measure performance when relevant
-9. update `docs/STATE.md`
-
-Do not build later stages on top of unreliable earlier stages.
-
-If a solution requires repeated special-case patches, reconsider the underlying design.
+Prefer moving existing working code into the appropriate structure rather than rewriting it unnecessarily.
+Entry-point scripts remain under:
+scripts/
+Scripts should stay lightweight and call the production code under src/dmi/.
 
 ---
 
-## Evaluation and Regression
+## Evaluation
 
-Do not consider a change successful only because:
+Do not consider an improvement successful only because the program runs.
 
-- the program runs
-- one frame looks correct
-- one video works
-- the overlay looks visually good
+Use `docs/EVALUATION.md` to compare:
 
-Use measurable evaluation whenever verified references are available.
+- accuracy
+- temporal stability
+- processing speed
+- regressions
+- output correctness
 
-After significant changes, recheck previously working cases.
+When visual correctness cannot be verified automatically, generate annotated output and ask the user to review it.
 
-Do not accept an improvement for one case that creates larger unexplained regressions elsewhere.
-
-Detailed metrics and acceptance criteria belong in `docs/EVALUATION.md`.
-
----
-
-## Geometry and Uncertainty
-
-Do not assume that screen elements always remain at identical pixel coordinates.
-
-The final system must eventually tolerate reasonable variation in:
-
-- screen position
-- scale
-- camera position
-- small rotation
-- perspective
-- lighting
-
-When reliable information is unavailable, prefer an explicit unknown or `null` result over a fabricated detection.
-
-Do not produce confident:
-
-- text
-- coordinates
-- icons
-- field values
-- UI states
-
-without sufficient evidence.
-
-Detailed geometry and output rules belong in `docs/UI_SPEC.md` and `docs/OUTPUT_SPEC.md`.
-
----
-
-## Generated Outputs
-
-Keep generated results separate from original data.
-
-Do not overwrite files under `data/`.
-
-Generated JSON, annotated videos, debug images, benchmarks, and temporary artifacts should go into dedicated output locations when those outputs are introduced.
-
-Do not allow temporary debugging files to accumulate permanently in the repository.
-
----
-
-## STATE.md
-
-`docs/STATE.md` must remain a concise snapshot of the current verified state.
-
-It should contain only useful continuation context such as:
-
-- current development phase
-- implemented functionality
-- latest verified results
-- known problems
-- important architectural facts
-- next task
-
-Do not use it as a chronological diary.
-
-Replace outdated information rather than continuously appending history.
-
-Git already preserves history.
+User feedback is evaluation evidence, not permission for frame-specific fixes.
 
 ---
 
 ## Documentation Ownership
 
-When project knowledge changes, update the document that owns that information.
+Each document owns its topic.
 
-- project scope → `PROJECT.md`
-- UI behavior → `UI_SPEC.md`
-- output structure → `OUTPUT_SPEC.md`
-- evaluation rules → `EVALUATION.md`
-- development process → `WORKFLOW.md`
-- current progress → `STATE.md`
+Do not duplicate detailed requirements between markdown files.
 
-Avoid duplicating the same rule across multiple documents.
+Update the document responsible for the changed behavior.
 
----
-
-## Performance
-
-The final target is real-time webcam processing.
-
-Keep the pipeline fast and lightweight while preserving correctness and accuracy. Consider computational cost when choosing techniques, avoid unnecessary repeated work, and do not run expensive operations on every frame when an equally reliable lighter approach is possible.
-
-Measure performance rather than assuming an approach is fast. Detailed performance targets belong in `docs/EVALUATION.md`.
+Keep `docs/STATE.md` as a concise technical handoff, not a development diary.
 
 ---
 
 ## Git Workflow
 
-After each completed and verified development phase:
+After completing each phase the user approve is needed, after confirmation you can:
 
-1. review the changes
-2. update `docs/STATE.md`
+1. update `docs/STATE.md`
+2. review the changes
 3. commit with a clear message
-4. push the commit to the remote repository
+4. push to the remote repository
 
-Do not commit or push incomplete, broken, temporary, or unverified work.
-
-If a phase requires visual user validation, commit and push only after the user approves the result or accepts the remaining limitations.
+Do not commit a phase as complete before user visual validation.
 
 ---
 
 ## Definition of Done
 
-A substantial development step is complete only when:
+A V2 phase is complete only when:
 
-- the intended behavior is implemented
-- relevant checks pass
-- representative input has been processed
-- geometry is visually inspected when applicable
-- user review is requested when visual correctness cannot be fully verified automatically
-- user feedback is addressed when provided
-- important regressions are checked
-- limitations are reported honestly
-- `docs/STATE.md` is updated when the verified state changes
+- its intended improvement is implemented
+- relevant tests pass
+- representative videos are processed
+- V1 regressions are checked
+- visual output is reviewed when applicable
+- performance is measured when relevant
+- limitations are reported
+- user approval is obtained when required
+- `docs/STATE.md` is updated
 
-Do not declare a task complete only because code was written or automated checks passed.
-
-When user validation is required for a visual result, do not mark the step complete until the user has reviewed and approved the output or explicitly accepted the remaining limitations.
-
----
-
-## Core Rule
-
-The objective is not to demonstrate a particular computer-vision technique.
-
-The objective is to build the most reliable, maintainable, and efficient pipeline possible for understanding the real interface shown in the input videos.
+Do not declare completion only because code was written.
