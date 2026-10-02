@@ -78,6 +78,16 @@ def validate_geometry(frames, side="left"):
     return checked
 
 
+def validation_result(check, allow_invalid=False):
+    """Keep invalid baseline evidence explicit without weakening default checks."""
+    try:
+        return check()
+    except (ValueError, RuntimeError) as exc:
+        if not allow_invalid:
+            raise
+        return {"error": str(exc)}
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--videos", type=Path, default=Path("data/videos/dev"))
@@ -88,8 +98,12 @@ def main():
                         help="process videos without baseline JSON; report comparison as unavailable")
     parser.add_argument("--allow-changes", action="store_true",
                         help="record baseline differences for investigation instead of stopping")
+    parser.add_argument("--allow-invalid", action="store_true",
+                        help="record contract/geometry failures as errors for baseline investigation")
     args = parser.parse_args()
-    report = {}
+    report_path = args.output_dir / "verification.json"
+    report = json.loads(report_path.read_text()) if report_path.exists() else {}
+    processed = 0
     for source in sorted(args.videos.glob("*.mp4")):
         if args.video and source.stem not in args.video:
             continue
@@ -97,6 +111,7 @@ def main():
         if not baseline_path.exists() and not args.allow_new:
             raise FileNotFoundError(f"No approved baseline: {baseline_path}; use --allow-new for new inputs")
         directory = args.output_dir / source.stem
+        print(f"Processing {source.name}", flush=True)
         start = time.perf_counter()
         run = process_video(source, directory)
         elapsed = time.perf_counter() - start
@@ -120,7 +135,7 @@ def main():
             if not found:
                 no_match.append(i)
         report[source.stem] = {
-            "contract": validate_results(frames, run.fps),
+            "contract": validation_result(lambda: validate_results(frames, run.fps), args.allow_invalid),
             "comparison": compare_frames(frames, baseline) if baseline is not None else None,
             "source_declared_frames": run.declared_frames,
             "frames": len(frames), "icon_counts": dict(counts),
@@ -128,17 +143,18 @@ def main():
             "baseline_available": baseline is not None,
             "all_field_changed_frames": all_changed,
             "non_icon_regression_frames": changed,
-            "geometry_regions_checked": validate_geometry(frames),
-            "right_geometry_regions_checked": validate_geometry(frames, "right"),
+            "geometry_regions_checked": validation_result(lambda: validate_geometry(frames), args.allow_invalid),
+            "right_geometry_regions_checked": validation_result(lambda: validate_geometry(frames, "right"), args.allow_invalid),
             "decoded_annotated_frames": inspect_video(directory, frames),
             "annotation_comparison": compare_annotated_videos(
                 directory / "annotated.mp4", args.baseline / source.stem / "annotated.mp4"),
             "end_to_end_seconds": elapsed, "fps": len(frames) / elapsed,
         }
         args.output_dir.mkdir(parents=True, exist_ok=True)
-        (args.output_dir / "verification.json").write_text(json.dumps(report, indent=2) + "\n")
+        report_path.write_text(json.dumps(report, indent=2) + "\n")
+        processed += 1
         print(source.stem, len(frames), dict(counts), "changed frames", len(all_changed) if all_changed is not None else "no baseline", flush=True)
         if all_changed and not args.allow_changes:
             raise RuntimeError(f"Baseline difference: {source}; inspect before accepting")
-    if not report:
+    if not processed:
         raise RuntimeError("No input videos found")
