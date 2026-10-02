@@ -16,6 +16,7 @@ import cv2
 from dmi.io.camera import CapturedFrame
 from dmi.pipeline.live import process_live
 from dmi.evaluation.validation import validate_results
+from dmi.evaluation.compact import validate_compact
 
 
 class RecordedReplay:
@@ -47,18 +48,19 @@ def main():
             raise RuntimeError(f"could not open replay input: {args.input_video}")
         run = process_live(RecordedReplay(capture), args.output_dir,
                            source_info={"kind": "recorded_replay", "video": args.input_video.name},
-                           max_frames=len(baseline['frames']))
+                           max_frames=len(baseline['frames']), debug=True)
         if capture.read()[0]:
             raise RuntimeError("replay source has more frames than the baseline")
     finally:
         capture.release()
-    records = [json.loads(line) for line in run.jsonl_path.read_text().splitlines()]
+    records = [json.loads(line) for line in run.debug_path.read_text().splitlines()]
     frames = [r['result'] for r in records if r['type'] == 'frame']
     changes = [i for i, (frame, old) in enumerate(zip(frames, baseline['frames']))
                if {k: v for k, v in frame.items() if k != 'timestamp'} !=
                   {k: v for k, v in old.items() if k != 'timestamp'}]
     report = {**asdict(run), 'evidence': 'sequential recorded replay, not physical webcam',
               'contract': validate_results(frames, None),
+              'compact': validate_compact(run.jsonl_path, frames),
               'changed_frames_excluding_timestamp': changes,
               'processed_fps': run.processed_frames / run.elapsed_seconds,
               'mean_processing_ms': 1000 * run.processing_seconds / run.processed_frames}

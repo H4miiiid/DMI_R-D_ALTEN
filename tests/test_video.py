@@ -31,10 +31,10 @@ class ProcessVideoTest(unittest.TestCase):
                     self._write_test_video(source)
                     with patch.object(sys, "argv", ["run_video.py", str(source)]):
                         self.assertEqual(run_video.main(), 0)
-                    output = root / "outputs" / name
-                    payload = json.loads((output / f"{name}.json").read_text())
-                    self.assertEqual(payload["video"], source.name)
-                    self.assertEqual(len(payload["frames"]), 6)
+                    output = root / "outputs" / "Version 2" / name
+                    payload = [json.loads(line) for line in (output / f"{name}.jsonl").read_text().splitlines()]
+                    self.assertEqual(payload[0]["source"], source.name)
+                    self.assertEqual(payload[-1]["processed_frames"], 6)
                     capture = cv2.VideoCapture(str(output / f"{name}_annotated.mp4"))
                     count = 0
                     while capture.read()[0]:
@@ -47,7 +47,9 @@ class ProcessVideoTest(unittest.TestCase):
                 self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()}, before)
                 with patch.object(sys, "argv", ["run_video.py", str(source), "--overwrite"]):
                     self.assertEqual(run_video.main(), 0)
-                self.assertEqual({p.name: p.read_bytes() for p in output.iterdir()}, before)
+                after = {p.name: p.read_bytes() for p in output.iterdir()}
+                self.assertEqual(after[f"{source.stem}_annotated.mp4"], before[f"{source.stem}_annotated.mp4"])
+                self.assertEqual(json.loads((output / f"{source.stem}.jsonl").read_text().splitlines()[-1])["processed_frames"], 6)
 
     def test_cli_custom_output_directory_and_missing_input(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -62,7 +64,7 @@ class ProcessVideoTest(unittest.TestCase):
             with patch.object(sys, "argv", args):
                 self.assertEqual(run_video.main(), 0)
             self.assertEqual({p.name for p in output.iterdir()},
-                             {"source.json", "source_annotated.mp4"})
+                             {"source.jsonl", "source_annotated.mp4"})
 
     def test_processes_synthetic_video_end_to_end(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -70,17 +72,20 @@ class ProcessVideoTest(unittest.TestCase):
             source = root / "source.mp4"
             self._write_test_video(source)
 
-            summary = process_video(source, root / "output")
+            summary = process_video(source, root / "output", debug=True)
 
             self.assertEqual(summary.processed_frames, 6)
             self.assertEqual(summary.frame_size, (640, 160))
             self.assertTrue(summary.json_path.is_file())
             self.assertTrue(summary.annotated_video_path.is_file())
 
-            payload = json.loads(summary.json_path.read_text(encoding="utf-8"))
-            self.assertEqual(payload["video"], "source.mp4")
-            self.assertEqual(len(payload["frames"]), 6)
-            self.assertEqual(payload["frames"][5]["timestamp"], 0.5)
+            payload = [json.loads(line) for line in summary.json_path.read_text().splitlines()]
+            self.assertEqual(payload[0]["source"], "source.mp4")
+            self.assertEqual(payload[-1]["processed_frames"], 6)
+            self.assertEqual(payload[-1]["last_timestamp"], 0.5)
+            debug = [json.loads(line) for line in summary.debug_path.read_text().splitlines()]
+            self.assertEqual(len(debug), 6)
+            self.assertEqual(debug[5]["timestamp"], 0.5)
 
             capture = cv2.VideoCapture(str(summary.annotated_video_path))
             decoded_frames = 0
@@ -99,7 +104,7 @@ class ProcessVideoTest(unittest.TestCase):
             with self.assertRaises(FileExistsError):
                 process_video(source, root / "output", max_frames=1)
 
-    def test_failed_processing_preserves_previous_outputs_and_cleans_temporary_files(self):
+    def test_failed_overwrite_preserves_previous_outputs_and_partial_log(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             source = root / "source.mp4"
@@ -110,7 +115,10 @@ class ProcessVideoTest(unittest.TestCase):
             with patch("dmi.pipeline.frame_processor.process_frame", side_effect=RuntimeError("injected failure")):
                 with self.assertRaisesRegex(RuntimeError, "injected failure"):
                     process_video(source, directory, overwrite=True)
-            self.assertEqual({p.name: p.read_bytes() for p in directory.iterdir()}, before)
+            self.assertEqual({name: (directory / name).read_bytes() for name in before}, before)
+            partial = [json.loads(line) for line in (directory / "results.partial.jsonl").read_text().splitlines()]
+            self.assertEqual(partial[-1]["stop_reason"], "error")
+            self.assertEqual(partial[-1]["processed_frames"], 0)
 
     def test_rejects_fractional_and_boolean_frame_limits(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -125,11 +133,14 @@ class ProcessVideoTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory);source = root / "source.mp4"
             self._write_test_video(source)
-            with patch("dmi.pipeline.frame_processor.process_frame", return_value={"timestamp": float('nan')}), \
+            with patch("dmi.pipeline.frame_processor.process_frame", return_value={"frame_index": 0, "timestamp": float('nan')}), \
                     patch("dmi.pipeline.video.annotate_frame", side_effect=lambda image, _: image):
                 with self.assertRaises(ValueError):
                     process_video(source, root / "output")
-            self.assertEqual(list((root / "output").iterdir()), [])
+            self.assertFalse((root / "output/results.jsonl").exists())
+            partial = [json.loads(line) for line in (root / "output/results.partial.jsonl").read_text().splitlines()]
+            self.assertEqual([r["type"] for r in partial], ["session_start", "session_end"])
+            self.assertEqual(partial[-1]["stop_reason"], "error")
 
     def test_source_frame_count_is_informational_and_nonfinite_fps_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -156,6 +167,34 @@ class ProcessVideoTest(unittest.TestCase):
                             self.assertEqual(run.processed_frames, 6)
                             self.assertEqual(run.declared_frames, 7)
                     capture.release()
+
+    def test_incremental_debug_and_compact_logs_survive_second_frame_interrupt(self):
+        from dmi.pipeline.frame_processor import process_frame
+        for exception in (RuntimeError("injected"), KeyboardInterrupt()):
+            with self.subTest(exception=type(exception).__name__), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary); source = root / "source.mp4"
+                self._write_test_video(source)
+                output = root / "output"
+                calls = 0
+                def process(*args, **kwargs):
+                    nonlocal calls
+                    calls += 1
+                    if calls == 2:
+                        records = [json.loads(line) for line in (output / "results.partial.jsonl").read_text().splitlines()]
+                        self.assertEqual([r["type"] for r in records], ["session_start", "snapshot"])
+                        self.assertEqual(len((output / "results_debug.partial.jsonl").read_text().splitlines()), 1)
+                        raise exception
+                    return process_frame(*args, **kwargs)
+                with patch("dmi.pipeline.frame_processor.process_frame", side_effect=process):
+                    with self.assertRaises(type(exception)):
+                        process_video(source, output, debug=True)
+                records = [json.loads(line) for line in (output / "results.partial.jsonl").read_text().splitlines()]
+                self.assertEqual(records[-1]["processed_frames"], 1)
+                self.assertEqual(records[-1]["stop_reason"], "interrupted" if isinstance(exception, KeyboardInterrupt) else "error")
+                before = (output / "results.partial.jsonl").read_bytes()
+                with self.assertRaises(FileExistsError):
+                    process_video(source, output, overwrite=True)
+                self.assertEqual((output / "results.partial.jsonl").read_bytes(), before)
 
     @staticmethod
     def _write_test_video(path: Path) -> None:

@@ -7,16 +7,17 @@ so a live source can later call the same ``process_frame`` function.
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
+from contextlib import ExitStack
 import math
 import os
 from pathlib import Path
-from typing import Any
+import time
 
 import cv2
 
 from dmi.pipeline.frame_processor import FrameProcessor
 from dmi.output.annotation import annotate_frame
+from dmi.output.json_writer import CompactWriter, ProgressReporter, write_record
 
 
 @dataclass(frozen=True)
@@ -28,6 +29,7 @@ class VideoRunSummary:
     fps: float
     frame_size: tuple[int, int]
     declared_frames: int | None = None
+    debug_path: Path | None = None
 
 
 def process_video(
@@ -37,12 +39,13 @@ def process_video(
     overwrite: bool = False,
     max_frames: int | None = None,
     source_named: bool = False,
+    debug: bool = False,
+    geometry_tolerance: float = 5.0,
 ) -> VideoRunSummary:
-    """Process a recorded video into frame JSON and an annotated MP4.
+    """Stream compact JSONL and annotations; retain partial files on failure.
 
-    ``source_named`` uses <stem>.json and <stem>_annotated.mp4, allowing
-    multiple inputs to share a directory. Evaluation callers retain the
-    existing results.json/annotated.mp4 layout by default.
+    Existing completed outputs survive a failed overwrite. A previous partial
+    run must be moved aside (or a fresh directory used) before retrying.
     """
     source = Path(input_path).expanduser().resolve()
     destination = Path(output_dir).expanduser().resolve()
@@ -50,80 +53,86 @@ def process_video(
         raise FileNotFoundError(f"input video does not exist: {source}")
     if max_frames is not None and (type(max_frames) is not int or max_frames <= 0):
         raise ValueError("max_frames must be a positive integer when provided")
-
-    json_path = destination / (f"{source.stem}.json" if source_named else "results.json")
+    if (type(geometry_tolerance) not in (int, float)
+            or not math.isfinite(geometry_tolerance) or geometry_tolerance < 0):
+        raise ValueError("geometry_tolerance must be a finite nonnegative number")
+    stem = source.stem if source_named else "results"
+    json_path = destination / f"{stem}.jsonl"
+    debug_path = destination / f"{stem}_debug.jsonl" if debug else None
     video_path = destination / (f"{source.stem}_annotated.mp4" if source_named else "annotated.mp4")
-    if source in (json_path.resolve(), video_path.resolve()):
+    outputs = [json_path, video_path] + ([debug_path] if debug else [])
+    partials = [path.with_name(f"{path.stem}.partial{path.suffix}") for path in outputs]
+    if source in outputs + partials:
         raise ValueError("output paths must not replace the input video")
-    if not overwrite:
-        existing = [path for path in (json_path, video_path) if path.exists()]
-        if existing:
-            names = ", ".join(str(path) for path in existing)
-            raise FileExistsError(f"refusing to overwrite existing output: {names}")
-
+    collisions = [path for path in partials + ([] if overwrite else outputs) if path.exists()]
+    if collisions:
+        raise FileExistsError(f"refusing to overwrite existing output: {collisions}")
     destination.mkdir(parents=True, exist_ok=True)
-    temporary_json = destination / f".{json_path.stem}.tmp.json"
-    temporary_video = destination / f".{video_path.stem}.tmp.mp4"
-
     capture = cv2.VideoCapture(str(source))
     if not capture.isOpened():
+        capture.release()
         raise RuntimeError(f"could not open input video: {source}")
-
-    writer: cv2.VideoWriter | None = None
+    writer = None
+    started = time.monotonic()
+    count = 0
     try:
         fps, width, height = _read_video_properties(capture, source)
         declared_count = float(capture.get(cv2.CAP_PROP_FRAME_COUNT))
         declared_frames = (round(declared_count) if math.isfinite(declared_count)
                            and declared_count > 0 else None)
-        writer = cv2.VideoWriter(
-            str(temporary_video),
-            cv2.VideoWriter_fourcc(*"mp4v"),
-            fps,
-            (width, height),
-        )
-        if not writer.isOpened():
-            raise RuntimeError(f"could not create annotated video: {video_path}")
-
-        results: list[dict[str, Any]] = []
-        processor = FrameProcessor()
-        frame_index = 0
-        while max_frames is None or frame_index < max_frames:
-            ok, frame = capture.read()
-            if not ok:
-                break
-            timestamp = frame_index / fps
-            result = processor.process(frame, timestamp)
-            writer.write(annotate_frame(frame, result))
-            results.append(result)
-            frame_index += 1
-
-        if not results:
-            raise RuntimeError(f"input video contains no readable frames: {source}")
-
-        writer.release()
-        writer = None
-        payload = {"video": source.name, "frames": results}
-        with temporary_json.open("w", encoding="utf-8") as stream:
-            json.dump(payload, stream, indent=2, allow_nan=False)
-            stream.write("\n")
-
-        os.replace(temporary_video, video_path)
-        os.replace(temporary_json, json_path)
-        return VideoRunSummary(
-            input_path=source,
-            json_path=json_path,
-            annotated_video_path=video_path,
-            processed_frames=len(results),
-            fps=fps,
-            frame_size=(width, height),
-            declared_frames=declared_frames,
-        )
+        with ExitStack() as stack:
+            stream = stack.enter_context(partials[0].open("x", encoding="utf-8"))
+            logger = CompactWriter(stream, {"source": source.name, "width": width,
+                "height": height, "fps": fps, "declared_frames": declared_frames,
+                "timestamp_basis": "decoded_frame_index/source_fps"},
+                geometry_tolerance=geometry_tolerance)
+            debug_stream = None
+            reason, failure = "eof", None
+            progress = ProgressReporter(source.name, declared_frames)
+            try:
+                if debug:
+                    debug_stream = stack.enter_context(partials[2].open("x", encoding="utf-8"))
+                writer = cv2.VideoWriter(str(partials[1]), cv2.VideoWriter_fourcc(*"mp4v"),
+                                         fps, (width, height))
+                if not writer.isOpened():
+                    raise RuntimeError(f"could not create annotated video: {video_path}")
+                processor = FrameProcessor()
+                while max_frames is None or count < max_frames:
+                    ok, frame = capture.read()
+                    if not ok:
+                        break
+                    result = processor.process(frame, count / fps)
+                    annotated = annotate_frame(frame, result)
+                    logger.process(result)
+                    if debug_stream is not None:
+                        write_record(debug_stream, result)
+                    writer.write(annotated)
+                    count += 1
+                    progress.report(count)
+                if not count:
+                    raise RuntimeError(f"input video contains no readable frames: {source}")
+                if max_frames is not None and count == max_frames:
+                    reason = "max_frames"
+            except BaseException as exc:
+                reason = "interrupted" if isinstance(exc, KeyboardInterrupt) else "error"
+                failure = str(exc) or type(exc).__name__
+                raise
+            finally:
+                if writer is not None:
+                    writer.release()
+                    writer = None
+                logger.finish(processed_frames=count, duration_seconds=count / fps,
+                              processing_seconds=time.monotonic() - started,
+                              stop_reason=reason, error=failure)
+                progress.report(count, force=True)
+        for partial, output in zip(partials, outputs):
+            os.replace(partial, output)
+        return VideoRunSummary(source, json_path, video_path, count, fps,
+                               (width, height), declared_frames, debug_path)
     finally:
         capture.release()
         if writer is not None:
             writer.release()
-        temporary_json.unlink(missing_ok=True)
-        temporary_video.unlink(missing_ok=True)
 
 
 def _read_video_properties(

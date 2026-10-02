@@ -82,8 +82,14 @@ def main():
               "no bridging missing regions. Includes physical motion. Predictions are not accuracy.",
               "videos": {}}
     for name, run in verification.items():
-        path = args.evaluation_dir / name / "results.json"
-        frames = json.loads(path.read_text())["frames"]
+        directory = args.evaluation_dir / name
+        path = directory / "results.jsonl"
+        is_jsonl = path.exists()
+        if is_jsonl:
+            frames = [json.loads(line) for line in (directory / "results_debug.jsonl").read_text().splitlines()]
+        else:
+            path = directory / "results.json"
+            frames = json.loads(path.read_text())["frames"]
         if len(frames) != run["frames"]:
             raise ValueError(f"verification frame count mismatch: {name}")
         summary = summarize_frames(frames)
@@ -92,8 +98,10 @@ def main():
             "end_to_end_seconds": run["end_to_end_seconds"],
             "processed_fps": len(frames) / run["end_to_end_seconds"],
             "mean_end_to_end_ms_per_frame": 1000 * run["end_to_end_seconds"] / len(frames),
-            "json_bytes": path.stat().st_size, "json_frame_records": len(frames),
-            "json_top_level_documents": 1, "jsonl": False,
+            "json_bytes": path.stat().st_size,
+            "json_frame_records": run["compact"]["records"] - 2 if is_jsonl else len(frames),
+            "json_top_level_documents": run["compact"]["records"] if is_jsonl else 1, "jsonl": is_jsonl,
+            "compact": run.get("compact"),
             "json_bytes_per_frame": path.stat().st_size / len(frames),
             "baseline_available": run["baseline_available"],
             "changed_frame_count": (len(run["all_field_changed_frames"])

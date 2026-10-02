@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from dmi.pipeline.video import process_video
+from dmi.evaluation.compact import validate_compact
 from dmi.evaluation.validation import validate_results, compare_frames, compare_annotated_videos
 
 
@@ -113,9 +114,9 @@ def main():
         directory = args.output_dir / source.stem
         print(f"Processing {source.name}", flush=True)
         start = time.perf_counter()
-        run = process_video(source, directory)
+        run = process_video(source, directory, debug=True)
         elapsed = time.perf_counter() - start
-        frames = json.loads(run.json_path.read_text())["frames"]
+        frames = [json.loads(line) for line in run.debug_path.read_text().splitlines()]
         baseline = json.loads(baseline_path.read_text())["frames"] if baseline_path.exists() else None
         changed = all_changed = None
         if baseline is not None:
@@ -135,6 +136,7 @@ def main():
             if not found:
                 no_match.append(i)
         report[source.stem] = {
+            "compact": validate_compact(run.json_path, frames),
             "contract": validation_result(lambda: validate_results(frames, run.fps), args.allow_invalid),
             "comparison": compare_frames(frames, baseline) if baseline is not None else None,
             "source_declared_frames": run.declared_frames,

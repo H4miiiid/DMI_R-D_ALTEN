@@ -138,12 +138,13 @@ class LiveProcessingTest(unittest.TestCase):
             def preview(image):
                 # The latest result is already on disk, before preview/UI code.
                 shown.append(image.copy())
-                self.assertEqual(self.records(directory)[-1]['type'], 'frame')
+                debug_records = [json.loads(line) for line in (directory / 'results_debug.jsonl').read_text().splitlines()]
+                self.assertEqual(debug_records[-1]['result']['frame_index'], len(shown) - 1)
                 return True
-            run = process_live(source, directory, max_frames=3, preview=preview)
+            run = process_live(source, directory, max_frames=3, preview=preview, debug=True)
             records = self.records(directory)
-            self.assertEqual([r['type'] for r in records], ['session', 'frame', 'frame', 'frame', 'summary'])
-            frames = records[1:-1]
+            self.assertEqual([r['type'] for r in records], ['session_start', 'snapshot', 'snapshot', 'session_end'])
+            frames = [json.loads(line) for line in run.debug_path.read_text().splitlines()]
             results = [f['result'] for f in frames]
             self.assertEqual(validate_results(results, None)['frames'], 3)
             for invalid in (-1., float('nan'), float('inf'), .1):
@@ -191,7 +192,7 @@ class LiveProcessingTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'no camera'):
                 process_live(FakeSource([RuntimeError('no camera')]), temporary)
             records = self.records(Path(temporary))
-            self.assertEqual([r['type'] for r in records], ['session', 'summary'])
+            self.assertEqual([r['type'] for r in records], ['session_start', 'session_end'])
             self.assertEqual(records[-1]['processed_frames'], 0)
             self.assertFalse((Path(temporary) / 'last_annotated.png').exists())
 

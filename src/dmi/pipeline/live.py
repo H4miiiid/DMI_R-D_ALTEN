@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import json
+from contextlib import ExitStack
 import math
 from pathlib import Path
 import time
@@ -14,6 +14,7 @@ from dmi.io.camera import CapturedFrame
 from dmi.detection.display_geometry import Frame
 from dmi.pipeline.frame_processor import FrameProcessor
 from dmi.output.annotation import annotate_frame
+from dmi.output.json_writer import CompactWriter, ProgressReporter, write_record
 
 
 class LiveSource(Protocol):
@@ -29,25 +30,32 @@ class LiveRunSummary:
     elapsed_seconds: float
     processing_seconds: float
     stop_reason: str
+    debug_path: Path | None = None
 
 
 def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dict | None = None,
                  max_frames: int | None = None, max_gap_seconds: float = 1.0,
-                 preview: Callable[[Frame], bool] | None = None) -> LiveRunSummary:
+                 preview: Callable[[Frame], bool] | None = None,
+                 debug: bool = False, geometry_tolerance: float = 5.0) -> LiveRunSummary:
     """Consume received frames until a limit, preview stop, Ctrl-C or failure.
 
-    Sources are opened/closed by the caller. JSONL is flushed after each result;
+    Sources are opened/closed by the caller. Each emitted JSONL record is flushed;
     a terminal record marks clean stops or errors. No frames/results accumulate
     in memory. Existing session files are never overwritten.
     """
     if max_frames is not None and (type(max_frames) is not int or max_frames <= 0):
         raise ValueError("max_frames must be a positive integer")
+    if (type(geometry_tolerance) not in (int, float)
+            or not math.isfinite(geometry_tolerance) or geometry_tolerance < 0):
+        raise ValueError("geometry_tolerance must be a finite nonnegative number")
     processor = FrameProcessor(max_gap_seconds=max_gap_seconds)
     directory = Path(output_dir).expanduser().resolve()
     directory.mkdir(parents=True, exist_ok=True)
     jsonl_path, preview_path = directory / "results.jsonl", directory / "last_annotated.png"
-    if preview_path.exists():
-        raise FileExistsError(f"refusing to overwrite existing output: {preview_path}")
+    debug_path = directory / "results_debug.jsonl" if debug else None
+    for path in [jsonl_path, preview_path] + ([debug_path] if debug else []):
+        if path.exists():
+            raise FileExistsError(f"refusing to overwrite existing output: {path}")
     count = skipped = 0
     processing_seconds = 0.0
     first_received = last_received = None
@@ -56,14 +64,13 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     start = time.monotonic()
     reason = "max_frames"
     failure: str | None = None
-    with jsonl_path.open("x", encoding="utf-8") as stream:
-        def write(record: dict) -> None:
-            stream.write(json.dumps(record, allow_nan=False) + "\n")
-            stream.flush()
-
-        write({"type": "session", "source": source_info or {"kind": "live_frames"},
+    progress = ProgressReporter("Live")
+    with ExitStack() as stack:
+        stream = stack.enter_context(jsonl_path.open("x", encoding="utf-8"))
+        debug_stream = stack.enter_context(debug_path.open("x", encoding="utf-8")) if debug else None
+        logger = CompactWriter(stream, {"source": source_info or {"kind": "live_frames"},
                "timestamp_basis": "monotonic_receipt_seconds_since_first_processed_frame",
-               "max_gap_seconds": max_gap_seconds})
+               "max_gap_seconds": max_gap_seconds}, geometry_tolerance=geometry_tolerance)
         try:
             while max_frames is None or count < max_frames:
                 packet = source.read()
@@ -82,17 +89,23 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                 finished_processing = time.monotonic()
                 seconds = finished_processing - started_processing
                 dropped = packet.capture_index - previous_index - 1
-                write({"type": "frame", "capture_index": packet.capture_index,
-                       "skipped_frames": dropped,
-                       "frame_size": [packet.image.shape[1], packet.image.shape[0]],
-                       "processing_seconds": seconds,
-                       "receipt_to_result_seconds": finished_processing - packet.received_at,
-                       "temporal_reset": processor.last_reset_reason, "result": result})
+                logger.process(result, force_snapshot=processor.last_reset_reason is not None,
+                               context={"capture_index": packet.capture_index,
+                                        "frame_size": [packet.image.shape[1], packet.image.shape[0]],
+                                        "temporal_reset": processor.last_reset_reason})
+                if debug_stream is not None:
+                    write_record(debug_stream, {"type": "frame", "capture_index": packet.capture_index,
+                        "skipped_frames": dropped,
+                        "frame_size": [packet.image.shape[1], packet.image.shape[0]],
+                        "processing_seconds": seconds,
+                        "receipt_to_result_seconds": finished_processing - packet.received_at,
+                        "temporal_reset": processor.last_reset_reason, "result": result})
                 count += 1
                 skipped += dropped
                 processing_seconds += seconds
                 previous_index, last_received = packet.capture_index, packet.received_at
                 last_image = annotated
+                progress.report(count)
                 if preview is not None and not preview(annotated):
                     reason = "preview_closed"
                     break
@@ -112,9 +125,10 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                 reason, failure = "error", str(exc)
                 raise
             finally:
-                write({"type": "summary", "processed_frames": count,
-                       "skipped_frames": skipped, "elapsed_seconds": elapsed,
-                       "processing_seconds": processing_seconds,
-                       "stop_reason": reason, "error": failure})
+                logger.finish(processed_frames=count, skipped_frames=skipped,
+                              elapsed_seconds=elapsed, processing_seconds=processing_seconds,
+                              duration_seconds=(last_received - first_received) if count else 0.0,
+                              stop_reason=reason, error=failure)
+                progress.report(count, force=True)
     return LiveRunSummary(jsonl_path, preview_path if last_image is not None else None,
-                          count, skipped, elapsed, processing_seconds, reason)
+                          count, skipped, elapsed, processing_seconds, reason, debug_path)
