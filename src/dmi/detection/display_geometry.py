@@ -268,15 +268,17 @@ def _fit_display(
         ],
         dtype=np.float32,
     )
-    if not _valid_geometry(corners, frame_shape):
+    oriented_box = _fit_oriented_box(points)
+    if not _valid_geometry(oriented_box, frame_shape):
         return None
+    if not _valid_geometry(corners, frame_shape):
+        # Weak blue evidence near a pale header can make the fitted top
+        # boundaries cross. The detected outer rectangle is still usable.
+        corners = oriented_box.copy()
     bounding_box = _fit_axis_aligned_box(
         left_x, right_x, top_y, bottom_y, frame_shape
     )
     if bounding_box is None:
-        return None
-    oriented_box = _fit_oriented_box(points)
-    if not _valid_geometry(oriented_box, frame_shape):
         return None
     return DisplayGeometry(
         corners=corners,
@@ -356,8 +358,12 @@ def _valid_geometry(corners: PointArray, frame_shape: tuple[int, int]) -> bool:
         return False
 
     area = abs(cv2.contourArea(corners))
+    if not cv2.isContourConvex(corners) or cv2.contourArea(corners, oriented=True) <= 0:
+        return False
     top_width = np.linalg.norm(corners[1] - corners[0])
     bottom_width = np.linalg.norm(corners[2] - corners[3])
+    if top_width < bottom_width * 0.45 or bottom_width < top_width * 0.45:
+        return False
     left_height = np.linalg.norm(corners[3] - corners[0])
     right_height = np.linalg.norm(corners[2] - corners[1])
     mean_width = (top_width + bottom_width) / 2

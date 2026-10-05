@@ -88,7 +88,9 @@ def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
                          path + '.right_display')
         left = _mapping(frame['left_display'], {'geometry', 'boxes', 'speed_indicator'},
                         path + '.left_display')
-        _require(right['state'] in ('Main', 'Driver ID', 'Level', 'unknown'), path, 'invalid state')
+        _require(right['state'] in ('Main', 'Driver ID', 'Level', 'Train Data',
+                 'Validate Train Data', 'Train Data (1/2)', 'Train Data (2/2)',
+                 'Train Running Number', 'unknown'), path, 'invalid state')
         _require(right['visibility'] in ('clear', 'occluded', 'unknown'), path, 'invalid visibility')
         _mapping(right['buttons'], set(), path + '.buttons')
         _mapping(left['boxes'], set(), path + '.boxes')
@@ -99,6 +101,19 @@ def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
         if left['geometry'] is None:
             _require(not left['boxes'] and left['speed_indicator'] is None,
                      path, 'missing left display must not retain content')
+        if 'title' in left:
+            _require(left['geometry'] is not None, path,
+                     'missing left display must not retain a title')
+            _mapping(left['title'], {'text'}, path + '.left.title')
+            _text(left['title']['text'], path + '.left.title.text')
+            _region(left['title'], path + '.left.title')
+            counts['left_regions'] += 1
+            _mapping(left.get('buttons'), set(), path + '.left.buttons')
+            for name, region in left['buttons'].items():
+                _require(isinstance(name, str) and bool(name), path,
+                         'left button identity must be nonempty text')
+                _region(region, path + '.left.buttons.' + name)
+                counts['left_regions'] += 1
         if right['geometry'] is None:
             _require(right['visibility'] == 'unknown', path, 'missing right geometry requires unknown visibility')
         else:

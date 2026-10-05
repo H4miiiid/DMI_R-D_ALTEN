@@ -11,9 +11,10 @@ import math
 
 from dmi.utils.image_ops import validate_frame
 
-from dmi.detection.display_geometry import Frame, detect_displays
+from dmi.detection.display_geometry import Frame, detect_displays, rectify_display
 from dmi.detection.right_display import analyze_right_display
-from dmi.detection.left_display import analyze_left_display
+from dmi.detection.left_display import (RECTIFIED_SIZE as LEFT_SIZE,
+                                        analyze_left_display, analyze_train_left_display)
 from dmi.temporal.left_tracking import LeftDisplayStabilizer
 from dmi.temporal.smoothing import GeometryStabilizer, RightDisplayStabilizer
 
@@ -99,8 +100,13 @@ def process_frame(
         displays = geometry_stabilizer.update(displays, frame.shape[:2])
     left_geometry = displays["left"]
     right_geometry = displays["right"]
+    left_rectified = (rectify_display(frame, left_geometry, LEFT_SIZE)
+                      if left_geometry is not None else None)
+    train_left = (analyze_train_left_display(left_rectified, left_geometry)
+                  if left_geometry is not None else None)
+    train_state = train_left[0] if train_left is not None else None
     right_content = (
-        analyze_right_display(frame, right_geometry)
+        analyze_right_display(frame, right_geometry, train_state)
         if right_geometry is not None
         else {
             "visibility": "unknown",
@@ -117,12 +123,15 @@ def process_frame(
             right_content = right_display_stabilizer.update(
                 right_content, right_geometry
             )
-    left_content = (
-        analyze_left_display(frame, left_geometry, left_display_stabilizer)
-        if left_geometry is not None
-        else {"boxes": {}, "speed_indicator": None}
-    )
-    if left_geometry is None and left_display_stabilizer is not None:
+    if train_left is not None:
+        left_content = train_left[1]
+    elif left_geometry is not None:
+        left_content = analyze_left_display(
+            frame, left_geometry, left_display_stabilizer, left_rectified
+        )
+    else:
+        left_content = {"boxes": {}, "speed_indicator": None}
+    if (train_left is not None or left_geometry is None) and left_display_stabilizer is not None:
         left_display_stabilizer.reset()
     return {
         "frame_index": int(frame_index),

@@ -21,11 +21,13 @@ class BaselineTest(unittest.TestCase):
         for index, item in enumerate(frames):
             item.update(frame_index=index, timestamp=index / 30)
             item["right_display"]["buttons"]["digit_1"]["center"] = [30 + 3 * index, 30 + 4 * index]
+            item["left_display"]["buttons"] = {"yes": {"center": [30, 40 + index]}}
         frames[2]["right_display"]["data_field"]["value"] = "128"
         original = deepcopy(frames)
         result = summarize_frames(frames)
         self.assertEqual(result["center_movement_px"]["right.buttons.digit_1"],
                          {"adjacent_pairs": 2, "mean": 5., "p95": 5., "max": 5.})
+        self.assertEqual(result["center_movement_px"]["left.buttons.yes"]["mean"], 1.)
         self.assertEqual([item["start_frame"] for item in result["semantic_intervals"]], [0, 2])
         self.assertEqual(frames, original)
 

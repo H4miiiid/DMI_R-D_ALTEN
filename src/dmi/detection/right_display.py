@@ -10,7 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from dmi.detection.display_geometry import DisplayGeometry, Frame, rectify_display
-from dmi.detection.title_ocr import read_title, title_state
+from dmi.detection.title_ocr import read_field, read_title, title_state
 from dmi.detection.visibility import right_display_obstructed
 from dmi.detection.right_layout import (
     detect_border_lines,
@@ -23,21 +23,26 @@ RECTIFIED_SIZE = (600, 960)
 
 
 def analyze_right_display(
-    frame: Frame, geometry: DisplayGeometry
+    frame: Frame, geometry: DisplayGeometry, state_hint: str | None = None,
 ) -> dict[str, Any]:
     """Recognize the visible right-display structure and original-frame boxes."""
     rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
-    if right_display_obstructed(rectified):
+    if right_display_obstructed(rectified, train_workflow=state_hint is not None):
         return {"state": "unknown", "title": None, "buttons": {},
                 "data_field": None, "visibility": "occluded"}
     border_lines = detect_border_lines(rectified)
     field_detection = _detect_data_field(rectified)
     field_box = field_detection[0] if field_detection is not None else None
-    title_box = _detect_title_box(rectified, field_box)
+    # Train workflow titles belong to the left display. Pale summary rows on
+    # the right can otherwise be mistaken for a right-hand title band.
+    title_box = (_detect_title_box(rectified, field_box)
+                 if state_hint is None else None)
     title_crop = _title_crop(frame, geometry, title_box)
     title_text = (read_title(title_crop, (0, 0, title_crop.shape[1], title_crop.shape[0]))
                   if title_crop is not None else None)
     state = title_state(title_text)
+    if state == "unknown" and state_hint is not None:
+        state = state_hint
     title = None
     if title_box is not None:
         title = _region_result(
@@ -53,12 +58,31 @@ def analyze_right_display(
             title = None
 
     data_field = None
-    if field_box is not None:
+    if field_box is not None and state not in {"Train Data (1/2)", "Train Data (2/2)"}:
         field_image = _crop_box(rectified, field_box)
         value = None
-        if state in {"Driver ID", "Level"}:
+        if state in {"Driver ID", "Level", "Train Running Number"}:
             digits = _read_digits(field_image, last_only=state == "Level")
-            value = digits if state == "Driver ID" else (f"Level {digits}" if digits else None)
+            value = (f"Level {digits}" if digits else None) if state == "Level" else digits
+        elif state in {"Train Data", "Validate Train Data"}:
+            x1, y1, x2, y2 = field_box
+            inset = round((y2 - y1) * .12)
+            if state == "Train Data":
+                # Locate the brightness step between the label and value.
+                # Including the divider can turn its border into an OCR letter.
+                gray = cv2.cvtColor(field_image[inset:-inset], cv2.COLOR_BGR2GRAY)
+                profile = np.median(gray, axis=0)
+                start, end = round(len(profile) * .45), round(len(profile) * .85)
+                contrast = profile[start + 3:end + 3] - profile[start - 3:end - 3]
+                divider = start + int(np.argmax(contrast))
+                value_box = (x1 + divider + inset, y1 + inset, x2 - inset, y2 - inset)
+                if contrast.max() >= 10:
+                    value = read_field(rectified, value_box)
+            else:
+                x2 = x1 + round((x2 - x1) * .33)
+                value = read_field(rectified, (x1, y1 + inset, x2, y2 - inset))
+            if value is not None:
+                value = value.strip(" |") or None
         data_field = _region_result(
             field_quad_from_contour(field_detection[1]),
             geometry,
@@ -68,7 +92,7 @@ def analyze_right_display(
 
     buttons = {}
     detected_buttons = (detect_button_quads(rectified, state, border_lines)
-                        if title_text is not None else {})
+                        if state != "unknown" or title_text is not None else {})
     for name, quad in detected_buttons.items():
         buttons[name] = _region_result(quad, geometry, frame.shape[:2])
     return {

@@ -46,7 +46,7 @@ def detect_button_quads(
         )
         grid["close"] = _fit_main_close(horizontal, vertical, width, height)
         return grid
-    if state == "Driver ID":
+    if state in {"Driver ID", "Train Running Number"}:
         keypad_names = (
             ("digit_1", "digit_2", "digit_3"),
             ("digit_4", "digit_5", "digit_6"),
@@ -106,6 +106,11 @@ def detect_button_quads(
             x_indices=(0, 1, 2, 3),
             y_indices=(0, 1, 2, 3, 4),
         )
+        if state == "Train Running Number":
+            grid["close"] = _quad(
+                action_x_lines[0], action_x_lines[1], y_lines[4], y_lines[5]
+            )
+            return grid
         grid.update(
             _cells_from_lines(
                 action_x_lines,
@@ -115,6 +120,70 @@ def detect_button_quads(
                 y_indices=(4, 5),
             )
         )
+        return grid
+    if state in {"Train Data", "Validate Train Data"}:
+        middle_top = .50 if state == "Train Data" else .685
+        names = (("gamma", "lambda"),) if state == "Train Data" else (("no", "yes"),)
+        grid = _fit_grid(
+            horizontal, vertical, width, height,
+            x_fractions=(0.0, .304, .609),
+            y_fractions=(middle_top, middle_top + .095), names=names,
+        )
+        row_transform = None
+        if state == "Validate Train Data":
+            row_positions = (middle_top * height, (middle_top + .095) * height)
+            row_candidates = [line for line in horizontal
+                              if height * .5 < _line_position(line, width * .3) < height * .85
+                              and line[2] >= width * .4]
+            row_lines = _fit_axis_topology(
+                row_candidates, row_positions, extent=height, cross_center=width * .3,
+            )
+            row_transform = _transform_from_fitted_lines(
+                row_lines, row_positions, width * .125, height,
+            )
+            x_lines = [_select_vertical(vertical, value * width, width, height)
+                       for value in (0.0, .304, .609)]
+            grid = _cells_from_lines(x_lines, row_lines, names,
+                                     x_indices=(0, 1, 2), y_indices=(0, 1))
+        action_positions = ((0.0, .255, .745, .92) if state == "Train Data"
+                            else (0.0, .255))
+        action_x = _fit_axis_topology(
+            vertical, tuple(value * width for value in action_positions),
+            extent=width, cross_center=height * .92,
+        )
+        action_horizontal = (horizontal if state == "Train Data" else
+                             [line for line in horizontal if line[2] <= width * .4])
+        action_y = _fit_axis_topology(
+            action_horizontal, (.875 * height, .97 * height),
+            extent=height, cross_center=width * (.5 if state == "Train Data" else .125),
+            fixed_transform=row_transform,
+        )
+        grid["close"] = _quad(action_x[0], action_x[1], *action_y)
+        if state == "Train Data":
+            grid["enter_data"] = _quad(action_x[2], action_x[3], *action_y)
+        return grid
+    if state == "Train Data (1/2)":
+        grid = _fit_grid(
+            horizontal, vertical, width, height,
+            x_fractions=(0.0, .305, .61, .92),
+            y_fractions=(.485, .578, .671, .765, .859),
+            names=(("digit_1", "digit_2", "digit_3"),
+                   ("digit_4", "digit_5", "digit_6"),
+                   ("digit_7", "digit_8", "digit_9"),
+                   ("delete", "digit_0", "decimal")),
+        )
+        grid.update(_train_navigation(horizontal, vertical, width, height))
+        return grid
+    if state == "Train Data (2/2)":
+        grid = _fit_grid(
+            horizontal, vertical, width, height,
+            x_fractions=(0.0, .305, .61, .92),
+            y_fractions=(.459, .548, .637),
+            names=(("g1", "ga", "gb"),
+                   ("gc", "out_of_gc", "unused_selection")),
+        )
+        grid.pop("unused_selection")
+        grid.update(_train_navigation(horizontal, vertical, width, height))
         return grid
     if state == "Level":
         names = (
@@ -181,6 +250,21 @@ def detect_button_quads(
         )
         return grid
     return _detect_unknown_buttons(frame, horizontal, vertical)
+
+
+def _train_navigation(
+    horizontal: list[LineCandidate], vertical: list[LineCandidate],
+    width: int, height: int,
+) -> dict[str, Quad]:
+    x_lines = [_select_vertical(vertical, value * width, width, height)
+               for value in (0.0, .255, .5, .745, .92)]
+    y_lines = [_select_horizontal(horizontal, value * height, width, height)
+               for value in (.86, .96)]
+    return _cells_from_lines(
+        x_lines, y_lines,
+        (("close", "left_arrow", "right_arrow", "select_type"),),
+        x_indices=(0, 1, 2, 3, 4), y_indices=(0, 1),
+    )
 
 
 def detect_title_quad(frame: Frame, text_box: tuple[int, int, int, int]) -> Quad:

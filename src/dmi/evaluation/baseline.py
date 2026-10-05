@@ -18,11 +18,12 @@ def regions(frame):
         display = frame[f"{side}_display"]
         if display["geometry"] is not None:
             yield f"{side}.display", display["geometry"]
-        collection = "boxes" if side == "left" else "buttons"
-        for name, region in display[collection].items():
-            yield f"{side}.{collection}.{name}", region
-        for name in (("speed_indicator",) if side == "left" else ("title", "data_field")):
-            if display[name] is not None:
+        collections = ("boxes", "buttons") if side == "left" else ("buttons",)
+        for collection in collections:
+            for name, region in display.get(collection, {}).items():
+                yield f"{side}.{collection}.{name}", region
+        for name in (("speed_indicator", "title") if side == "left" else ("title", "data_field")):
+            if display.get(name) is not None:
                 yield f"{side}.{name}", display[name]
 
 

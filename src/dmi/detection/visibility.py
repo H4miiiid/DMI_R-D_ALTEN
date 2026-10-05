@@ -11,7 +11,7 @@ import numpy as np
 from dmi.detection.display_geometry import Frame
 
 
-def right_display_obstructed(frame: Frame) -> bool:
+def right_display_obstructed(frame: Frame, *, train_workflow: bool = False) -> bool:
     """Detect substantial non-screen foreground inside the active UI surface.
 
     Blue background/borders and small neutral glyphs are normal. Large dark or
@@ -43,9 +43,20 @@ def right_display_obstructed(frame: Frame) -> bool:
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN,
                           np.ones((size, size), np.uint8))
     _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    if not train_workflow:
+        return any(
+            area >= height * width * .0015
+            and box_width >= width * .04
+            and box_height >= height * .025
+            for _, _, box_width, box_height, area in stats[1:]
+        )
     return any(
-        area >= height * width * .0015
-        and box_width >= width * .04
-        and box_height >= height * .025
-        for _, _, box_width, box_height, area in stats[1:]
+        area >= height * width * .005
+        and box_width >= width * .08
+        and box_height >= height * .04
+        and area >= box_width * box_height * .4
+        # The train-data pages contain several adjacent pale input rows.
+        and not (box_width >= width * .8 and y < height * .65
+                 and area >= box_width * box_height * .7)
+        for _, y, box_width, box_height, area in stats[1:]
     )

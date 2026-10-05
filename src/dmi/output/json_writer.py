@@ -25,7 +25,7 @@ def compact_state(result):
                   "Train Running Number": "train_running_number",
                   "Train Data": "train_type", "Validate Train Data": "validation"}.get(
                       right["state"], "input")
-    return deepcopy({
+    state = {
         "left_display": {
             "geometry": geometry(left["geometry"]),
             "boxes": {name: {"center": box["center"], "icon": box["icon"]}
@@ -41,7 +41,14 @@ def compact_state(result):
                 field_name: {"value": field["value"], **geometry(field)}},
             "buttons": {name: button["center"] for name, button in right["buttons"].items()},
         },
-    })
+    }
+    if "title" in left:
+        state["left_display"]["title"] = left["title"]["text"]
+        state["left_display"]["title_geometry"] = geometry(left["title"])
+        state["left_display"]["buttons"] = {
+            name: button["center"] for name, button in left["buttons"].items()
+        }
+    return deepcopy(state)
 
 
 def layout_changed(old, new):

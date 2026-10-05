@@ -18,17 +18,90 @@ from dmi.detection.left_layout import (
 )
 from dmi.temporal.left_tracking import LeftDisplayStabilizer
 from dmi.detection.icons import recognize_icons
+from dmi.detection.title_ocr import read_light_title, read_title, title_state
 
 RECTIFIED_SIZE = (800, 1280)
+
+
+def analyze_train_left_display(
+    rectified: Frame, geometry: DisplayGeometry,
+) -> tuple[str, dict[str, Any]] | None:
+    """Read the left title and bordered confirmation control in train workflows."""
+    width, height = RECTIFIED_SIZE
+    gray = cv2.cvtColor(rectified, cv2.COLOR_BGR2GRAY)
+    header = gray[round(height * .03):round(height * .16), round(width * .5):]
+    if cv2.countNonZero((header > 130).astype(np.uint8)) < 800:
+        return None
+    title_mask = (gray[:round(height * .19), round(width * .25):] > 130).astype(np.uint8)
+    count, _, stats, _ = cv2.connectedComponentsWithStats(title_mask)
+    glyphs = [stats[index] for index in range(1, count)
+              if stats[index, cv2.CC_STAT_AREA] >= 20
+              and 10 <= stats[index, cv2.CC_STAT_HEIGHT] <= height * .07]
+    if glyphs:
+        x1 = min(int(item[cv2.CC_STAT_LEFT]) for item in glyphs) + round(width * .25)
+        x2 = max(int(item[cv2.CC_STAT_LEFT] + item[cv2.CC_STAT_WIDTH])
+                 for item in glyphs) + round(width * .25)
+        y1 = min(int(item[cv2.CC_STAT_TOP]) for item in glyphs)
+        y2 = max(int(item[cv2.CC_STAT_TOP] + item[cv2.CC_STAT_HEIGHT]) for item in glyphs)
+        title_box = (max(0, x1 - 15), max(0, y1 - 15),
+                     min(width, x2 + 15), min(height, y2 + 15))
+    else:
+        title_box = (round(width * .25), round(height * .025),
+                     width, round(height * .18))
+    text = read_title(rectified, title_box)
+    state = title_state(text)
+    if state == "unknown" and glyphs:
+        text = read_light_title(rectified, (x1, y1, x2, y2))
+        state = title_state(text)
+    if state == "unknown" and glyphs:
+        title_box = (round(width * .25), round(height * .025),
+                     width, round(height * .18))
+        text = read_title(rectified, title_box)
+        state = title_state(text)
+    if state not in {"Train Data", "Validate Train Data",
+                     "Train Data (1/2)", "Train Data (2/2)"}:
+        return None
+    source = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1],
+                       [0, height - 1]], np.float32)
+    transform = cv2.getPerspectiveTransform(source, geometry.corners)
+    if glyphs:
+        title_quad = np.array([[x1 - 6, y1 - 6], [x2 + 6, y1 - 6],
+                               [x2 + 6, y2 + 6], [x1 - 6, y2 + 6]], np.float32)
+    else:
+        x1, y1, x2, y2 = title_box
+        title_quad = np.array([[x1, y1], [x2, y1],
+                               [x2, y2], [x1, y2]], np.float32)
+    title = {**_region_result(title_quad, transform), "text": text}
+    buttons = {}
+    if state != "Validate Train Data":
+        hsv = cv2.cvtColor(rectified, cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, (0, 0, 100), (179, 130, 255))
+        mask[:round(height * .75)] = 0
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL,
+                                       cv2.CHAIN_APPROX_SIMPLE)
+        candidates = [contour for contour in contours
+                      if cv2.boundingRect(contour)[2] >= width * .7
+                      and cv2.boundingRect(contour)[3] >= height * .04]
+        if candidates:
+            box = cv2.boxPoints(cv2.minAreaRect(max(candidates,
+                                                    key=cv2.contourArea)))
+            ordered = box[np.argsort(box[:, 1])]
+            top = ordered[:2][np.argsort(ordered[:2, 0])]
+            bottom = ordered[2:][np.argsort(ordered[2:, 0])[::-1]]
+            buttons["yes"] = _region_result(np.vstack((top, bottom)), transform)
+    return state, {"boxes": {}, "speed_indicator": None,
+                   "title": title, "buttons": buttons}
 
 
 def analyze_left_display(
     frame: Frame,
     geometry: DisplayGeometry,
     stabilizer: LeftDisplayStabilizer | None = None,
+    rectified: Frame | None = None,
 ) -> dict[str, Any]:
     """Locate the 22 logical regions and speed panel using visible borders."""
-    rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
+    if rectified is None:
+        rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
     boxes, speed = detect_left_regions(rectified)
     if stabilizer is not None:
         boxes, speed = stabilizer.update(boxes, speed, rectified)
