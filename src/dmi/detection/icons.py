@@ -9,7 +9,8 @@ from pathlib import Path
 import cv2
 import numpy as np
 
-ASSET_DIRECTORY = Path(__file__).resolve().parents[3] / "data/icons/levels"
+ASSET_DIRECTORY = Path(__file__).resolve().parents[3] / "data/icons"
+ASSET_SUFFIXES = {".bmp", ".png", ".jpg", ".jpeg"}
 
 
 def recognize_icons(frame: np.ndarray, boxes: dict) -> dict[str, str | None]:
@@ -17,6 +18,11 @@ def recognize_icons(frame: np.ndarray, boxes: dict) -> dict[str, str | None]:
     templates = _templates()
     return {name: _recognize(_rectify_region(frame, quad), templates)
             for name, quad in boxes.items()}
+
+
+def supported_icon_names() -> frozenset[str]:
+    """Return identities loaded from the available icon assets."""
+    return frozenset(_templates())
 
 
 def _rectify_region(frame: np.ndarray, quad: np.ndarray) -> np.ndarray:
@@ -45,18 +51,29 @@ def _normalize(mask: np.ndarray) -> np.ndarray:
     return vector / max(float(np.linalg.norm(vector)), 1e-6)
 
 
+def _asset_mask(path: Path) -> np.ndarray:
+    image = cv2.imread(str(path), cv2.IMREAD_UNCHANGED)
+    if image is None:
+        raise RuntimeError(f"Cannot read icon asset: {path}")
+    if image.ndim == 3 and image.shape[2] == 4 and np.any(image[:, :, 3] < 255):
+        return image[:, :, 3]
+    if image.ndim == 2:
+        image = cv2.cvtColor(image, cv2.COLOR_GRAY2BGR)
+    return _foreground(image[:, :, :3])
+
+
 @lru_cache(maxsize=1)
 def _templates() -> dict[str, list[np.ndarray]]:
     templates = {}
-    for path in sorted(ASSET_DIRECTORY.glob("*.bmp")):
-        image = cv2.imread(str(path))
-        if image is None:
-            raise RuntimeError(f"Cannot read icon asset: {path}")
-        mask = _foreground(image)
+    for path in sorted(path for path in ASSET_DIRECTORY.rglob("*")
+                       if path.suffix.lower() in ASSET_SUFFIXES):
+        mask = _asset_mask(path)
         if not np.any(mask):
             raise RuntimeError(f"Icon asset has no foreground: {path}")
-        # Camera bloom thickens strokes. These generic variants retain the
-        # digit and bar pattern rather than learning a particular video crop.
+        # Camera bloom thickens strokes. These variants retain each asset's
+        # silhouette rather than learning a particular video crop.
+        if path.stem in templates:
+            raise RuntimeError(f"Duplicate icon asset name: {path.stem}")
         templates[path.stem] = [
             _normalize(cv2.dilate(mask, np.ones((size, size), np.uint8)))
             for size in (1, 2, 3)
@@ -75,7 +92,7 @@ def _recognize(image: np.ndarray, templates: dict) -> str | None:
     _, _, stats, _ = cv2.connectedComponentsWithStats(joined)
     matches = []
     for x, y, width, height, _ in stats[1:]:
-        if width < 15 or height < 8 or not 1.4 < width / height < 4:
+        if width < 8 or height < 8:
             continue
         candidate = mask[y:y + height, x:x + width]
         if not np.any(candidate):

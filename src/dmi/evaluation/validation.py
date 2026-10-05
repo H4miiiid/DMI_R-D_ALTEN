@@ -10,6 +10,8 @@ from typing import Any
 import cv2
 import numpy as np
 
+from dmi.detection.icons import supported_icon_names
+
 
 def _require(condition: bool, path: str, message: str) -> None:
     if not condition:
@@ -67,6 +69,7 @@ def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
     if fps is not None:
         _require(math.isfinite(fps) and fps > 0, 'fps', 'must be finite and positive')
     _require(isinstance(frames, list) and len(frames) > 0, 'frames', 'expected nonempty list')
+    icon_names = supported_icon_names()
     counts = {'frames': len(frames), 'display_geometries': 0,
               'left_regions': 0, 'right_regions': 0, 'occluded_frames': 0}
     for index, frame in enumerate(frames):
@@ -138,7 +141,8 @@ def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
         for name, region in left['boxes'].items():
             _require(name in {f'box_{i}' for i in range(1, 23)}, path, 'invalid left box identity')
             _mapping(region, {'icon'}, path + '.boxes.' + name)
-            _require(region['icon'] in (None, 'level0_icon', 'level1_icon', 'level2_icon'),
+            _require(region['icon'] is None or (isinstance(region['icon'], str)
+                     and region['icon'] in icon_names),
                      path + '.boxes.' + name, 'invalid icon identity')
             _region(region, path + '.boxes.' + name)
             counts['left_regions'] += 1

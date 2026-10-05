@@ -1,19 +1,23 @@
 """Asset-derived synthetic cases; video predictions are not ground truth."""
 from pathlib import Path
 import sys
+import tempfile
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
+from dmi.detection import icons
 from dmi.detection.icons import ASSET_DIRECTORY, recognize_icons
 
 
 class IconRecognitionTest(unittest.TestCase):
     def scene(self, name, scale=2, exposure=1, blur=0):
         image = np.full((180, 360, 3), (34, 17, 3), np.uint8)
-        icon = cv2.imread(str(ASSET_DIRECTORY / f"{name}.bmp"))
+        path = next(ASSET_DIRECTORY.rglob(f"{name}.bmp"))
+        icon = cv2.imread(str(path))
         icon = cv2.resize(icon, None, fx=scale, fy=scale)
         h, w = icon.shape[:2]
         image[55:55+h, 65:65+w] = icon
@@ -24,11 +28,34 @@ class IconRecognitionTest(unittest.TestCase):
         return image, boxes
 
     def test_assets_at_multiple_scales_exposures_and_blur(self):
-        for name in ("level0_icon", "level1_icon", "level2_icon"):
+        for name in ("level0_icon", "level1_icon", "level2_icon", "power"):
             for scale, exposure, blur in ((1, 1, 0), (1.5, .65, .5), (2, 1.2, 1), (2.5, 1, .7)):
                 with self.subTest(name=name, scale=scale):
                     image, boxes = self.scene(name, scale, exposure, blur)
                     self.assertEqual(recognize_icons(image, boxes)["arbitrary_box"], name)
+
+    def test_new_nested_transparent_asset_is_discovered(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            (root / "future").mkdir()
+            icon = np.zeros((40, 40, 4), np.uint8)
+            cv2.fillPoly(icon, [np.array([[20, 2], [37, 20], [20, 37], [2, 20]])],
+                         (255, 255, 255, 255))
+            cv2.circle(icon, (20, 20), 7, (0, 0, 0, 0), -1)
+            cv2.imwrite(str(root / "future" / "new_symbol.png"), icon)
+            image = np.full((180, 360, 3), (34, 17, 3), np.uint8)
+            alpha = icon[:, :, 3]
+            rendered = np.full((40, 40, 3), (34, 17, 3), np.uint8)
+            rendered[alpha > 0] = (195, 195, 195)
+            image[65:145, 95:175] = cv2.resize(rendered, (80, 80))
+            boxes = {"new_box": np.array([[75, 45], [195, 45],
+                                           [195, 160], [75, 160]], np.float32)}
+            with patch.object(icons, "ASSET_DIRECTORY", root):
+                icons._templates.cache_clear()
+                try:
+                    self.assertEqual(recognize_icons(image, boxes)["new_box"], "new_symbol")
+                finally:
+                    icons._templates.cache_clear()
 
     def test_local_perspective_and_box_association(self):
         image, boxes = self.scene("level1_icon")

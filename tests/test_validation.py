@@ -37,6 +37,11 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(counts['right_regions'], 3)
         self.assertEqual(frames, original)
 
+    def test_icon_identity_uses_available_assets(self):
+        result = frame()
+        result['left_display']['boxes']['box_1']['icon'] = 'power'
+        self.assertEqual(validate_results([result], 30)['left_regions'], 1)
+
     def test_rejects_metadata_type_timing_and_geometry_errors(self):
         mutations = [
             lambda f: f.update(frame_index=1),
