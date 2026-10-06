@@ -17,6 +17,26 @@ from dmi.detection.right_layout import detect_button_quads  # noqa: E402
 
 
 class TrainWorkflowTest(unittest.TestCase):
+    def test_shifted_train_grids_keep_complete_rows(self):
+        frame = np.zeros((960, 600, 3), np.uint8)
+        for state, rows, bottom_name in (
+            ("Train Data (1/2)", (.485, .578, .671, .765, .859), "digit_0"),
+            ("Train Data (2/2)", (.459, .548, .637), "out_of_gc"),
+        ):
+            for shift in (35, 60):
+                with self.subTest(state=state, shift=shift):
+                    vertical = [(0., x * 600 + 8, 250.)
+                                for x in (0., .305, .61, .92)]
+                    horizontal = [(0., y * 960 + shift, 400.) for y in rows]
+                    buttons = detect_button_quads(frame, state, (horizontal, vertical))
+                    bottom = buttons[bottom_name]
+                    self.assertAlmostEqual(float(bottom[2, 1]), rows[-1] * 960 + shift, delta=2)
+                    self.assertAlmostEqual(float(bottom[0, 1]), rows[-2] * 960 + shift, delta=2)
+                    self.assertGreater(float(bottom[2, 1] - bottom[0, 1]), 80)
+                    if state == "Train Data (1/2)":
+                        self.assertAlmostEqual(float(buttons["close"][0, 1]),
+                                               float(bottom[2, 1]), delta=2)
+
     def test_validation_controls_follow_moving_borders(self):
         frame = np.zeros((960, 600, 3), np.uint8)
         vertical = [(0.0, x, length) for x, length in

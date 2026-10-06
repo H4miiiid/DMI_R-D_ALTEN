@@ -7,7 +7,8 @@ import numpy as np
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "src"))
 from dmi.pipeline.frame_processor import process_frame
-from dmi.temporal.smoothing import RightDisplayStabilizer
+from dmi.temporal.smoothing import RightDisplayStabilizer, LeftWorkflowStabilizer
+from dmi.detection.display_geometry import DisplayGeometry
 
 
 def content(value):
@@ -18,6 +19,67 @@ def content(value):
 
 
 class TemporalSequenceTest(unittest.TestCase):
+    def test_train_keypad_does_not_jump_when_perspective_quality_fluctuates(self):
+        box = np.array([[0, 0], [600, 0], [600, 960], [0, 960]], np.float32)
+        tracker = RightDisplayStabilizer()
+        screen = content(None)
+        screen.update(state="Train Data (1/2)", data_field=None)
+        screen["buttons"] = {"digit_0": content(None)["data_field"]}
+        # The UI and oriented box are steady; only an unreliable fitted corner
+        # moves either side of the perspective-mapping fallback threshold.
+        for offset in (0, 40, 80, 40, 80, 0):
+            corners = box.copy()
+            corners[0, 0] += offset
+            geometry = DisplayGeometry(corners, box, (0, 0, 600, 960))
+            result = tracker.update(screen, geometry)
+            self.assertEqual(result["buttons"]["digit_0"]["center"], [60, 25])
+        moved = box + [100, 50]
+        screen["buttons"]["digit_0"]["corners"] = (
+            np.array(screen["buttons"]["digit_0"]["corners"]) + [100, 50]
+        ).tolist()
+        result = tracker.update(screen, DisplayGeometry(moved, moved, (100, 50, 700, 1010)))
+        self.assertEqual(result["buttons"]["digit_0"]["center"], [160, 75])
+
+    def test_workflow_jitter_is_damped_but_camera_motion_is_followed(self):
+        quad = np.array([[0, 0], [600, 0], [600, 960], [0, 960]], np.float32)
+        geometry = DisplayGeometry(quad, quad, (0, 0, 600, 960))
+        tracker = LeftWorkflowStabilizer()
+        region = content(None)["data_field"]
+        screen = {"title": {**region, "text": "Train data"}, "buttons": {"yes": region}}
+        first = tracker.update("Train Data", screen, geometry)
+        self.assertEqual(first["title"], screen["title"])
+        shifted = {**region, "corners": (np.array(region["corners"]) + [4, 0]).tolist()}
+        result = tracker.update("Train Data", {"title": None, "buttons": {"yes": shifted}}, geometry)
+        self.assertLess(result["buttons"]["yes"]["center"][0], 64)
+        self.assertGreaterEqual(result["buttons"]["yes"]["center"][0], 60)
+        moved = DisplayGeometry(quad + [100, 50], quad + [100, 50], (100, 50, 700, 1010))
+        shifted["corners"] = (np.array(region["corners"]) + [100, 50]).tolist()
+        result = tracker.update("Train Data", {"title": None, "buttons": {"yes": shifted}}, moved)
+        np.testing.assert_allclose(result["buttons"]["yes"]["center"], [160, 75], atol=1)
+
+    def test_workflow_changes_and_missing_regions_drop_history(self):
+        quad = np.array([[0, 0], [600, 0], [600, 960], [0, 960]], np.float32)
+        geometry = DisplayGeometry(quad, quad, (0, 0, 600, 960))
+        tracker = LeftWorkflowStabilizer()
+        region = content(None)["data_field"]
+        screen = {"title": None, "buttons": {"yes": region}}
+        tracker.update("Train Data", screen, geometry)
+        self.assertEqual(tracker.update("Train Data", {"title": None, "buttons": {}}, geometry)["buttons"], {})
+        region["corners"] = (np.array(region["corners"]) + [20, 20]).tolist()
+        self.assertEqual(tracker.update("Train Data", screen, geometry)["buttons"]["yes"]["center"], [80, 45])
+        region["corners"] = (np.array(region["corners"]) + [20, 20]).tolist()
+        self.assertEqual(tracker.update("Train Data (1/2)", screen, geometry)["buttons"]["yes"]["center"], [100, 65])
+
+    def test_relocated_title_does_not_freeze_at_old_position(self):
+        quad = np.array([[0, 0], [600, 0], [600, 960], [0, 960]], np.float32)
+        geometry = DisplayGeometry(quad, quad, (0, 0, 600, 960))
+        tracker = RightDisplayStabilizer()
+        screen = content(None)
+        screen["title"] = {**screen["data_field"], "text": "Driver ID"}
+        tracker.update(screen, geometry)
+        screen["title"]["corners"] = (np.array(screen["title"]["corners"]) + [0, 100]).tolist()
+        self.assertEqual(tracker.update(screen, geometry)["title"]["center"], [60, 125])
+
     def test_brief_ocr_loss_is_stable_but_prolonged_loss_expires(self):
         tracker = RightDisplayStabilizer()
         tracker.update(content("12"))

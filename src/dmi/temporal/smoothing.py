@@ -198,9 +198,22 @@ class RightDisplayStabilizer:
         content: dict[str, Any],
         geometry: DisplayGeometry | None,
     ) -> dict[str, Any]:
+        if geometry is not None and self._state in {"Train Data (1/2)", "Train Data (2/2)"}:
+            # Perspective fits on these pale screens can fluctuate while the
+            # oriented display box stays steady. Use one coordinate basis for
+            # the whole page; switching bases at the perspective-quality
+            # threshold makes even stationary controls jump by tens of pixels.
+            geometry = DisplayGeometry(
+                corners=geometry.oriented_box,
+                oriented_box=geometry.oriented_box,
+                bounding_box=geometry.bbox,
+            )
         layout_transform = None
         header_transform = None
-        if geometry is not None and self._state in {"Driver ID", "Level"}:
+        if geometry is not None and self._state in {
+            "Driver ID", "Level", "Train Running Number",
+            "Train Data (1/2)", "Train Data (2/2)",
+        }:
             layout_transform = self._update_layout_transform(content, geometry)
             header_transform = self._update_header_transform(content, geometry)
         stabilized = dict(content)
@@ -238,7 +251,7 @@ class RightDisplayStabilizer:
     ) -> np.ndarray:
         """Track one robust screen-relative transform for the whole UI lattice.
 
-        Driver ID and Level borders move together when the display grows in the
+        Keypad and Level borders move together when the display grows in the
         rectified image.  Estimating that common motion from many button corners
         lets the layout re-lock to the visible borders without allowing one
         noisy line (or a hand edge) to make individual boxes jump.
@@ -363,11 +376,12 @@ class RightDisplayStabilizer:
             displacement = float(
                 np.max(np.linalg.norm(relative - previous, axis=1))
             )
-            smoothed_relative = (
-                previous
-                if key == "title" and displacement > 0.045
-                else previous + alpha * (relative - previous)
-            )
+            # A relocated title must not remain pinned to an obsolete outline.
+            # Keep the existing response for independently detected controls:
+            # large raw jumps can be bad border fits, not genuine UI movement.
+            if geometry is not None and key == "title":
+                alpha = _motion_alpha(displacement, alpha)
+            smoothed_relative = previous + alpha * (relative - previous)
         self._regions[key] = smoothed_relative
         smoothed = (
             _map_corners_from_display(smoothed_relative, geometry)
@@ -384,6 +398,59 @@ class RightDisplayStabilizer:
                 return 0.18
             return 0.08
         return 0.18
+
+
+class LeftWorkflowStabilizer:
+    """Smooth observed train-workflow buttons in display-relative coordinates.
+
+    Missing regions and changed workflows discard history immediately. No OCR
+    text, button identities or absent detections are carried across frames.
+    Titles retain their own measured geometry so display-boundary jitter does
+    not pull their outlines away from the visible glyphs.
+    """
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._state: str | None = None
+        self._regions: dict[str, np.ndarray] = {}
+
+    def update(self, state: str, content: dict[str, Any],
+               geometry: DisplayGeometry) -> dict[str, Any]:
+        if state != self._state:
+            self.reset()
+            self._state = state
+        observed = content.get("buttons", {})
+        regions = {}
+        history = {}
+        for key, region in observed.items():
+            if region is None:
+                regions[key] = None
+                continue
+            relative = _map_corners_to_display(
+                np.asarray(region["corners"], dtype=np.float32), geometry)
+            previous = self._regions.get(key)
+            if previous is not None:
+                displacement = float(
+                    np.max(np.linalg.norm(relative - previous, axis=1))
+                )
+                relative = previous + _motion_alpha(displacement, 0.18) * (
+                    relative - previous
+                )
+            history[key] = relative
+            regions[key] = _region_with_corners(
+                region, _map_corners_from_display(relative, geometry))
+        self._regions = history
+        return {**content, "buttons": regions}
+
+
+def _motion_alpha(displacement: float, base: float) -> float:
+    """Damp small relative jitter, follow motion, and snap to relocated UI."""
+    if displacement >= 0.045:
+        return 1.0
+    response = np.clip((displacement - 0.008) / 0.025, 0, 1)
+    return float(base + (0.65 - base) * response)
 
 
 def _region_with_corners(

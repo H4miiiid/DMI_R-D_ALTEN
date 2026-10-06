@@ -16,7 +16,9 @@ from dmi.detection.right_display import analyze_right_display
 from dmi.detection.left_display import (RECTIFIED_SIZE as LEFT_SIZE,
                                         analyze_left_display, analyze_train_left_display)
 from dmi.temporal.left_tracking import LeftDisplayStabilizer
-from dmi.temporal.smoothing import GeometryStabilizer, RightDisplayStabilizer
+from dmi.temporal.smoothing import (
+    GeometryStabilizer, LeftWorkflowStabilizer, RightDisplayStabilizer,
+)
 
 FrameResult = dict[str, Any]
 
@@ -48,6 +50,7 @@ class FrameProcessor:
         self._geometry = GeometryStabilizer()
         self._right = RightDisplayStabilizer()
         self._left = LeftDisplayStabilizer()
+        self._left_workflow = LeftWorkflowStabilizer()
 
     def process(self, frame: Frame, timestamp: float) -> FrameResult:
         validate_frame(frame)
@@ -66,7 +69,7 @@ class FrameProcessor:
         self.last_reset_reason = reason
         try:
             result = process_frame(frame, self._index, timestamp,
-                                   self._geometry, self._right, self._left)
+                                   self._geometry, self._right, self._left, self._left_workflow)
         except Exception:
             self._reset_history()
             raise
@@ -83,6 +86,7 @@ def process_frame(
     geometry_stabilizer: GeometryStabilizer | None = None,
     right_display_stabilizer: RightDisplayStabilizer | None = None,
     left_display_stabilizer: LeftDisplayStabilizer | None = None,
+    left_workflow_stabilizer: LeftWorkflowStabilizer | None = None,
 ) -> FrameResult:
     """Process one source-independent BGR frame.
 
@@ -125,6 +129,10 @@ def process_frame(
             )
     if train_left is not None:
         left_content = train_left[1]
+        if left_workflow_stabilizer is not None:
+            left_content = left_workflow_stabilizer.update(
+                train_state, left_content, left_geometry
+            )
     elif left_geometry is not None:
         left_content = analyze_left_display(
             frame, left_geometry, left_display_stabilizer, left_rectified
@@ -133,6 +141,8 @@ def process_frame(
         left_content = {"boxes": {}, "speed_indicator": None}
     if (train_left is not None or left_geometry is None) and left_display_stabilizer is not None:
         left_display_stabilizer.reset()
+    if train_left is None and left_workflow_stabilizer is not None:
+        left_workflow_stabilizer.reset()
     return {
         "frame_index": int(frame_index),
         "timestamp": round(float(timestamp), 6),

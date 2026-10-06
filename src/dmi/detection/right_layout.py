@@ -171,8 +171,10 @@ def detect_button_quads(
                    ("digit_4", "digit_5", "digit_6"),
                    ("digit_7", "digit_8", "digit_9"),
                    ("delete", "digit_0", "decimal")),
+            coherent=True,
         )
-        grid.update(_train_navigation(horizontal, vertical, width, height))
+        grid.update(_train_navigation(horizontal, vertical, width, height,
+                                      preceding_row=grid["delete"]))
         return grid
     if state == "Train Data (2/2)":
         grid = _fit_grid(
@@ -181,6 +183,7 @@ def detect_button_quads(
             y_fractions=(.459, .548, .637),
             names=(("g1", "ga", "gb"),
                    ("gc", "out_of_gc", "unused_selection")),
+            coherent=True,
         )
         grid.pop("unused_selection")
         grid.update(_train_navigation(horizontal, vertical, width, height))
@@ -255,11 +258,21 @@ def detect_button_quads(
 def _train_navigation(
     horizontal: list[LineCandidate], vertical: list[LineCandidate],
     width: int, height: int,
+    preceding_row: Quad | None = None,
 ) -> dict[str, Quad]:
     x_lines = [_select_vertical(vertical, value * width, width, height)
                for value in (0.0, .255, .5, .745, .92)]
     y_lines = [_select_horizontal(horizontal, value * height, width, height)
                for value in (.86, .96)]
+    if preceding_row is not None:
+        # The keypad's last row and the navigation row share one visible edge.
+        left, right = preceding_row[3], preceding_row[2]
+        slope = float((right[1] - left[1]) / (right[0] - left[0]))
+        top = (slope, float(left[1] - slope * left[0]))
+        row_height = float(np.mean(preceding_row[2:, 1]) - np.mean(preceding_row[:2, 1]))
+        y_lines = [top, _select_horizontal(
+            horizontal, _line_position(top, width / 2) + row_height, width, height,
+        )]
     return _cells_from_lines(
         x_lines, y_lines,
         (("close", "left_arrow", "right_arrow", "select_type"),),
@@ -375,6 +388,7 @@ def _fit_grid(
     y_fractions: tuple[float, ...],
     names: tuple[tuple[str, ...], ...],
     horizontal_min_length: float = 0.0,
+    coherent: bool = False,
 ) -> dict[str, Quad]:
     x_lines = [
         _select_vertical(vertical, fraction * width, width, height)
@@ -390,6 +404,14 @@ def _fit_grid(
         )
         for fraction in y_fractions
     ]
+    if coherent:
+        # Fit the whole row pattern before selecting individual borders.
+        # A shifted grid must not leave a missing edge at its nominal position.
+        y_lines = _fit_axis_topology(
+            horizontal, tuple(value * height for value in y_fractions),
+            extent=height, cross_center=width * np.mean(x_fractions),
+            min_length=max(horizontal_min_length, width * .25),
+        )
     return {
         name: _quad(x_lines[column], x_lines[column + 1], y_lines[row], y_lines[row + 1])
         for row, row_names in enumerate(names)
