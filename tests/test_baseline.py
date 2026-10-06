@@ -1,13 +1,37 @@
 """Check movement measurements do not invent continuity across missing data."""
 from copy import deepcopy
+import json
+from pathlib import Path
+from tempfile import TemporaryDirectory
 import unittest
 
 from test_validation import frame
-from dmi.evaluation.baseline import summarize_frames
+from dmi.evaluation.baseline import read_recorded_frames, summarize_frames
 from dmi.evaluation.recorded import validation_result
 
 
 class BaselineTest(unittest.TestCase):
+    def test_recorded_baselines_preserve_both_saved_formats(self):
+        frames = [frame(), frame()]
+        frames[1].update(frame_index=1, timestamp=1 / 30)
+        with TemporaryDirectory() as directory:
+            for name, text in (("results.json", json.dumps({"frames": frames})),
+                               ("results_debug.jsonl", "\n".join(map(json.dumps, frames)))):
+                path = Path(directory) / name
+                path.write_text(text)
+                self.assertEqual(read_recorded_frames(path), frames)
+
+    def test_recorded_baseline_rejects_compact_live_and_incomplete_frames(self):
+        with TemporaryDirectory() as directory:
+            path = Path(directory) / "results.jsonl"
+            for rows in ([], [{"type": "snapshot", "frame": 0, "state": {}}],
+                         [{"type": "frame", "result": frame()}],
+                         [{**frame(), "frame_index": False}],
+                         [frame(), {**frame(), "frame_index": 2}]):
+                path.write_text("\n".join(map(json.dumps, rows)))
+                with self.assertRaises(ValueError):
+                    read_recorded_frames(path)
+
     def test_invalid_baseline_requires_explicit_opt_in(self):
         def fail():
             raise ValueError("invalid polygon")

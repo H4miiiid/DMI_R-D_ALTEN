@@ -17,6 +17,7 @@ from dmi.io.camera import CapturedFrame
 from dmi.pipeline.live import process_live
 from dmi.evaluation.validation import validate_results
 from dmi.evaluation.compact import validate_compact
+from dmi.evaluation.baseline import read_recorded_frames
 
 
 class RecordedReplay:
@@ -36,26 +37,31 @@ class RecordedReplay:
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("input_video", type=Path)
-    parser.add_argument("--baseline", required=True, type=Path, help="approved results.json")
+    parser.add_argument("--baseline", required=True, type=Path,
+                        help="approved results.json or recorded results_debug.jsonl")
     parser.add_argument("--output-dir", required=True, type=Path)
     args = parser.parse_args()
-    baseline = json.loads(args.baseline.read_text())
-    if baseline['video'] != args.input_video.name:
-        raise ValueError("baseline source filename differs from replay input")
+    baseline_frames = read_recorded_frames(args.baseline)
+    if args.baseline.suffix != ".jsonl":
+        baseline = json.loads(args.baseline.read_text())
+        if baseline['video'] != args.input_video.name:
+            raise ValueError("baseline source filename differs from replay input")
     capture = cv2.VideoCapture(str(args.input_video))
     try:
         if not capture.isOpened():
             raise RuntimeError(f"could not open replay input: {args.input_video}")
         run = process_live(RecordedReplay(capture), args.output_dir,
                            source_info={"kind": "recorded_replay", "video": args.input_video.name},
-                           max_frames=len(baseline['frames']), debug=True)
+                           max_frames=len(baseline_frames), debug=True)
         if capture.read()[0]:
             raise RuntimeError("replay source has more frames than the baseline")
     finally:
         capture.release()
     records = [json.loads(line) for line in run.debug_path.read_text().splitlines()]
     frames = [r['result'] for r in records if r['type'] == 'frame']
-    changes = [i for i, (frame, old) in enumerate(zip(frames, baseline['frames']))
+    if len(frames) != len(baseline_frames):
+        raise RuntimeError("replay frame count differs from the approved baseline")
+    changes = [i for i, (frame, old) in enumerate(zip(frames, baseline_frames))
                if {k: v for k, v in frame.items() if k != 'timestamp'} !=
                   {k: v for k, v in old.items() if k != 'timestamp'}]
     report = {**asdict(run), 'evidence': 'sequential recorded replay, not physical webcam',

@@ -15,6 +15,7 @@ import numpy as np
 
 from dmi.pipeline.video import process_video
 from dmi.evaluation.compact import validate_compact
+from dmi.evaluation.baseline import read_recorded_frames
 from dmi.evaluation.validation import validate_results, compare_frames, compare_annotated_videos
 
 
@@ -108,7 +109,9 @@ def main():
     for source in sorted(args.videos.glob("*.mp4")):
         if args.video and source.stem not in args.video:
             continue
-        baseline_path = args.baseline / source.stem / "results.json"
+        baseline_path = args.baseline / source.stem / "results_debug.jsonl"
+        if not baseline_path.exists():
+            baseline_path = args.baseline / source.stem / "results.json"
         if not baseline_path.exists() and not args.allow_new:
             raise FileNotFoundError(f"No approved baseline: {baseline_path}; use --allow-new for new inputs")
         directory = args.output_dir / source.stem
@@ -117,7 +120,7 @@ def main():
         run = process_video(source, directory, debug=True)
         elapsed = time.perf_counter() - start
         frames = [json.loads(line) for line in run.debug_path.read_text().splitlines()]
-        baseline = json.loads(baseline_path.read_text())["frames"] if baseline_path.exists() else None
+        baseline = read_recorded_frames(baseline_path) if baseline_path.exists() else None
         changed = all_changed = None
         if baseline is not None:
             if len(frames) != len(baseline):
@@ -143,6 +146,7 @@ def main():
             "frames": len(frames), "icon_counts": dict(counts),
             "associations": dict(associations), "no_match_frames": no_match,
             "baseline_available": baseline is not None,
+            "baseline_path": str(baseline_path) if baseline is not None else None,
             "all_field_changed_frames": all_changed,
             "non_icon_regression_frames": changed,
             "geometry_regions_checked": validation_result(lambda: validate_geometry(frames), args.allow_invalid),

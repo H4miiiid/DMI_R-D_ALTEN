@@ -13,6 +13,22 @@ from pathlib import Path
 import numpy as np
 
 
+def read_recorded_frames(path: Path) -> list[dict]:
+    """Load full recorded detections, never mistake compact state for frames."""
+    if path.suffix == ".jsonl":
+        frames = [json.loads(line) for line in path.read_text().splitlines()]
+    else:
+        frames = json.loads(path.read_text())["frames"]
+    if not isinstance(frames, list) or not frames:
+        raise ValueError(f"Recorded baseline has no frames: {path}")
+    for index, frame in enumerate(frames):
+        if (not isinstance(frame, dict) or type(frame.get("frame_index")) is not int
+                or frame["frame_index"] != index
+                or not {"timestamp", "left_display", "right_display"} <= frame.keys()):
+            raise ValueError(f"Expected full contiguous recorded frames at {path}, frame {index}")
+    return frames
+
+
 def regions(frame):
     for side in ("left", "right"):
         display = frame[f"{side}_display"]
@@ -87,10 +103,10 @@ def main():
         path = directory / "results.jsonl"
         is_jsonl = path.exists()
         if is_jsonl:
-            frames = [json.loads(line) for line in (directory / "results_debug.jsonl").read_text().splitlines()]
+            frames = read_recorded_frames(directory / "results_debug.jsonl")
         else:
             path = directory / "results.json"
-            frames = json.loads(path.read_text())["frames"]
+            frames = read_recorded_frames(path)
         if len(frames) != run["frames"]:
             raise ValueError(f"verification frame count mismatch: {name}")
         summary = summarize_frames(frames)
