@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 import sys
 import tempfile
-from threading import Event
+from threading import Event, Thread
 import time
 import unittest
 from unittest.mock import patch
@@ -22,6 +22,9 @@ from dmi.pipeline.frame_processor import FrameProcessor, process_frame
 from dmi.temporal.smoothing import GeometryStabilizer, RightDisplayStabilizer
 from dmi.temporal.left_tracking import LeftDisplayStabilizer
 from dmi.evaluation.validation import validate_results
+from dmi.output.json_writer import compact_state
+from dmi.output.latest_state import LatestState
+from test_validation import frame as detected_frame
 
 spec = importlib.util.spec_from_file_location(
     'run_webcam', Path(__file__).resolve().parents[1] / 'scripts/run_webcam.py')
@@ -230,8 +233,131 @@ class LiveProcessingTest(unittest.TestCase):
             self.assertEqual(records[-1]['processed_frames'], 1)
             self.assertEqual(records[-1]['stop_reason'], 'error')
 
+    def test_latest_state_is_published_after_log_and_cleared_on_stop_or_failure(self):
+        for failure in (False, True):
+            with self.subTest(failure=failure), tempfile.TemporaryDirectory() as temporary:
+                store = LatestState()
+                packets = [self.packet(0, 0.)]
+                if failure:
+                    packets.append(RuntimeError('disconnected'))
+                observed = []
+                def preview(_):
+                    snapshot = store.get(max_age_seconds=60)
+                    observed.append(snapshot)
+                    self.assertEqual(snapshot['frame_index'], 0)
+                    self.assertEqual(self.records(Path(temporary))[-1]['frame'], 0)
+                    return True
+                if failure:
+                    with self.assertRaisesRegex(RuntimeError, 'disconnected'):
+                        process_live(FakeSource(packets), temporary, latest_state=store,
+                                     preview=preview)
+                else:
+                    run = process_live(FakeSource(packets), temporary, latest_state=store,
+                                       preview=preview, max_frames=1)
+                    self.assertGreaterEqual(run.max_receipt_to_result_seconds,
+                                            run.max_capture_age_seconds)
+                    self.assertGreaterEqual(run.max_capture_age_seconds, 10)
+                    self.assertEqual(run.mean_receipt_to_result_seconds,
+                                     run.max_receipt_to_result_seconds)
+                self.assertEqual(len(observed), 1)
+                self.assertIsNone(store.get())
+
+
+class LatestStateTest(unittest.TestCase):
+    def test_concurrent_reader_observes_one_complete_generation(self):
+        store = LatestState()
+        ready, done = Event(), Event()
+        failures = []
+        def publish():
+            try:
+                result = detected_frame()
+                for index in range(100):
+                    result['frame_index'] = index
+                    result['right_display']['data_field']['value'] = str(index)
+                    store.publish(result, capture_index=index,
+                                  received_at=time.monotonic(), processed_at=time.monotonic(),
+                                  frame_size=(640, 480))
+                    ready.set()
+                    time.sleep(.001)
+            except Exception as exc:
+                failures.append(exc)
+            finally:
+                done.set()
+        with store:
+            writer = Thread(target=publish)
+            writer.start()
+            self.assertTrue(ready.wait(1))
+            checked = 0
+            try:
+                while not done.is_set():
+                    snapshot = store.get()
+                    self.assertIsNotNone(snapshot)
+                    self.assertEqual(snapshot['state']['right_display']['fields']['driver_id']['value'],
+                                     str(snapshot['frame_index']))
+                    checked += 1
+                    time.sleep(.001)
+            finally:
+                writer.join(timeout=2)
+            self.assertFalse(writer.is_alive())
+            self.assertFalse(failures)
+            self.assertGreater(checked, 0)
+
+    def test_freshness_unknown_replacement_and_copy_isolation(self):
+        store = LatestState()
+        self.assertIsNone(store.get())
+        result = detected_frame()
+        with store, patch('dmi.output.latest_state.time.monotonic', return_value=100.):
+            store.publish(result, capture_index=4, received_at=99.5,
+                          processed_at=100., frame_size=(640, 480))
+            snapshot = store.get()
+            self.assertEqual(snapshot['state'], compact_state(result))
+            snapshot['state']['right_display']['buttons'].clear()
+            result['right_display']['buttons'].clear()
+            self.assertTrue(store.get()['state']['right_display']['buttons'])
+            with patch('dmi.output.latest_state.time.monotonic', return_value=101.):
+                self.assertIsNone(store.get())
+            result['right_display'].update(state='unknown', title=None,
+                                          data_field=None, visibility='occluded')
+            store.publish(result, capture_index=5, received_at=99.9,
+                          processed_at=100., frame_size=(640, 480),
+                          temporal_reset='capture_gap')
+            current = store.get()
+            self.assertEqual(current['state']['right_display']['state'], 'unknown')
+            self.assertEqual(current['state']['right_display']['fields'], {})
+            self.assertEqual(current['state']['right_display']['buttons'], {})
+            self.assertEqual(current['temporal_reset'], 'capture_gap')
+        self.assertIsNone(store.get())
+        with store:
+            self.assertIsNone(store.get())
+
+    def test_invalid_freshness_and_concurrent_session_rejected(self):
+        store = LatestState()
+        for age in (0, -1, True, float('nan'), float('inf')):
+            with self.assertRaises(ValueError):
+                store.get(max_age_seconds=age)
+        with store:
+            with self.assertRaisesRegex(RuntimeError, 'already belongs'):
+                store.__enter__()
+
 
 class CameraTest(unittest.TestCase):
+    def test_close_discards_frame_returned_after_stop(self):
+        capture = ControlledCapture()
+        with patch('dmi.io.camera.cv2.VideoCapture', return_value=capture):
+            camera = LatestCamera(timeout=.5)
+            camera.__enter__()
+            self.assertTrue(capture.next_read.wait(1))
+            closer = Thread(target=camera.close)
+            closer.start()
+            self.assertTrue(camera._stop.wait(1))
+            capture.queue.put((True, np.zeros((16, 16, 3), np.uint8)))
+            closer.join(timeout=2)
+            self.assertFalse(closer.is_alive())
+            self.assertTrue(capture.released.is_set())
+            self.assertFalse(camera._thread.is_alive())
+            self.assertEqual(camera.stats()['pending_frames'], 0)
+            self.assertIsNone(camera._pending)
+
     def test_latest_only_no_duplicate_delivery_and_release(self):
         capture = ControlledCapture()
         frame = np.zeros((16, 16, 3), np.uint8)
@@ -251,6 +377,8 @@ class CameraTest(unittest.TestCase):
                 self.assertEqual(packet.capture_index, 2)
                 self.assertTrue((packet.image == 2).all())
                 self.assertGreater(packet.received_at, first.received_at)
+                self.assertEqual(camera.stats(), {'captured_frames': 3,
+                    'dequeued_frames': 2, 'overwritten_frames': 1, 'pending_frames': 0})
                 with self.assertRaisesRegex(RuntimeError, 'timed out'):
                     camera.read()
                 capture.queue.put((False, None))

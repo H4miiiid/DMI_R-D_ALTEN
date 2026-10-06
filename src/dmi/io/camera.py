@@ -46,6 +46,7 @@ class LatestCamera:
         self._pending: CapturedFrame | None = None
         self._error: Exception | None = None
         self._thread: Thread | None = None
+        self._captured = self._delivered = self._overwritten = 0
 
     def __enter__(self) -> LatestCamera:
         if self._thread is not None:
@@ -72,6 +73,11 @@ class LatestCamera:
                     raise RuntimeError(f"camera {self.camera_index} stopped delivering frames")
                 packet = CapturedFrame(frame, index, received_at)
                 with self._condition:
+                    if self._stop.is_set():
+                        break
+                    self._captured += 1
+                    if self._pending is not None:
+                        self._overwritten += 1
                     self._pending = packet
                     self._condition.notify_all()
                 index += 1
@@ -99,9 +105,18 @@ class LatestCamera:
                 raise RuntimeError("camera is closed")
             packet = self._pending
             self._pending = None
+            self._delivered += 1
         if time.monotonic() - packet.received_at > self.timeout:
             raise RuntimeError("camera's latest frame is stale")
         return packet
+
+    def stats(self) -> dict[str, int]:
+        """Observe the bounded application buffer, not camera-driver buffering."""
+        with self._condition:
+            return {"captured_frames": self._captured,
+                    "dequeued_frames": self._delivered,
+                    "overwritten_frames": self._overwritten,
+                    "pending_frames": int(self._pending is not None)}
 
     def close(self) -> None:
         self._stop.set()

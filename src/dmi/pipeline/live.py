@@ -15,6 +15,7 @@ from dmi.detection.display_geometry import Frame
 from dmi.pipeline.frame_processor import FrameProcessor
 from dmi.output.annotation import annotate_frame
 from dmi.output.json_writer import CompactWriter, ProgressReporter, write_record
+from dmi.output.latest_state import LatestState
 
 
 class LiveSource(Protocol):
@@ -31,12 +32,16 @@ class LiveRunSummary:
     processing_seconds: float
     stop_reason: str
     debug_path: Path | None = None
+    mean_receipt_to_result_seconds: float = 0.0
+    max_receipt_to_result_seconds: float = 0.0
+    max_capture_age_seconds: float = 0.0
 
 
 def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dict | None = None,
                  max_frames: int | None = None, max_gap_seconds: float = 1.0,
                  preview: Callable[[Frame], bool] | None = None,
-                 debug: bool = False, geometry_tolerance: float = 5.0) -> LiveRunSummary:
+                 debug: bool = False, geometry_tolerance: float = 5.0,
+                 latest_state: LatestState | None = None) -> LiveRunSummary:
     """Consume received frames until a limit, preview stop, Ctrl-C or failure.
 
     Sources are opened/closed by the caller. Each emitted JSONL record is flushed;
@@ -58,6 +63,7 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
             raise FileExistsError(f"refusing to overwrite existing output: {path}")
     count = skipped = 0
     processing_seconds = 0.0
+    latency_total = latency_max = capture_age_max = 0.0
     first_received = last_received = None
     previous_index = -1
     last_image = None
@@ -66,6 +72,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     failure: str | None = None
     progress = ProgressReporter("Live")
     with ExitStack() as stack:
+        if latest_state is not None:
+            stack.enter_context(latest_state)
         stream = stack.enter_context(jsonl_path.open("x", encoding="utf-8"))
         debug_stream = stack.enter_context(debug_path.open("x", encoding="utf-8")) if debug else None
         logger = CompactWriter(stream, {"source": source_info or {"kind": "live_frames"},
@@ -84,10 +92,12 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                     first_received = packet.received_at
                 timestamp = packet.received_at - first_received
                 started_processing = time.monotonic()
+                capture_age = started_processing - packet.received_at
                 result = processor.process(packet.image, timestamp)
                 annotated = annotate_frame(packet.image, result)
                 finished_processing = time.monotonic()
                 seconds = finished_processing - started_processing
+                latency = finished_processing - packet.received_at
                 dropped = packet.capture_index - previous_index - 1
                 logger.process(result, force_snapshot=processor.last_reset_reason is not None,
                                context={"capture_index": packet.capture_index,
@@ -100,9 +110,17 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                         "processing_seconds": seconds,
                         "receipt_to_result_seconds": finished_processing - packet.received_at,
                         "temporal_reset": processor.last_reset_reason, "result": result})
+                if latest_state is not None:
+                    latest_state.publish(result, capture_index=packet.capture_index,
+                        received_at=packet.received_at, processed_at=finished_processing,
+                        frame_size=(packet.image.shape[1], packet.image.shape[0]),
+                        temporal_reset=processor.last_reset_reason)
                 count += 1
                 skipped += dropped
                 processing_seconds += seconds
+                latency_total += latency
+                latency_max = max(latency_max, latency)
+                capture_age_max = max(capture_age_max, capture_age)
                 previous_index, last_received = packet.capture_index, packet.received_at
                 last_image = annotated
                 progress.report(count)
@@ -127,8 +145,12 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
             finally:
                 logger.finish(processed_frames=count, skipped_frames=skipped,
                               elapsed_seconds=elapsed, processing_seconds=processing_seconds,
+                              mean_receipt_to_result_seconds=latency_total / count if count else 0.0,
+                              max_receipt_to_result_seconds=latency_max,
+                              max_capture_age_seconds=capture_age_max,
                               duration_seconds=(last_received - first_received) if count else 0.0,
                               stop_reason=reason, error=failure)
                 progress.report(count, force=True)
     return LiveRunSummary(jsonl_path, preview_path if last_image is not None else None,
-                          count, skipped, elapsed, processing_seconds, reason, debug_path)
+                          count, skipped, elapsed, processing_seconds, reason, debug_path,
+                          latency_total / count if count else 0.0, latency_max, capture_age_max)
