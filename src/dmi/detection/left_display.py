@@ -252,33 +252,34 @@ def detect_left_regions(
                     slope_radius=0.04,
                 )
                 for i, (a, b) in enumerate(((0, 1), (2, 3), (3, 4), (4, 5), (6, 7))):
-                    # Each short button gets its own top/bottom slope.
+                    # Center cells share borders; outer buttons fit their own slopes.
                     x1, x2 = (
                         position(verticals[a], height * 0.65),
                         position(verticals[b], height * 0.65),
                     )
-                    local_top = evidence.fit(
-                        "h",
-                        position(top, (x1 + x2) / 2),
-                        (x1 + x2) / 2,
-                        x1 + 8,
-                        x2 - 8,
-                        radius=8,
-                        slope=top[0],
-                        slope_radius=0.06,
-                    )
-                    local_bottom = evidence.fit(
-                        "h",
-                        position(bottom, (x1 + x2) / 2),
-                        (x1 + x2) / 2,
-                        x1 + 8,
-                        x2 - 8,
-                        radius=4,
-                        slope=bottom[0],
-                        slope_radius=0.06,
-                    )
                     if i in (1, 2, 3):
                         local_top, local_bottom = group_top, group_bottom
+                    else:
+                        local_top = evidence.fit(
+                            "h",
+                            position(top, (x1 + x2) / 2),
+                            (x1 + x2) / 2,
+                            x1 + 8,
+                            x2 - 8,
+                            radius=8,
+                            slope=top[0],
+                            slope_radius=0.06,
+                        )
+                        local_bottom = evidence.fit(
+                            "h",
+                            position(bottom, (x1 + x2) / 2),
+                            (x1 + x2) / 2,
+                            x1 + 8,
+                            x2 - 8,
+                            radius=4,
+                            slope=bottom[0],
+                            slope_radius=0.06,
+                        )
                     if local_top is not None and local_bottom is not None:
                         boxes[f"box_{10+i}"] = quad(
                             verticals[a], verticals[b], local_top, local_bottom

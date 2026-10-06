@@ -21,6 +21,8 @@ class BorderEvidence:
         self.vertical = np.abs(cv2.Sobel(blue, cv2.CV_32F, 1, 0)).T
         self.horizontal[foreground > 0] = 0
         self.vertical[foreground.T > 0] = 0
+        # OpenCV otherwise copies this full transposed response for every fit.
+        self.vertical = np.ascontiguousarray(self.vertical)
 
     def fit(
         self,
