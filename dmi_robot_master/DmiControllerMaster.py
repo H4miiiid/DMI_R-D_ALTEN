@@ -19,10 +19,10 @@ class DmiControllerMaster:
         self._receive_function = receive_function
         
     def _start_timer(self)->None:
-        self._start_time = time.time()
+        self._start_time = time.monotonic()
         
     def _timer_expired(self, v: float)->bool:
-        return (time.time() - self._start_time) > v
+        return (time.monotonic() - self._start_time) > v
     
     def send(self, msg_type: DmiMessages, *args: List[int])-> bool:
         msg: List[int]= [msg_type.value]
@@ -62,6 +62,9 @@ class DmiControllerMaster:
             data = self._receive_function()
             if data:
                 msg_t, msg_data = self._decode_message(data)
+                if msg_t == DmiMessages.ERROR:
+                    logger.error("Robot returned ERROR while waiting for %s", expected_msg_type.name)
+                    return False, msg_data
                 if msg_t == expected_msg_type:
                     if expected_data_len is None or len(msg_data) == expected_data_len:
                         logger.info(f"Expected {expected_msg_type.name} action with data length = {len(msg_data)} received")
@@ -184,7 +187,7 @@ class DmiControllerMaster:
 
 
 if "__main__" == __name__:
-    cfg_path: str = os.path.join(pathlib.Path(__file__).parent, "pc_cfg.yaml")
+    cfg_path: str = os.path.join(pathlib.Path(__file__).resolve().parents[1], "dmi_robot_config", "pc_cfg.yaml")
     cfg: YamlCfg = YamlCfg(cfg_path)
     
     setup_logging(cfg.log_level, pathlib.Path(__file__).stem)
@@ -193,8 +196,11 @@ if "__main__" == __name__:
     
     dmi_controller: DmiControllerMaster = DmiControllerMaster(com_protocol.put_data, com_protocol.get_data)
     
-    while not dmi_controller.manage_action(DmiControllerMaster.Action(DmiMessages.ACK, [], DmiMessages.ACK, 0, 1))[0]:
-        time.sleep(0.5)
+    try:
+        while not dmi_controller.manage_action(DmiControllerMaster.Action(DmiMessages.ACK, [], DmiMessages.ACK, 0, 1))[0]:
+            time.sleep(0.5)
+    finally:
+        com_protocol.close()
         
     #input("")
     #print(dmi_controller.manage_action(DmiControllerMaster.Action(DmiMessages.INITIALIZE, [], DmiMessages.DONE, 0)))

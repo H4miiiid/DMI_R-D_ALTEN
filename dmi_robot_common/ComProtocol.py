@@ -55,4 +55,6 @@ class ComProtocol:
                 logger.error(f"Expected payload length: {length}, received payload length: {len(data) - ComProtocol._MIN_MESSAGE_LENGTH} ")
         return ret
 
-    
+    def close(self) -> None:
+        """Release the owned UDP socket."""
+        self._socket.close()

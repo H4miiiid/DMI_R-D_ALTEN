@@ -33,6 +33,9 @@ class UDPSocketManager:
                 logger.error(f"Invalid packet from {addr}")
                 return []
             count = struct.unpack("!I", data[:4])[0]
+            if len(data) != 4 + count * 4:
+                logger.error("Invalid packet length from %s", addr)
+                return []
             msg = []
             for i in range(count):
                 start = 4 + i * 4
@@ -43,5 +46,11 @@ class UDPSocketManager:
                 msg.append(value)
             logger.debug(f"Received from {addr}: {msg}")
             return msg
-        except Exception as e:
+        except BlockingIOError:
             return []
+        except OSError:
+            logger.exception("UDP receive failed")
+            raise
+
+    def close(self) -> None:
+        self._sock.close()

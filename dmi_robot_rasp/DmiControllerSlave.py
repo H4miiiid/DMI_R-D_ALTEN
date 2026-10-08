@@ -4,8 +4,11 @@ import os
 import pathlib
 import socket
 import time
-from typing import Any, List, Tuple
-from dmi_robot_rasp.DmiRobot import DmiRobot
+from typing import Any, List, Tuple, TYPE_CHECKING
+from dmi_robot_common.command_validation import validate_command
+
+if TYPE_CHECKING:
+    from dmi_robot_rasp.DmiRobot import DmiRobot
 from dmi_robot_common.ComProtocol import ComProtocol
 import struct
 from dmi_robot_common.YamlCfg import YamlCfg
@@ -65,10 +68,11 @@ class DmiControllerSlave:
     def run(self)->None:
         data = self._receive_function()
         if data is not None and 0 != len(data):
-            msg_type, args = DmiMessages.decode_message(data)
             try:
+                msg_type, args = DmiMessages.decode_message(data)
+                validate_command(msg_type, args, (self._dmi_robot._X, self._dmi_robot._Y))
                 if DmiMessages.MOVE_AND_CLICK == msg_type:
-                    self._send(DmiMessages.DONE if self._dmi_robot.move_and_click(*args) else DmiMessages.ERROR, [])
+                    self._send(DmiMessages.DONE if self._dmi_robot.click(*args) else DmiMessages.ERROR, [])
                 elif DmiMessages.TAKE_PICTURES == msg_type:
                     new_pictures: List[str] = self._dmi_robot.take_picture(*args)
                     self._pictures.extend(new_pictures)
@@ -76,7 +80,7 @@ class DmiControllerSlave:
                 elif DmiMessages.GET_PICTURES == msg_type:
                     self._send_pictures()
                 elif DmiMessages.MOVE == msg_type:
-                    self._send(DmiMessages.DONE if self._dmi_robot.move(*args) else DmiMessages.ERROR, [])
+                    self._send(DmiMessages.DONE if self._dmi_robot.live_movement(*args) else DmiMessages.ERROR, [])
                 elif DmiMessages.INITIALIZE == msg_type:
                     self._send(DmiMessages.DONE if self._dmi_robot.initialize_hardware() else DmiMessages.ERROR, [])
                 elif DmiMessages.RETURN_TO_ZERO == msg_type:
@@ -97,18 +101,24 @@ class DmiControllerSlave:
         
         
 if "__main__" == __name__:
-    cfg_path: str = os.path.join(pathlib.Path(__file__).parent, "raspberry_cfg.yaml")
+    cfg_path: str = os.path.join(pathlib.Path(__file__).resolve().parents[1], "dmi_robot_config", "raspberry_cfg.yaml")
     cfg: YamlCfg = YamlCfg(cfg_path)
     setup_logging(cfg.log_level, pathlib.Path(__file__).stem)
     
             
+    from dmi_robot_rasp.DmiRobot import DmiRobot
+
     dmi_robot: DmiRobot = DmiRobot(cfg)
     
 
-    com_protocol = ComProtocol(cfg.address, cfg.remote_address)
-    
-    
-    dmi_controller: DmiControllerSlave = DmiControllerSlave(dmi_robot, com_protocol.put_data, com_protocol.get_data)
-    while True:
-        dmi_controller.run()
+    com_protocol = None
+    try:
+        com_protocol = ComProtocol(cfg.address, cfg.remote_address)
+        dmi_controller = DmiControllerSlave(dmi_robot, com_protocol.put_data, com_protocol.get_data)
+        while True:
+            dmi_controller.run()
+    finally:
+        if com_protocol is not None:
+            com_protocol.close()
+        dmi_robot._button.close()  # One shared GPIO handle, closed once.
     

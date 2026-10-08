@@ -9,11 +9,11 @@ import xml.etree.ElementTree as ET
 from tkinterdnd2 import TkinterDnD, DND_FILES 
 
 # Importazioni dei tuoi moduli originali
-from YamlCfg import YamlCfg
-from ComProtocol import ComProtocol
-from Logger import setup_logging, logger
-from DmiMessages import DmiMessages
-from DmiControllerMaster import DmiControllerMaster
+from dmi_robot_common.YamlCfg import YamlCfg
+from dmi_robot_common.ComProtocol import ComProtocol
+from dmi_robot_common.Logger import setup_logging, logger
+from dmi_robot_common.DmiMessages import DmiMessages
+from dmi_robot_master.DmiControllerMaster import DmiControllerMaster
 
 class DmiControlPanel:
     def __init__(self, root):
@@ -45,7 +45,7 @@ class DmiControlPanel:
     def _init_hardware_controller(self):
         """ Inizializza il canale di comunicazione con lo Slave (Raspberry Pi) """
         try:
-            cfg_path = os.path.join(pathlib.Path(__file__).parent, "pc_cfg.yaml")
+            cfg_path = os.path.join(pathlib.Path(__file__).resolve().parents[1], "dmi_robot_config", "pc_cfg.yaml")
             cfg = YamlCfg(cfg_path)
             setup_logging(cfg.log_level, pathlib.Path(__file__).stem)
             
@@ -505,4 +505,8 @@ class DmiControlPanel:
 if __name__ == "__main__":
     root = TkinterDnD.Tk()
     app = DmiControlPanel(root)
-    root.mainloop()
+    try:
+        root.mainloop()
+    finally:
+        if hasattr(app, "com_protocol"):
+            app.com_protocol.close()
