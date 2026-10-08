@@ -81,7 +81,11 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                "max_gap_seconds": max_gap_seconds}, geometry_tolerance=geometry_tolerance)
         try:
             while max_frames is None or count < max_frames:
-                packet = source.read()
+                try:
+                    packet = source.read()
+                except EOFError:
+                    reason = "eof"
+                    break
                 if (type(packet.capture_index) is not int or packet.capture_index <= previous_index
                         or not math.isfinite(packet.received_at)
                         or (last_received is not None and packet.received_at <= last_received)):

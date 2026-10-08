@@ -112,7 +112,7 @@ class ProcessVideoTest(unittest.TestCase):
             directory = root / "output"
             process_video(source, directory, max_frames=1)
             before = {p.name: p.read_bytes() for p in directory.iterdir()}
-            with patch("dmi.pipeline.frame_processor.process_frame", side_effect=RuntimeError("injected failure")):
+            with patch("dmi_computer_vision.src.dmi.pipeline.frame_processor.process_frame", side_effect=RuntimeError("injected failure")):
                 with self.assertRaisesRegex(RuntimeError, "injected failure"):
                     process_video(source, directory, overwrite=True)
             self.assertEqual({name: (directory / name).read_bytes() for name in before}, before)
@@ -133,8 +133,8 @@ class ProcessVideoTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory);source = root / "source.mp4"
             self._write_test_video(source)
-            with patch("dmi.pipeline.frame_processor.process_frame", return_value={"frame_index": 0, "timestamp": float('nan')}), \
-                    patch("dmi.pipeline.video.annotate_frame", side_effect=lambda image, _: image):
+            with patch("dmi_computer_vision.src.dmi.pipeline.frame_processor.process_frame", return_value={"frame_index": 0, "timestamp": float('nan')}), \
+                    patch("dmi_computer_vision.src.dmi.pipeline.video.annotate_frame", side_effect=lambda image, _: image):
                 with self.assertRaises(ValueError):
                     process_video(source, root / "output")
             self.assertFalse((root / "output/results.jsonl").exists())
@@ -154,7 +154,7 @@ class ProcessVideoTest(unittest.TestCase):
                         if key == cv2.CAP_PROP_FPS:return fps
                         if key == cv2.CAP_PROP_FRAME_COUNT:return 7
                         return actual_get(key)
-                    with patch("dmi.pipeline.video.cv2.VideoCapture") as factory:
+                    with patch("dmi_computer_vision.src.dmi.pipeline.video.cv2.VideoCapture") as factory:
                         factory.return_value.isOpened.return_value = True
                         factory.return_value.get.side_effect = properties
                         factory.return_value.read.side_effect = capture.read
@@ -185,7 +185,7 @@ class ProcessVideoTest(unittest.TestCase):
                         self.assertEqual(len((output / "results_debug.partial.jsonl").read_text().splitlines()), 1)
                         raise exception
                     return process_frame(*args, **kwargs)
-                with patch("dmi.pipeline.frame_processor.process_frame", side_effect=process):
+                with patch("dmi_computer_vision.src.dmi.pipeline.frame_processor.process_frame", side_effect=process):
                     with self.assertRaises(type(exception)):
                         process_video(source, output, debug=True)
                 records = [json.loads(line) for line in (output / "results.partial.jsonl").read_text().splitlines()]

@@ -2,82 +2,114 @@
 
 ## Current status
 
-**Phase 1: Completed offline — accepted.** User approved commit and push on
-2026-10-08. Commit/push are being performed to `origin/main`
-(`https://github.com/H4miiiid/DMI_R-D_ALTEN.git`). Worktree was clean on `main`
-at start. Phase 2 has not started. No physical validation performed.
+**Phase 2: Completed offline — accepted.** User approved the reviewed phase on
+2026-10-08, authorizing its commit and push.
+Phase 1 accepted and pushed as `e95e274` to `origin/main`
+(`https://github.com/H4miiiid/DMI_R-D_ALTEN.git`). Phase 2 commit/push are being
+performed to verified `origin/main`; Phase 3 not started. No physical camera/robot validation; no robot packets or GPIO accessed.
 
-## Phase 1 implementation
+User reports two webcams, probably connected to the Raspberry Pi; camera type,
+cabling and which camera sees the DMI remain unconfirmed. Intended processing
+host is the PC, with one selected Pi OpenCV-compatible camera and a latest-JPEG
+HTTP bridge. Local-PC USB camera is also configurable. Do not claim actual USB
+compatibility: if installed cameras require Picamera2, add that source adapter
+when confirmed. Actual index, resolution, orientation and addresses are deferred
+settings. User will compare deployed PC/Pi files during the later robot trial.
 
-- Fixed GUI package imports and controller/GUI paths to shared dmi_robot_config.
-- Slave now calls existing live_movement/click, imports Pi code only at hardware
-  startup, validates command payloads and replies ERROR for unknown message IDs.
-- Added common command_validation.py and master integration/commands.py:
-  explicit XY bounds, absolute integer mm, duration in ms, existing master
-  dispatch and DONE requirement; no automatic retries.
-- Master stops on ERROR and uses monotonic timeout. Common UDP exposes cleanup,
-  rejects truncated datagrams and propagates receive errors. Entry points close
-  owned sockets; slave closes its shared GPIO handle once on loop exit.
-- Added tests/test_robot_integration.py and integration/README.md plus optional
-  PC dependency list. No changes to motors, homing, pins, wire format, detector,
-  GUI widgets/script behavior or existing YAML values.
+## Phase 1 — Completed offline, accepted
 
-Confirmed against real robot methods with motor calls replaced: XY is absolute;
-250 ms reaches _z_click as 0.25 seconds. Shared DmiMessages/ComProtocol is the
-integration path; standalone DmiRobot message IDs 40/50/60/70 are excluded.
+- Fixed robot/GUI package imports and shared configuration paths; slave calls
+  existing live_movement/click. Added command_validation.py and integration/
+  commands.py for absolute integer XY mm, explicit bounds and press duration ms.
+- Master uses monotonic timeout and fails on ERROR. UDP validates packet length,
+  propagates receive errors and exposes cleanup; entry points release resources.
+- 12 fake-only tests passed, including startup from another directory and real
+  robot method math with motor calls replaced. Wire format/motor code unchanged.
+- Phase 1 found pre-existing vision test mock namespace mismatches; Phase 2 fixes
+  those test paths and restores all 129 vision checks without detector changes.
 
-## Checks actually run
+## Phase 2 — Implementation
 
-Environment: macOS, Python 3.13.3 from
-`/Users/hamiidreza/.pyenv/versions/3.13.3/bin/python`, PyYAML 6.0.3 and existing
-numpy/OpenCV. No Pi packages installed; no actual sockets/cameras/GPIO opened.
+- integration/camera.py: paced ReplayCamera with one pending frame, local receipt
+  UTC/monotonic time, separate original video time, configurable orientation and
+  EOF/stale/error cleanup; RobotCamera wraps existing LatestCamera.
+- RemoteCamera requests only the latest bridge JPEG, bounds reply size/time,
+  rejects duplicate/stale captures, source restart/session change and disconnect.
+  Uses local PC receipt time plus separately recorded Pi capture age and request
+  round-trip for conservative arrival-age validation. No host clock sync needed.
+- integration/frame_bridge.py: one camera owner and one latest encoded JPEG;
+  source capture session ID, index and monotonic age in HTTP metadata. No motors.
+- integration/observe.py: observation-only module CLI using existing process_live,
+  FrameProcessor and LatestState; full-size annotation for every processed frame
+  in annotated.mp4, compact log, receipt/source-time sidecar and session metrics.
+- Minimal vision change: clean EOF only when source.read() raises EOFError.
+  Detector EOFError still fails. Test_live.py/test_video.py mocks now patch their
+  actual imported namespace. Detection/temporal thresholds and behavior unchanged.
+- Setup/commands and limits in integration/README.md. Local ignored vision
+  docs/OUTPUT_SPEC.md updated for live EOF; do not force-add the ignored docs tree.
 
-From repository root:
+## Verification actually run
+
+Environment: macOS, Python 3.13.3 (pyenv), PyYAML 6.0.3, existing numpy/OpenCV,
+Tesseract at /opt/homebrew/bin/tesseract. Pi/backend/network compatibility untested.
+Run from repository root with the configured Python environment:
 
 ```sh
 python3 -m unittest discover -s tests -q
-python3 -m compileall -q dmi_robot_common dmi_robot_master dmi_robot_rasp tests
-git diff --check
 python3 -m unittest discover -s dmi_computer_vision/tests -q
+python3 -m compileall -q dmi_robot_master/integration tests
+git diff --check
+python3 -m dmi_robot_master.integration.observe \
+  --replay dmi_computer_vision/data/videos/dev/driver_id_12.mp4 \
+  --replay-fps 8 --max-frames 12 --debug \
+  --output-dir /private/tmp/dmi_robot_observation_NEW
 ```
 
-- Phase 1: **12 tests passed**, covering valid dispatch/units, invalid payloads
-  and bounds, ACK/initialize/zero/position, ERROR/exception/timeout/disconnect,
-  uninitialized camera failure, wire envelope/serialization and cleanup.
-- Same 12 tests passed from /private/tmp using repository PYTHONPATH and the
-  explicit Python interpreter above. Config/startup paths and GUI imports tested
-  with fake transport/robot and a tkinterdnd2 stub. Real GUI rendering and Pi
-  construction untested. Installation recipes documented, not freshly installed.
-- Compile checks and diff whitespace check passed. PC slave import confirmed it
-  loads neither lgpio nor picamera2.
-- Additional unchanged vision suite: 129 tests ran; **4 failure reports and
-  2 errors**, reproduced. Existing tests import dmi_computer_vision.src.dmi but
-  some mocks patch dmi.*, so injected failures do not reach the tested modules.
-  Affected cases are FrameSessionTest gap/reset, LiveProcessingTest processing
-  failure, and ProcessVideoTest overwrite/interrupt/nonfinite handling.
-  Temporary log: /private/tmp/dmi_phase1_vision_checks.log. No vision files changed.
-  Earlier runs from the vision directory lacked root PYTHONPATH, and /tmp used a
-  different python3 lacking PyYAML; corrected root/explicit-interpreter runs are
-  the results above. Future commands must use the configured environment.
+- **27 integration tests passed** (12 Phase 1 + 15 Phase 2); **129 vision tests
+  passed** after correcting existing mock paths. Compile and whitespace checks
+  passed. Tests use fake camera/HTTP, covering buffering, final-frame EOF,
+  expiry/loss, rotation, annotation count, repeated remote replies, RTT age,
+  source session restart and cleanup. No actual network service/device opened.
+- Actual recordings through the live path: full decoded Driver ID (38 processed,
+  195 skipped); full decoded Level-to-Main (260 processed, 634 skipped); Train
+  Running Number sample (16 processed). Every result passed output-contract and
+  compact reconstruction (zero semantic mismatches); annotation counts matched.
+- Source/session rates: Driver ID 24.76 capture / 4.04 processed FPS, mean/max
+  receipt-to-result 243/510 ms; Level-to-Main 18.26/5.31 FPS, 201/1051 ms.
+  These are offline session averages, some runs overlapped with other checks;
+  not a deployment benchmark. Input container frame counts exceed decoded counts.
+- Additional fake-HTTP quality-95 JPEG Driver ID replay: 16/16 recognized Driver
+  ID, valid contract/compact reconstruction, 16 decoded annotated frames.
+- Reviewed Driver ID, Main, Level, Train Number and obstructed final annotations.
+  Full Driver ID has 21 recognized and 17 unknown observations; Level-to-Main has
+  64 Level, 57 Main and 139 unknown observations. Inspected final unknown frames
+  contain a hand; not all unknowns are manually classified. One Level annotation
+  has visibly misplaced controls despite correct screen recognition. Preserve
+  these detector limits; do not use valid logs as proof of pressing accuracy.
+- Temporary evidence: /private/tmp/dmi_phase2_driver_smoke, _driver_full,
+  _level_main, _train_number, _jpeg_driver_final (each prefixed dmi_phase2).
+  Verification.json, video, sidecar/debug/compact logs and final images remain
+  there. Test logs: /private/tmp/dmi_phase2_tests.log and _vision_tests.log.
+  Generated evidence is not staged/committed.
 
-## Deferred limitations and next step
+## Deferred issues and next step
 
-Hardware travel/origin/network settings remain unverified. Adapter XY limits are
-explicit; slave uses existing 380/470 mm constants, upper bounds exclusive.
-Fractional mm are rejected by the integer protocol. Camera slots remain None.
-Base click success does not establish contact; contact-loop step accounting
-appears to overcount retraction distance. Propose a separate focused contact/Z
-fix and fake sensor/motor tests before any physical press. Lower-bound checks,
-blocking sensor/homing waits, nonzero-Z scaling, partial GPIO startup cleanup,
-legacy picture transfer and late UDP response correlation remain limitations.
-GUI stop is not an emergency stop; scripts may ignore failed command results.
-Detailed setup/limitations are in dmi_robot_master/integration/README.md.
+Hardware trial must confirm camera type/host/index, dependencies, network,
+delivered image size/orientation/quality and actual latency. No reconnect or
+native blocked-read recovery. JPEG changes pixels. Video playback is fixed 5 FPS
+for inspection, not source time. Remote capture FPS is null; index span counters
+are inferred. Later target consumers must include upstream Pi age and RTT in
+addition to local receipt age; fresh frames do not guarantee fresh tracked items.
 
-User decision: proceed with this repository integration; compare deployed PC/Pi
-files and local setup during the later robot trial. Deployed behavior may differ
-from this checkout. Phase 1 approval authorizes only its commit and push.
+Inherited robot issues remain: camera slots None in legacy take_picture; click
+success does not prove contact; contact-loop accounting appears to overcount Z
+retraction. Lower bounds, blocking homing/sensor waits, nonzero-Z scaling,
+partial GPIO constructor cleanup and late UDP reply correlation need review.
+GUI scripts may ignore failed responses; stop flag is not an emergency stop.
+Do not modify motors broadly; propose a focused contact/Z fix before pressing.
 
-Next: complete the approved commit/push to verified `origin/main`, then Phase 2
-camera processing integration. Camera interface/host facts may be needed then.
-Hardware testing remains deferred until all six phases. Report this commit ID
-and push result in chat; record them at the next natural handoff update.
+Next: complete the approved Phase 2 commit/push to verified `origin/main`, staging
+only this phase and handoff; preserve unrelated/ignored data/docs/outputs. Report
+commit ID and push result in chat; record them at the next natural handoff update.
+Phase 3 is synthetic/recording simulation calibration. All six phases remain
+offline first; new hardware calibration and physical acceptance are deferred.

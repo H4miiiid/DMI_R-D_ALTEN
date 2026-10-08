@@ -97,7 +97,7 @@ class FrameSessionTest(unittest.TestCase):
             seen.append(states)
             return {'frame_index': index, 'timestamp': timestamp}
         processor = FrameProcessor(max_gap_seconds=1.)
-        with patch('dmi.pipeline.frame_processor.process_frame', side_effect=observe):
+        with patch('dmi_computer_vision.src.dmi.pipeline.frame_processor.process_frame', side_effect=observe):
             processor.process(self.frame, 0.)
             processor.process(self.frame, .5)
             self.assertIs(seen[0][0], seen[1][0])
@@ -225,7 +225,7 @@ class LiveProcessingTest(unittest.TestCase):
     def test_processing_failure_keeps_prior_frame_and_error_summary(self):
         with tempfile.TemporaryDirectory() as temporary:
             source = FakeSource([self.packet(0, 0.), self.packet(1, .1)])
-            with patch('dmi.pipeline.frame_processor.process_frame', side_effect=[
+            with patch('dmi_computer_vision.src.dmi.pipeline.frame_processor.process_frame', side_effect=[
                 process_frame(self.frame, 0, 0.), RuntimeError('inference failed')]):
                 with self.assertRaisesRegex(RuntimeError, 'inference failed'):
                     process_live(source, temporary)
@@ -306,7 +306,7 @@ class LatestStateTest(unittest.TestCase):
         store = LatestState()
         self.assertIsNone(store.get())
         result = detected_frame()
-        with store, patch('dmi.output.latest_state.time.monotonic', return_value=100.):
+        with store, patch('dmi_computer_vision.src.dmi.output.latest_state.time.monotonic', return_value=100.):
             store.publish(result, capture_index=4, received_at=99.5,
                           processed_at=100., frame_size=(640, 480))
             snapshot = store.get()
@@ -314,7 +314,7 @@ class LatestStateTest(unittest.TestCase):
             snapshot['state']['right_display']['buttons'].clear()
             result['right_display']['buttons'].clear()
             self.assertTrue(store.get()['state']['right_display']['buttons'])
-            with patch('dmi.output.latest_state.time.monotonic', return_value=101.):
+            with patch('dmi_computer_vision.src.dmi.output.latest_state.time.monotonic', return_value=101.):
                 self.assertIsNone(store.get())
             result['right_display'].update(state='unknown', title=None,
                                           data_field=None, visibility='occluded')
@@ -343,7 +343,7 @@ class LatestStateTest(unittest.TestCase):
 class CameraTest(unittest.TestCase):
     def test_close_discards_frame_returned_after_stop(self):
         capture = ControlledCapture()
-        with patch('dmi.io.camera.cv2.VideoCapture', return_value=capture):
+        with patch('dmi_computer_vision.src.dmi.io.camera.cv2.VideoCapture', return_value=capture):
             camera = LatestCamera(timeout=.5)
             camera.__enter__()
             self.assertTrue(capture.next_read.wait(1))
@@ -361,7 +361,7 @@ class CameraTest(unittest.TestCase):
     def test_latest_only_no_duplicate_delivery_and_release(self):
         capture = ControlledCapture()
         frame = np.zeros((16, 16, 3), np.uint8)
-        with patch('dmi.io.camera.cv2.VideoCapture', return_value=capture):
+        with patch('dmi_computer_vision.src.dmi.io.camera.cv2.VideoCapture', return_value=capture):
             camera = LatestCamera(timeout=.5)
             with camera:
                 capture.queue.put((True, frame.copy()))
@@ -390,7 +390,7 @@ class CameraTest(unittest.TestCase):
     def test_unavailable_camera_and_release(self):
         capture = ControlledCapture()
         capture.isOpened = lambda: False
-        with patch('dmi.io.camera.cv2.VideoCapture', return_value=capture):
+        with patch('dmi_computer_vision.src.dmi.io.camera.cv2.VideoCapture', return_value=capture):
             with LatestCamera(timeout=.1) as camera:
                 with self.assertRaisesRegex(RuntimeError, 'could not open camera'):
                     camera.read()
@@ -398,7 +398,7 @@ class CameraTest(unittest.TestCase):
 
     def test_read_stall_times_out_then_worker_releases_when_backend_returns(self):
         capture = ControlledCapture()
-        with patch('dmi.io.camera.cv2.VideoCapture', return_value=capture):
+        with patch('dmi_computer_vision.src.dmi.io.camera.cv2.VideoCapture', return_value=capture):
             with LatestCamera(timeout=.02) as camera:
                 with self.assertRaisesRegex(RuntimeError, 'timed out'):
                     camera.read()
