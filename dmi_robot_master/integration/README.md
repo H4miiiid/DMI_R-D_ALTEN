@@ -282,3 +282,121 @@ Level annotation recognizes the screen but places several control boxes away
 from their visible controls, consistent with inherited layout limitations. No
 thresholds or temporal behavior were adjusted to hide this. Driver ID and Main
 examples are suitable for review, not proof of physical target accuracy.
+
+# Phase 3 — simulation calibration
+
+Calibration fitting and point conversion live in calibration.py; the small
+calibrate.py CLI reads a successful Phase 2 simulation observation directory.
+It cannot produce a physically verified hardware calibration or send a robot
+command. The accepted detector, robot code and reference JSON are unchanged.
+
+The reference is DmiPositions.json → DMI_SENSE_TOUCHSCREEN → screens →
+DRIVER_ID_WINDOW → buttons. digit_0..digit_9 match KEY_0..KEY_9 by identity,
+regardless of dictionary order. Only that model currently has mapped keys.
+Detected centers use the original full-size input image, including its configured
+orientation, with no preview scaling. The collector requires all ten keys on
+consecutive clear Driver ID observations, resets after missing/ambiguous/unstable
+matches or a temporal reset, rejects size changes and summarizes centers by
+coordinate medians. Its bounded sample window retains no frame history.
+
+Use the configured detector Python environment, from the repository root:
+
+```sh
+python3 -m dmi_robot_master.integration.observe \
+  --replay dmi_computer_vision/data/videos/dev/driver_id_12.mp4 \
+  --start-seconds 2.5 --replay-fps 3 --max-frames 12 --debug \
+  --output-dir dmi_computer_vision/outputs/robot_integration/phase3/driver12_NEW
+python3 -m dmi_robot_master.integration.calibrate \
+  --observation-dir dmi_computer_vision/outputs/robot_integration/phase3/driver12_NEW \
+  --output dmi_computer_vision/outputs/robot_integration/phase3/driver12_NEW/calibration.simulation.json \
+  --observations 5 --max-spread-px 3 --ransac-threshold-mm 5 \
+  --simulation-tolerance-mm 5
+python3 -m unittest discover -s tests -q
+```
+
+Choose a new observation directory/file for every run. These demonstrated
+settings select a steadier recorded section; the slow replay preserves closely
+spaced source frames, with source-video time retained separately. The initial
+moving-camera segments failed the 3-pixel stability gate and were left rejected.
+The example spread/RANSAC/tolerance values are explicitly development settings;
+**5 mm is not a proposed physical acceptance tolerance**. Omit simulation-tolerance
+if only an error report is wanted: the resulting artifact remains unaccepted and
+conversion rejects it. No detector thresholds or temporal rules were tuned to
+make a calibration example pass.
+
+OpenCV fits a planar pixel-to-absolute-XY-mm homography. It needs noncollinear
+correspondences. The fitting API accepts five or more named keys, preferably all
+ten: each leave-one-key-out validation needs at least four remaining training
+points, so four total keys cannot supply independent validation in this API.
+RANSAC thresholds use destination mm. Fits with inconsistent keys/outliers,
+duplicate points, insufficient inliers, near-collinear geometry or a horizon
+crossing the calibrated region are rejected. Per-key, mean and maximum held-out
+XY error are saved separately from training residuals. The acceptance gate uses
+the maximum held-out error and an explicitly supplied tolerance and explanation.
+Small residuals do not establish physical accuracy of the reference positions.
+
+The JSON artifact contains provenance, content-derived calibration ID, model and
+screen plane, frame size, camera identity/settings/mount revision, robot
+origin/axes, reference-file SHA256, homography, matched identity/pixel/mm points,
+observation count/capture indices/stability setting, convex keypad hull, inliers,
+training and held-out errors and acceptance status. Recorded files are marked
+simulation and hardware_verified=false. They cannot be reused as installed-camera
+calibration. Files are never overwritten; a SHA256 identifier detects accidental
+content changes, not malicious rewriting or truth of operator assertions.
+
+Python consumer interface:
+
+```python
+from dmi_robot_master.integration.calibration import load_calibration, convert_pixel
+
+calibration = load_calibration(
+    path, frame_size=actual_frame_size, camera=current_camera_context,
+    origin=current_origin_context, hardware=False,
+)
+xy_mm = convert_pixel(
+    calibration, pixel_center, frame_size=actual_frame_size,
+    camera=current_camera_context, origin=current_origin_context,
+    display='right', screen='Driver ID', hardware=False,
+)
+```
+
+Pass independently configured **current** camera/origin context to check a saved
+artifact; copying that context from the file cannot detect a changed setup.
+Validation checks schema/ID, reference hash, frame size, exact settings/mount and
+origin context, accepted tolerance, correspondences, hull and independently
+recomputed errors/transform. Malformed/invalid artifacts are rejected. Conversion
+uses homogeneous coordinates and rejects nonfinite/singular matrices or unstable
+division. Output remains floating-point absolute mm; it performs no rounding for
+the existing integer robot protocol. Press duration, Z depth and force are outside
+this calibration.
+
+Only points inside the matched-key convex hull on the right Driver ID plane can
+be converted. Other-display, other-screen and outside-area points raise ValueError;
+Phase 4 must export their detected pixels with mm=null rather than extrapolating.
+A hull boundary is the limit of interpolation, not evidence of accuracy at every
+interior control. Separate screen planes need separate measured calibration.
+
+Later hardware execution must pass hardware=True. Simulation and physically
+unverified artifacts are rejected unconditionally. fit_calibration can prepare a
+hardware-origin fit only with an explicit live source context; it still leaves
+hardware_verified=false. This phase provides no method that certifies hardware
+accuracy or enables motion. Physical certification must follow the installed
+camera/reference/mount/origin and independent validation review after all six
+phases; the first-action workflow must enforce that gate.
+
+Choose physical tolerance from measured usable button size, tool/contact geometry
+and robot positioning accuracy before accepting a hardware fit. Verify the stored
+key XY positions, home the robot and establish actual origin and axis directions.
+Every relevant mounting/image-size/crop/orientation/reference/origin change
+invalidates calibration. Mount revisions must be updated explicitly; resolution
+alone cannot reveal movement. recheck_keypad compares freshly collected stable
+key centers against saved correspondences using an explicit pixel tolerance.
+Require that recheck before each physical test and suspected change. A retained
+tracked center is not independent fresh evidence: replay examples use stabilized
+output and only demonstrate offline fitting; physical collection must verify
+recent direct measurements and no occlusion/movement.
+
+Phase 3 review files are inside the project at
+`dmi_computer_vision/outputs/robot_integration/phase3/` (already ignored by Git).
+Two recorded examples have per-key validation errors and annotated images. These
+review outputs, recordings and simulation JSON files are not committed.
