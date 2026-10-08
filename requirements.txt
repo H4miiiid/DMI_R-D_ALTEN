@@ -1,0 +1,5 @@
+PyYAML==6.0.3
+numpy==2.5.1
+opencv-python==5.0.0.93
+picamera2; sys_platform == "linux" and (platform_machine == "aarch64" or platform_machine == "armv7l")
+lgpio; sys_platform == "linux" and (platform_machine == "aarch64" or platform_machine == "armv7l")

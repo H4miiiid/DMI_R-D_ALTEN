@@ -1,0 +1,10 @@
+log_level       : 2
+button          : 17 
+z_sensor        : 6
+x_sensor        : 5
+y_sensor        : 27
+r_motor         : (13, 19, 26) 
+l_motor         : (16, 20, 21)
+z_motor         : (8, 7, 1)
+address         : ("192.168.1.100", 2000, 0xAAAA)
+remote_address  : ("192.168.1.133", 50, 0xBBBB)

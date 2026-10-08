@@ -1,0 +1,25 @@
+{
+  "DMI_SENSE_TOUCHSCREEN": {
+    "click_duration_ms": 200,
+    "screens": {
+      "DRIVER_ID_WINDOW": {
+        "parent": "MAIN_MENU",
+        "buttons": {
+          "KEY_1": {"x": 100, "y": 300, "leads_to": null},
+		  "KEY_2": {"x": 150, "y": 300, "leads_to": null},
+		  "KEY_3": {"x": 200, "y": 300, "leads_to": null},
+		  "KEY_4": {"x": 100, "y": 250, "leads_to": null},
+		  "KEY_5": {"x": 150, "y": 250, "leads_to": null},
+		  "KEY_6": {"x": 200, "y": 250, "leads_to": null},
+		  "KEY_7": {"x": 100, "y": 200, "leads_to": null},
+		  "KEY_8": {"x": 150, "y": 200, "leads_to": null},
+		  "KEY_9": {"x": 200, "y": 200, "leads_to": null},
+		  "KEY_0": {"x": 150, "y": 150, "leads_to": null} 
+        }
+      }
+    }
+  },
+  "DMI_SENSE_SOFTKEY": {},
+  "DMI_TWINS": {},
+  "DMI_STEN": {}
+}

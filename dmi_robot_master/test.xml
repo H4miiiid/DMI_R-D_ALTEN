@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence>
+    <command action="PRESS" target="KEY_1" />
+	<command action="PRESS" target="KEY_2" />
+	<command action="PRESS" target="KEY_3" />
+	<command action="PRESS" target="KEY_4" />
+	<command action="PRESS" target="KEY_5" />
+	<command action="PRESS" target="KEY_6" />
+	<command action="PRESS" target="KEY_7" />
+	<command action="PRESS" target="KEY_8" />
+	<command action="PRESS" target="KEY_9" />
+	<command action="PRESS" target="KEY_0" />
+</sequence>

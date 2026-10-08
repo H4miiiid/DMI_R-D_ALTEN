@@ -3,4 +3,6 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 .venv/
-dmi_robot_common/log/
+outputs/
+data/
+docs/
