@@ -372,8 +372,15 @@ class ValidatedCalibration:
         stat = self._reference.stat()
         return stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
 
-    def convert_centers(self, centers: dict, *, frame_size: tuple[int, int], camera: dict,
-                        origin: dict, display: str = 'right', screen: str = 'Driver ID') -> dict:
+    @property
+    def calibration_id(self) -> str:
+        return self._document['calibration_id']
+
+    @property
+    def provenance(self) -> str:
+        return self._document['provenance']
+
+    def check_context(self, *, frame_size: tuple[int, int], camera: dict, origin: dict) -> None:
         context = {'frame_size': frame_size, 'camera': camera, 'origin': origin,
                    'hardware': self._context['hardware']}
         if context != self._context or self._fingerprint() != self._reference_stat:
@@ -381,6 +388,18 @@ class ValidatedCalibration:
             self._context = deepcopy(context)
             self._reference_stat = self._fingerprint()
             self._conversions.clear()
+
+    def contains(self, pixel) -> bool:
+        point = _point(pixel)
+        hull = np.asarray(self._document['validated_area_pixels'], np.float32)
+        return cv2.pointPolygonTest(hull, tuple(point), False) >= 0
+
+    def recheck(self, centers: dict, *, tolerance_px: float) -> None:
+        recheck_keypad(self._document, centers, tolerance_px=tolerance_px)
+
+    def convert_centers(self, centers: dict, *, frame_size: tuple[int, int], camera: dict,
+                        origin: dict, display: str = 'right', screen: str = 'Driver ID') -> dict:
+        self.check_context(frame_size=frame_size, camera=camera, origin=origin)
         if display != 'right' or screen != 'Driver ID':
             raise ValueError('Calibration does not validate this display/screen')
         current = {}

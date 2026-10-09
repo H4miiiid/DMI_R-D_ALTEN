@@ -16,6 +16,8 @@ from dmi_computer_vision.src.dmi.output.latest_state import LatestState
 from dmi_computer_vision.src.dmi.pipeline.live import process_live
 from dmi_robot_master.integration.camera import ReplayCamera, RobotCamera, RemoteCamera
 from dmi_robot_master.integration.processing_policy import DetectionPolicy
+from dmi_robot_master.integration.targets import TargetProjector, TargetFiles, CurrentTargets, utc_time
+from dmi_robot_master.integration.calibration import read_json
 from dmi_robot_master.integration.publication import ChangePublisher, StatusHeartbeat, project_pixels
 from dmi_computer_vision.src.dmi.output.json_writer import write_record
 
@@ -76,14 +78,41 @@ class AnnotationSink:
             self.stream.close()
 
 
+def check_target_source(source: ReplayCamera | RobotCamera | RemoteCamera, source_info: dict) -> None:
+    """Bind declared target metadata to the adapter that will actually supply frames."""
+    if isinstance(source, RobotCamera):
+        expected = {'kind': 'local_camera', 'index': source.camera.camera_index,
+                    'requested_size': [source.camera.width, source.camera.height]}
+    elif isinstance(source, RemoteCamera):
+        expected = {'kind': 'remote_bridge', 'url': source.url}
+    elif isinstance(source, ReplayCamera):
+        expected = {'kind': 'recorded_replay', 'path': str(source.path)}
+    else:
+        if source_info.get('simulation') is True:
+            return  # Explicit fake sources cannot produce hardware targets.
+        raise ValueError('Target export requires a known source adapter or explicit simulation')
+    expected.update(rotation_clockwise=source.rotation, mirror_horizontal=source.mirror)
+    for key, value in expected.items():
+        actual = source_info.get(key, 0 if key == 'rotation_clockwise' else False if key == 'mirror_horizontal' else None)
+        if key == 'path' and actual is not None:
+            actual = str(Path(actual).expanduser().resolve())
+        if actual != value:
+            raise ValueError(f'Target source metadata does not match actual adapter: {key}')
+
+
 def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | Path, *, source_info: dict,
             max_frames: int | None = None, preview=None, debug=False,
             latest_state: LatestState | None = None,
             processing_policy: DetectionPolicy | None = None, annotations: bool = True,
             publication: bool = False, tolerance_px: float = 4.0,
             heartbeat_seconds: float = 0.5, max_evidence_age_seconds: float = 1.5,
-            max_capture_frames: int | None = None) -> dict:
+            max_capture_frames: int | None = None, export_targets: bool = False,
+            calibration_path: str | Path | None = None, calibration_context: dict | None = None,
+            evidence_tolerance_px: float | None = None, target_history: bool = False,
+            current_targets: CurrentTargets | None = None) -> dict:
     """Observe and annotate. Source is the sole owner; no motor transport exists."""
+    if export_targets:
+        check_target_source(source, source_info)
     directory = Path(directory).expanduser().resolve()
     # Require a new output directory so partial artifacts cannot be overwritten.
     directory.mkdir(parents=True, exist_ok=False)
@@ -91,18 +120,32 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
     run = None
     failure = None
     publisher = None
+    target_files = None
+    projector = TargetProjector(source_info=source_info, calibration_path=calibration_path,
+                                context=calibration_context, geometry_tolerance_px=evidence_tolerance_px) if export_targets else None
     try:
         with ExitStack() as stack:
             stack.enter_context(source)
             sink = stack.enter_context(AnnotationSink(directory, source, preview)) if annotations else None
             if preview is not None and sink is None:
                 raise ValueError('Preview requires annotations')
-            callback = None
-            if publication:
+            callback = evidence_callback = None
+            if publication or export_targets:
                 events = stack.enter_context((directory / 'publication_review.jsonl').open('x', encoding='utf-8'))
-                publisher = ChangePublisher(lambda event: write_record(events, event),
+                def emit(event):
+                    write_record(events, event)
+                    if target_files is not None:
+                        target_files.emit(event)
+                publisher = ChangePublisher(emit,
                     tolerance_px=tolerance_px, heartbeat_seconds=heartbeat_seconds,
                     max_evidence_age_seconds=max_evidence_age_seconds)
+                if export_targets:
+                    target_files = TargetFiles(directory, publisher.session_id, simulation=projector.simulation,
+                                               history=target_history)
+                    stack.callback(target_files.close)
+                    if current_targets is not None:
+                        current_targets.bind(publisher)
+                        stack.callback(current_targets.close)
                 heartbeat = stack.enter_context(StatusHeartbeat(publisher))
                 def callback(result, packet, finished):
                     if heartbeat.error is not None:
@@ -113,11 +156,26 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
                         observed_at_utc=getattr(packet, 'received_at_utc', None),
                         upstream_age_seconds=(getattr(packet, 'remote_capture_age_seconds', 0.0) +
                                               getattr(packet, 'transport_round_trip_seconds', 0.0)))
+                if export_targets:
+                    callback = None
+                    def evidence_callback(result, packet, finished, evidence):
+                        check_target_source(source, source_info)
+                        if heartbeat.error is not None:
+                            raise RuntimeError('Status publication failed') from heartbeat.error
+                        utc_time(packet.received_at_utc)
+                        snapshot, support = projector.project(result, evidence,
+                            frame_size=(packet.image.shape[1], packet.image.shape[0]))
+                        publisher.update(snapshot, received_at=packet.received_at, detected_at=finished,
+                            observed_at_utc=packet.received_at_utc,
+                            upstream_age_seconds=packet.remote_capture_age_seconds + packet.transport_round_trip_seconds,
+                            frame_index=result['frame_index'], capture_index=packet.capture_index,
+                            support_centers=support, support_tolerance_px=evidence_tolerance_px)
             run = process_live(source, directory, source_info=source_info,
                 max_frames=max_frames, preview=sink.show if sink else None, debug=debug,
                 latest_state=latest_state or LatestState(), processing_policy=processing_policy,
                 annotate=annotations, on_detection=callback,
-                on_skipped=sink.idle if sink else None, max_capture_frames=max_capture_frames)
+                on_skipped=sink.idle if sink else None, max_capture_frames=max_capture_frames,
+                on_detection_evidence=evidence_callback)
     except BaseException as exc:
         failure = f'{type(exc).__name__}: {exc}'
         raise
@@ -135,6 +193,8 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
         report['publication'] = ({'target_updates': publisher.updates, 'heartbeats': publisher.heartbeats,
                                   'pixel_tolerance': publisher.tolerance} if publisher else None)
         report['annotations_enabled'] = annotations
+        report['targets'] = ({'target_writes': target_files.target_writes, 'status_writes': target_files.status_writes,
+                             'calibration_error': projector.error} if target_files is not None else None)
         if run is not None:
             report.update({'run': asdict(run),
                            'processed_fps': run.processed_frames / max(elapsed, 1e-9)})
@@ -167,6 +227,11 @@ def main(argv=None) -> int:
     parser.add_argument('--publication-tolerance-px', type=float, default=4.0)
     parser.add_argument('--heartbeat-seconds', type=float, default=0.5)
     parser.add_argument('--max-evidence-age', type=float, default=1.5)
+    parser.add_argument('--export-targets', action='store_true')
+    parser.add_argument('--calibration', type=Path)
+    parser.add_argument('--calibration-context', type=Path, help='Independent current camera/origin JSON')
+    parser.add_argument('--evidence-tolerance-px', type=float)
+    parser.add_argument('--target-history', action='store_true')
     parser.add_argument('--publish-changes', action='store_true')
     parser.add_argument('--save-annotations', action='store_true')
     parser.add_argument('--max-captures', type=int)
@@ -176,6 +241,8 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     preview = LivePreview() if args.preview else None
     try:
+        if args.calibration and (args.calibration_context is None or args.evidence_tolerance_px is None):
+            raise ValueError('Calibration export requires current context and explicit evidence tolerance')
         if args.frame_request_fps is not None and not args.bridge_url:
             raise ValueError('Frame request rate requires --bridge-url')
         if args.max_frames is not None and args.max_frames <= 0:
@@ -216,7 +283,11 @@ def main(argv=None) -> int:
             annotations=args.processing == 'regular' or args.save_annotations or args.preview,
             publication=args.publish_changes or args.processing == 'selective',
             tolerance_px=args.publication_tolerance_px, heartbeat_seconds=args.heartbeat_seconds,
-            max_evidence_age_seconds=args.max_evidence_age, max_capture_frames=args.max_captures)
+            max_evidence_age_seconds=args.max_evidence_age, max_capture_frames=args.max_captures,
+            export_targets=args.export_targets or args.calibration is not None,
+            calibration_path=args.calibration,
+            calibration_context=read_json(args.calibration_context) if args.calibration_context else None,
+            evidence_tolerance_px=args.evidence_tolerance_px, target_history=args.target_history)
         print(json.dumps(report, default=str, indent=2))
         return 0
     except (OSError, RuntimeError, ValueError, cv2.error) as exc:

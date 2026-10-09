@@ -520,3 +520,146 @@ that actual selective run; timestamps/counts were not altered to hide it. Brief
 state events can still be missed. Settings suit these offline examples, not a
 universal response guarantee. Early exploratory runs overlapped other checks;
 the final controlled pair ran serially on the development Mac/Python environment.
+
+# Phase 4 — current targets and evidence status
+
+`observe --export-targets` connects the Phase 3A publication policy to atomically
+replaced `targets.json` and `target_status.json` in the observation directory.
+The rich detector logs remain unchanged. There is no backend or motor command.
+`--target-history` optionally writes separate full-snapshot targets_history.jsonl
+for review; selection never reads that history or publication_review.jsonl.
+
+```sh
+python3 -m dmi_robot_master.integration.observe \
+  --replay dmi_computer_vision/data/videos/dev/driver_id_12.mp4 \
+  --start-seconds 2.5 --replay-fps 3 --max-frames 12 --debug \
+  --export-targets --target-history \
+  --calibration dmi_computer_vision/outputs/robot_integration/phase3/driver12/calibration.simulation.json \
+  --calibration-context dmi_computer_vision/outputs/robot_integration/phase4/driver12_context.simulation.json \
+  --evidence-tolerance-px 3 \
+  --output-dir dmi_computer_vision/outputs/robot_integration/phase4/driver12_NEW
+```
+
+The existing Phase 3 simulation calibration and Phase 4 context fixture must be
+present. The context fixture was prepared from the actual replay path/delivered
+frame dimensions/orientation plus an explicitly unverified simulation mount and
+reference-origin convention. For another source, provide an independent JSON
+object containing current `camera` and `origin` objects in the calibration schema;
+do not adopt camera/origin metadata from a saved calibration as proof of the
+installed setup. Context camera identity/settings/mount and robot origin must
+match the calibration and current input. Recorded paths are checked explicitly.
+Live context must declare the same `source_kind` as the actual adapter. For
+`local_camera`, camera.settings must include `camera_index` and `requested_size`
+(`[null, null]` if no dimensions were requested); both must match the runtime
+adapter selection. For `remote_bridge`, settings must include `bridge_url` matching
+the actual endpoint. Delivered dimensions, rotation/mirror and crop checks still
+apply. The observation entry point checks its declared source metadata against
+the actual adapter before opening it and again for each exported detection. Physical serial identity/mounting still need
+the installed-camera trial; a matching index or endpoint is not that certification.
+Live hardware calibration remains physically unverified and simulation fits are
+rejected on real-source export. Do not invent device/origin settings for deployment.
+
+`--calibration` requires the current context and an explicit evidence geometry
+tolerance; it also enables target export. The example 3 px is a development
+setting for recorded geometry checks, not a universal physical tolerance or the
+4 px publication threshold. Without calibration, export still lists detected
+pixel targets, with mm=null and usable=false. Regular/ selective processing and
+optional annotations remain available exactly as in Phase 3A.
+
+The file schema keeps session ID, source detection frame index, source receipt
+UTC timestamp, confirmed screen, calibration ID and a target list of stable label,
+kind, display, original-image pixel, absolute robot mm/null and usable. Additions
+are revision, simulation flag, calibration provenance and original frame size.
+Digits map to KEY_0..KEY_9; other labels are qualified by display/kind. Buttons,
+fields and boxes are exported; first-schema field values/icons are omitted.
+`usable` indicates current supporting geometry and valid mapped area, not an
+approved pressing kind or physical validation of simulation coordinates.
+
+Only current right Driver ID points inside the validated keypad hull can receive
+mm. Left-display/other-screen/outside-hull targets retain pixels with mm=null.
+Calibration/context/reference changes, missing direct key evidence or failed
+keypad mounting checks remove usability and, on failed calibration/geometry
+validation, mm. The conversion cache validates on load/context/reference changes,
+retains only current label coordinates, and avoids repeating identical conversion
+or refitting invalid unchanged documents. Per-action full revalidation still
+belongs in Phase 5; publication cache is never movement authorization.
+
+A small optional FrameProcessor side channel records right-display state,
+visibility and directly observed key/field centers from the same detection pass
+before temporal region stabilization. Detector results, thresholds, confirmation,
+annotations and rich log schema do not change. No second detector pass is run.
+Every usable target requires current raw support, complete matched-key mounting
+agreement, and agreement between its exported center and that current observation.
+Missing/transition/occluded evidence cannot bless a retained center. These checks
+establish support from the detector, not correctness of its recognition/borders.
+
+Coordinates are written on meaningful changes under the 4 px policy. Source
+receipt timestamps and frame indices in a suppressed snapshot therefore remain
+those of the last published coordinates. Status independently records current
+actual detection/receipt time, age, session/revision and the labels that still
+support the **published** centers. Losing support forces a snapshot even below
+4 px: a publication tolerance cannot conceal usability invalidation. Internal
+CurrentTargets retains exact latest centers, so it does not use the quantized
+published baseline. Freshness includes upstream camera age/round-trip delay.
+
+Both files use temporary serialization in the same directory and os.replace;
+readers never see partially written JSON. They are not a two-file transaction:
+a brief revision mismatch is possible and must be rejected/read again. Optional
+history uses exactly the target snapshot schema. Startup/expiry/loss/failure/stop
+replace targets with an empty list when possible. A normal stopped session has
+empty targets even if its review history contains valid examples. Abrupt death
+may leave old files; consumer expiry handles that without relying on file mtime.
+Flushing/atomic replacement does not promise power-loss durability.
+
+Consumer functions in targets.py:
+
+```python
+from dmi_robot_master.integration.targets import read_target
+
+# Read only while the observation session is running. This sends no commands.
+target = read_target(observation_directory, "KEY_5", max_age_seconds=1.5,
+                     hardware=False)  # Explicit simulation/preview consumer.
+```
+
+The reader rejects missing/malformed files, duplicate/absent labels, mismatched
+session/revision, stale/future/inconsistent UTC/evidence status, unsupported old
+centers, absent mm/calibration and unusable targets. hardware=True also rejects
+simulation. Both statuses and snapshots are required: touching a file, heartbeat
+alone or a fresh unrelated frame cannot authorize old coordinates. Supported
+labels plus the revision identify recent evidence for those exact published
+centers; source/status age must remain within the configured limit.
+
+Files are produced using the processing PC's local UTC receipt/heartbeat clock.
+The Pi contributes its monotonic capture age; its wall clock need not match for
+that age calculation. Cross-host file consumers need aligned UTC clocks and
+must include file-transfer delay; a reader detects future/inconsistent clocks
+and fails closed. Local in-memory reads use monotonic age. Do not relax clock
+checks merely to make unsynchronized deployment appear fresh.
+
+A caller can retain `CurrentTargets()` and pass `current_targets=store` to
+`observe(..., export_targets=True, ...)`; `store.get()` returns an independent
+current full snapshot or None before observation, after expiry/failure/stop.
+It uses the latest actual detection instead of a historical file. It is a small
+future-app interface, not a backend/action implementation. Target label selection
+and motor validation/dispatch will be added only in Phase 5.
+
+Phase 4 review evidence is inside `outputs/robot_integration/phase4/` under the
+vision project. driver12/targets_example.simulation.json is a labelled historical
+review example, not an actionable current file. It includes simulated mm values;
+up to all ten keys were usable in one recorded observation. The strict 3 px raw
+keypad recheck invalidated several other observations, exposing raw geometry
+jitter hidden by stabilization; no threshold was loosened to hide it. The actual
+Level-to-Main selective replay exported Level/Main/unknown pixels with mm=null.
+Both runs retained correct source timestamps and ended with empty current targets.
+Physical accuracy, wider-monitor coordinates, camera/device compatibility and
+successful UI pressing remain unvalidated.
+
+
+Phase 4 review corrections: publisher.current() and tick() sample the production
+monotonic clock only after taking their lock, so waiting behind a blocked
+publication cannot return an expired observation or emit a false fresh status.
+An explicitly supplied now is a deterministic simulation/test clock, not the
+production read path. Regression fixtures block publication while advancing the
+clock beyond expiry. Live source binding rejects kind/index/requested-size/endpoint
+mismatches even when the supplied context and pixel geometry fit the calibration;
+source metadata participates in negative-cache invalidation/recovery checks.

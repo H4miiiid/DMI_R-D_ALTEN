@@ -30,16 +30,19 @@ class FrameProcessor:
     monotonic receipt times and may bound the gap across which history is used.
     """
 
-    def __init__(self, *, max_gap_seconds: float | None = None) -> None:
+    def __init__(self, *, max_gap_seconds: float | None = None, collect_target_evidence: bool = False) -> None:
         if max_gap_seconds is not None and (
             not math.isfinite(max_gap_seconds) or max_gap_seconds <= 0
         ):
             raise ValueError("max_gap_seconds must be finite and positive")
+        self.collect_target_evidence = collect_target_evidence
+        self.target_evidence: dict = {}
         self.max_gap_seconds = max_gap_seconds
         self.reset()
 
     def reset(self) -> None:
         """Begin a new source/session with no previous detections."""
+        self.target_evidence.clear()
         self._index = 0
         self._timestamp: float | None = None
         self._shape: tuple[int, ...] | None = None
@@ -68,8 +71,11 @@ class FrameProcessor:
             self._reset_history()
         self.last_reset_reason = reason
         try:
-            result = process_frame(frame, self._index, timestamp,
-                                   self._geometry, self._right, self._left, self._left_workflow)
+            self.target_evidence.clear()
+            arguments = (frame, self._index, timestamp, self._geometry, self._right,
+                         self._left, self._left_workflow)
+            result = (process_frame(*arguments, target_evidence=self.target_evidence)
+                      if self.collect_target_evidence else process_frame(*arguments))
         except Exception:
             self._reset_history()
             raise
@@ -87,6 +93,7 @@ def process_frame(
     right_display_stabilizer: RightDisplayStabilizer | None = None,
     left_display_stabilizer: LeftDisplayStabilizer | None = None,
     left_workflow_stabilizer: LeftWorkflowStabilizer | None = None,
+    *, target_evidence: dict | None = None,
 ) -> FrameResult:
     """Process one source-independent BGR frame.
 
@@ -120,6 +127,16 @@ def process_frame(
             "data_field": None,
         }
     )
+    if target_evidence is not None:
+        target_evidence.clear()
+        target_evidence.update({
+            "right_state": right_content["state"],
+            "right_visibility": right_content["visibility"],
+            "right_buttons": {name: list(region["center"])
+                              for name, region in right_content["buttons"].items() if region is not None},
+            "right_field": (list(right_content["data_field"]["center"])
+                            if right_content["data_field"] is not None else None),
+        })
     if right_display_stabilizer is not None:
         if right_geometry is None:
             right_display_stabilizer.reset()

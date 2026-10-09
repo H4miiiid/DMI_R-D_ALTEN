@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import datetime, timezone
 from threading import Event, Lock, Thread
 import math
 import time
@@ -17,7 +18,7 @@ def project_pixels(result: dict, *, frame_size: tuple[int, int], calibration_id=
     targets = {}
     for display, content in [('left', left), ('right', right)]:
         for name, button in content.get('buttons', {}).items():
-            label = (f'KEY_{name[6:]}' if display == 'right' and name.startswith('digit_')
+            label = (f'KEY_{name[6:]}' if display == 'right' and name in {f'digit_{n}' for n in range(10)}
                      else f'{display}/button/{name}')
             targets[label] = {'label': label, 'kind': 'button', 'display': display,
                               'pixel': list(button['center']), 'usable': False}
@@ -80,6 +81,9 @@ class ChangePublisher:
         self._current = self._published = None
         self._received = self._detected = self._observed_utc = None
         self._upstream_age = 0.0
+        self._frame_index = self._capture_index = None
+        self._support_centers = None
+        self._support_tolerance = None
         self._last_heartbeat = None
         self._expired = self._closed = False
         self.revision = self.updates = self.heartbeats = 0
@@ -90,10 +94,13 @@ class ChangePublisher:
         self._published = deepcopy(snapshot)
         self.emit({'type': 'targets', 'session_id': self.session_id, 'revision': self.revision,
                    'reason': reason, 'observed_at': self._observed_utc,
-                   'evidence_received_at_monotonic': self._received, **deepcopy(snapshot)})
+                   'evidence_received_at_monotonic': self._received,
+                   'frame_index': self._frame_index, 'capture_index': self._capture_index, **deepcopy(snapshot)})
 
     def update(self, snapshot: dict, *, received_at: float, detected_at: float,
-               observed_at_utc: str | None = None, upstream_age_seconds: float = 0.0) -> None:
+               observed_at_utc: str | None = None, upstream_age_seconds: float = 0.0,
+               frame_index: int | None = None, capture_index: int | None = None,
+               support_centers: dict | None = None, support_tolerance_px: float | None = None) -> None:
         if not all(math.isfinite(v) for v in (received_at, detected_at, upstream_age_seconds)) or upstream_age_seconds < 0 or detected_at < received_at:
             raise ValueError('Invalid detection evidence timestamps')
         with self._lock:
@@ -101,15 +108,36 @@ class ChangePublisher:
                 raise RuntimeError('Publisher closed')
             if self._received is not None and received_at <= self._received:
                 raise ValueError('Evidence receipt times must increase')
+            self._frame_index, self._capture_index = frame_index, capture_index
+            self._support_centers, self._support_tolerance = deepcopy(support_centers), support_tolerance_px
             self._current = deepcopy(snapshot)
             self._received, self._detected = received_at, detected_at
             self._observed_utc, self._upstream_age = observed_at_utc, upstream_age_seconds
             if detected_at - received_at + upstream_age_seconds > self.max_age:
                 self._invalidate('stale')
                 return
-            if self._expired or meaningful_change(self._published, snapshot, self.tolerance):
-                self._emit_targets(snapshot, 'recovered' if self._expired else 'change')
+            previously_usable = ({label for label, target in self._published['targets'].items() if target['usable']}
+                                 if self._published is not None else set())
+            lost_support = bool(previously_usable - set(self._supported_labels(self._published)))
+            if self._expired or lost_support or meaningful_change(self._published, snapshot, self.tolerance):
+                reason = 'recovered' if self._expired else 'support_changed' if lost_support else 'change'
+                self._emit_targets(snapshot, reason)
             self._expired = False
+
+    def _supported_labels(self, snapshot: dict | None) -> list[str]:
+        if snapshot is None or self._expired:
+            return []
+        labels = []
+        for label, target in snapshot['targets'].items():
+            if not target['usable']:
+                continue
+            if self._support_centers is not None:
+                observed = self._support_centers.get(label)
+                if observed is None or self._support_tolerance is None or not close_coordinates(
+                        target['pixel'], observed, self._support_tolerance):
+                    continue
+            labels.append(label)
+        return sorted(labels)
 
     def _invalidate(self, reason: str) -> None:
         if not self._expired:
@@ -119,8 +147,8 @@ class ChangePublisher:
         self._expired = True
 
     def tick(self, now: float | None = None, *, force: bool = False) -> None:
-        now = time.monotonic() if now is None else now
         with self._lock:
+            now = time.monotonic() if now is None else now
             if self._closed:
                 return
             age = None if self._received is None else now - self._received + self._upstream_age
@@ -131,23 +159,31 @@ class ChangePublisher:
                            'last_detection_at_monotonic': self._detected,
                            'evidence_received_at_monotonic': self._received,
                            'observed_at': self._observed_utc, 'evidence_age_seconds': age,
+                           'heartbeat_at': datetime.now(timezone.utc).isoformat(),
+                           'frame_index': self._frame_index, 'capture_index': self._capture_index,
+                           'published_supported_labels': self._supported_labels(self._published),
                            'source_status': 'stale' if self._expired else 'observed' if self._received is not None else 'starting'})
                 self._last_heartbeat = now
                 self.heartbeats += 1
 
     def current(self, now: float | None = None) -> dict | None:
-        now = time.monotonic() if now is None else now
         with self._lock:
-            if self._closed or self._received is None or not 0 <= now - self._received + self._upstream_age <= self.max_age:
+            now = time.monotonic() if now is None else now
+            if self._closed or self._expired or self._received is None or not 0 <= now - self._received + self._upstream_age <= self.max_age:
                 return None
-            return deepcopy(self._current)
+            snapshot = deepcopy(self._current)
+            snapshot.update(frame_index=self._frame_index, capture_index=self._capture_index,
+                            observed_at=self._observed_utc, session_id=self.session_id, revision=self.revision)
+            return snapshot
 
     def close(self, reason: str = 'stopped') -> None:
         with self._lock:
             if not self._closed:
                 self._invalidate(reason)
                 self.emit({'type': 'status', 'session_id': self.session_id, 'revision': self.revision,
-                           'source_status': reason, 'last_detection_at_monotonic': self._detected})
+                           'source_status': reason, 'last_detection_at_monotonic': self._detected,
+                           'heartbeat_at': datetime.now(timezone.utc).isoformat(),
+                           'published_supported_labels': []})
                 self._closed = True
 
 

@@ -55,7 +55,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                  annotate: bool = True,
                  on_detection: Callable[[dict, CapturedFrame, float], None] | None = None,
                  on_skipped: Callable[[], bool] | None = None,
-                 max_capture_frames: int | None = None) -> LiveRunSummary:
+                 max_capture_frames: int | None = None,
+                 on_detection_evidence: Callable[[dict, CapturedFrame, float, dict], None] | None = None) -> LiveRunSummary:
     """Consume received frames until a limit, preview stop, Ctrl-C or failure.
 
     Sources are opened/closed by the caller. Each emitted JSONL record is flushed;
@@ -71,7 +72,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     if (type(geometry_tolerance) not in (int, float)
             or not math.isfinite(geometry_tolerance) or geometry_tolerance < 0):
         raise ValueError("geometry_tolerance must be a finite nonnegative number")
-    processor = FrameProcessor(max_gap_seconds=max_gap_seconds)
+    processor = (FrameProcessor(max_gap_seconds=max_gap_seconds, collect_target_evidence=True)
+                 if on_detection_evidence is not None else FrameProcessor(max_gap_seconds=max_gap_seconds))
     if processing_policy is not None:
         processing_policy.start_session()
     directory = Path(output_dir).expanduser().resolve()
@@ -158,6 +160,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                         temporal_reset=processor.last_reset_reason)
                 if on_detection is not None:
                     on_detection(result, packet, finished_processing)
+                if on_detection_evidence is not None:
+                    on_detection_evidence(result, packet, finished_processing, processor.target_evidence)
                 count += 1
                 skipped += dropped
                 processing_seconds += seconds
