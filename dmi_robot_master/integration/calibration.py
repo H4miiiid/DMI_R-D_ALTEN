@@ -353,3 +353,51 @@ def recheck_keypad(document: dict, centers: dict, *, tolerance_px: float) -> Non
         key = match['label']
         if key not in centers or np.linalg.norm(_point(centers[key]) - _point(match['pixel'])) > tolerance_px:
             raise ValueError(f'Keypad recheck failed: {key}')
+
+
+class ValidatedCalibration:
+    """Bounded conversion cache for publication; actions still use full checks."""
+    def __init__(self, document: dict, *, frame_size: tuple[int, int], camera: dict,
+                 origin: dict, hardware: bool = False,
+                 reference_path: str | Path = REFERENCE_PATH) -> None:
+        self._document = deepcopy(document)
+        self._reference = Path(reference_path)
+        self._context = {'frame_size': frame_size, 'camera': deepcopy(camera),
+                         'origin': deepcopy(origin), 'hardware': hardware}
+        validate_calibration(self._document, **self._context, reference_path=self._reference)
+        self._reference_stat = self._fingerprint()
+        self._conversions = {}
+
+    def _fingerprint(self):
+        stat = self._reference.stat()
+        return stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
+
+    def convert_centers(self, centers: dict, *, frame_size: tuple[int, int], camera: dict,
+                        origin: dict, display: str = 'right', screen: str = 'Driver ID') -> dict:
+        context = {'frame_size': frame_size, 'camera': camera, 'origin': origin,
+                   'hardware': self._context['hardware']}
+        if context != self._context or self._fingerprint() != self._reference_stat:
+            validate_calibration(self._document, **context, reference_path=self._reference)
+            self._context = deepcopy(context)
+            self._reference_stat = self._fingerprint()
+            self._conversions.clear()
+        if display != 'right' or screen != 'Driver ID':
+            raise ValueError('Calibration does not validate this display/screen')
+        current = {}
+        hull = np.asarray(self._document['validated_area_pixels'], np.float32)
+        for label, value in centers.items():
+            point = _point(value)
+            if cv2.pointPolygonTest(hull, tuple(point), False) < 0:
+                raise ValueError('Target lies outside validated keypad area')
+            key = tuple(point.tolist())
+            cached = self._conversions.get(label)
+            xy = cached[1] if cached is not None and cached[0] == key else transform_point(self._document['homography'], point)
+            current[label] = (key, xy)
+        self._conversions = current
+        return {label: list(value[1]) for label, value in current.items()}
+
+    def revalidate_for_action(self, *, frame_size: tuple[int, int], camera: dict,
+                              origin: dict, hardware: bool) -> None:
+        """Never use cached publication validation to authorize a physical action."""
+        validate_calibration(self._document, frame_size=frame_size, camera=camera,
+                             origin=origin, hardware=hardware, reference_path=self._reference)

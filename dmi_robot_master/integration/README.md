@@ -400,3 +400,123 @@ Phase 3 review files are inside the project at
 `dmi_computer_vision/outputs/robot_integration/phase3/` (already ignored by Git).
 Two recorded examples have per-key validation errors and annotated images. These
 review outputs, recordings and simulation JSON files are not committed.
+
+# Phase 3A — selective detection and meaningful publication
+
+Regular processing remains the default for accepted replay/calibration behavior.
+Select `--processing selective` to enable a measured development profile: maximum
+5 detections/s, 0.4 s periodic refresh, 3 s confirmation burst after image-change
+or reset/action evidence. Cheap checking uses a 160×120 blurred grayscale image,
+compared with the last **detected** image, not the previous capture. Defaults mark
+change when at least 0.2% of thumbnail pixels differ by more than 12 intensity
+levels. This check is not title recognition and can miss tiny/brief changes;
+periodic full detection remains mandatory. All settings are configurable.
+
+```sh
+python3 -m dmi_robot_master.integration.observe \
+  --replay dmi_computer_vision/data/videos/dev/driver_id_12.mp4 \
+  --processing selective --debug \
+  --output-dir dmi_computer_vision/outputs/robot_integration/phase3A/selective_NEW
+python3 -m dmi_robot_master.integration.benchmark_policy \
+  --output-dir dmi_computer_vision/outputs/robot_integration/phase3A/comparison_NEW
+```
+
+A new session/resolution or capture gap forces detection. Call
+`policy.request_refresh()` immediately after a completed action to force one
+newer-than-action source frame; it retains no queue. Required reset/action checks
+may bypass the rate cap; ordinary image-change/confirmation/periodic work obeys
+it. The confirmation burst requests ordinary full detections; detector state/value
+confirmation counts and temporal thresholds are unchanged. Slow native operations
+can still exceed refresh deadlines or cause the existing capture-gap reset.
+
+Live processing gained optional policy/callback hooks, annotation disable and
+separate consumed/skipped/detection/annotation counters. Default calls follow the
+same accepted path. LatestState updates only after actual detection. Skipped
+captures never publish an invented observation or refresh receipt/evidence age.
+`--max-frames` counts detections; `--max-captures` counts consumed captures and
+has a distinct footer stop reason. CompactWriter still uses its existing schema
+and 5-pixel tolerance for rich logs; no second detector/log implementation exists.
+Debug envelopes additionally preserve local receipt and source-video times.
+
+`publication.py` supplies a small in-memory pixel projection and change/freshness
+policy for Phase 4. Its optional callback receives a full target snapshot on first
+observation and meaningful changes, and a lightweight status heartbeat. Review
+sink `publication_review.jsonl` demonstrates the callback; it is **not** the
+Phase 4 current targets.json file or a backend service. Regular observation can
+also enable it with `--publish-changes` to separate publication suppression from
+detection scheduling. No calibration/motor usability is inferred in this pixel
+projection: targets have usable=false until Phase 4 adds validated conversion.
+
+Target publication tolerance defaults to 4 pixels **per coordinate**. Differences
+of 3 and exactly 4 are suppressed; greater differences publish. Compare against
+the last published pixel baseline so cumulative drift is retained. Screen/title,
+identity/presence, exported field values, visibility, usability, frame/context,
+calibration/session changes and loss bypass geometry tolerance. Field-value export
+is optional; the CLI pixel projection currently omits values. Latest internal
+centers update after every detection even when serialization/publication is
+suppressed. The rich compact detector log continues to preserve exported values.
+
+Heartbeat default is 0.5 s, with session/revision, actual last-detection time and
+source receipt/evidence age, without all target coordinates. A small background
+status worker expires evidence after the configurable 1.5 s limit even if source
+read/detection is blocked; healthy-worker expiry granularity is at most 0.1 s plus
+OS/callback scheduling. Expiry/failure/stop publish empty targets and status when
+possible; consumers must independently expire missing heartbeats after abrupt
+process death. There is no real-time scheduling guarantee. Local monotonic time
+and upstream Pi capture age + whole HTTP round-trip are used conservatively.
+Heartbeat or unchanged image checking cannot renew evidence. Aggregate frame age
+still does not establish fresh support for every retained tracked element.
+
+Selective mode disables annotation drawing/encoding by default. `--save-annotations`
+and/or `--preview` enable full review output for actual detections; `--debug` is
+also optional. A reused preview is explicitly marked with observation age. GUI
+calls remain on the main processing thread. No repeated video frames are encoded
+for skipped detections. Regular mode continues to annotate all detections.
+
+For a Pi bridge, selective PC requests default to at most 10/s via
+`--frame-request-fps`; configure Pi `frame_bridge --frame-fps 10` to also cap JPEG
+encoding. The camera acquisition owner continues to drain frames into its latest
+slot, selecting recent captures for encoding. Index/receipt metadata belongs to
+the selected encoded frame; skipped frames never renew it. Regular bridge/request
+behavior remains uncapped unless explicitly configured. These transport caps are
+fake-tested, not measured/deployed on a Pi. Two camera/network settings remain
+unconfirmed.
+
+`ValidatedCalibration` validates a copied calibration once on creation, then
+checks current context and a reference-file stat fingerprint before reuse. It
+caches only the latest coordinates per current label set, avoiding repeat refits
+and conversions when centers are identical; vanished entries are removed. Context
+or reference changes require full validation. Per-action
+`revalidate_for_action(...)` always uses the original full validation, including
+hardware rejection. Phase 4 will connect this cache to target projection; Phase
+3A does not enable movement or certify hardware calibration. Publication tolerance
+never changes the accepted Phase 3 fitting/stability/physical validation rules.
+
+Offline evidence is in `outputs/robot_integration/phase3A/` under the vision
+project, ignored by Git. Final controlled comparison repeats original decoded
+BGR frames through the bounded replay worker: Driver ID → Main → black/loss →
+Driver ID. It uses real detector processing with controlled simulation changes;
+these changes were not caused by a robot. All results pass output/compact checks.
+An earlier re-encoded MP4 fixture lost Driver ID recognition; it was retained as
+failed fixture evidence and replaced by original decoded pixels, with no detector
+threshold changes. The benchmark records per-phase source-time recognition delay
+and conservative receipt-to-result-inclusive delay, calls/time/output bytes.
+
+Final measured example: 169 regular vs 86 selective detector calls (49% fewer),
+23.60 vs 16.99 s accumulated detection time (28% less), 0.77 vs 0 s annotation time.
+Each mode emitted 12 meaningful target snapshots; selective emitted ~47.3 KB
+coordinates plus ~14.4 KB heartbeats. An unsuppressed per-detection pixel projection
+would emit 86 snapshots/~356.8 KB in the selective run. That byte comparison is a
+counterfactual serialization measurement, not a claim about an existing backend.
+No further snapshot savings are claimed against the already change-based regular
+publication policy or existing CompactWriter.
+
+Controlled maximum source-time recognition delay was 0.93 s regular / 0.77 s
+selective; loss was recognized within 0.07/0.13 s. In the actual Level-to-Main clip,
+an initial 4 FPS/0.5 s/2 s-burst profile recognized Main 3.89 source seconds later
+than regular. The selected 5 FPS/0.4 s/3 s-burst profile recognized it within 0.14 s
+of regular (slightly earlier in that trial). One capture-gap reset occurred in
+that actual selective run; timestamps/counts were not altered to hide it. Brief
+state events can still be missed. Settings suit these offline examples, not a
+universal response guarantee. Early exploratory runs overlapped other checks;
+the final controlled pair ran serially on the development Mac/Python environment.

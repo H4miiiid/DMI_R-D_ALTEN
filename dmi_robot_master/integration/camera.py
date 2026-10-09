@@ -77,10 +77,13 @@ class ReplayCamera:
         self._thread.start()
         return self
 
+    def _open_capture(self):
+        return cv2.VideoCapture(str(self.path))
+
     def _capture(self) -> None:
         capture = None
         try:
-            capture = cv2.VideoCapture(str(self.path))
+            capture = self._open_capture()
             if not capture.isOpened():
                 raise RuntimeError(f'Cannot open recording: {self.path}')
             self.source_fps = capture.get(cv2.CAP_PROP_FPS)
@@ -213,7 +216,7 @@ class RemoteCamera:
     MAX_JPEG_BYTES = 16 * 1024 * 1024
 
     def __init__(self, url: str, *, timeout: float = 5.0, max_age_seconds: float = 1.0,
-                 rotation: int = 0, mirror: bool = False) -> None:
+                 rotation: int = 0, mirror: bool = False, request_fps: float | None = None) -> None:
         from urllib.parse import urlparse
         parsed = urlparse(url)
         if parsed.scheme not in ('http', 'https') or not parsed.netloc or parsed.path != '/frame.jpg':
@@ -222,6 +225,10 @@ class RemoteCamera:
             raise ValueError('Timeout and age limit must be finite and positive')
         if rotation not in (0, 90, 180, 270):
             raise ValueError('Invalid rotation')
+        if request_fps is not None and (not math.isfinite(request_fps) or request_fps <= 0):
+            raise ValueError("Request FPS must be finite and positive")
+        self._request_interval = 1/request_fps if request_fps is not None else 0.0
+        self._next_request_at = None
         self.url, self.timeout, self.max_age_seconds = url, timeout, max_age_seconds
         self.rotation, self.mirror = rotation, mirror
         self.last_packet = None
@@ -246,9 +253,13 @@ class RemoteCamera:
         deadline = time.monotonic() + self.timeout
         while not self._stop.is_set():
             started = time.monotonic()
+            if self._next_request_at is not None and started < self._next_request_at:
+                self._stop.wait(min(self._next_request_at - started, max(0, deadline - started)))
+                started = time.monotonic()
             remaining = deadline - started
             if remaining <= 0:
                 raise RuntimeError('Remote camera stopped producing new captures')
+            self._next_request_at = started + self._request_interval
             with urlopen(Request(self.url, headers={'Cache-Control': 'no-cache'}), timeout=remaining) as response:
                 if response.headers.get('Content-Type') != 'image/jpeg':
                     raise ValueError('Bridge did not supply JPEG')

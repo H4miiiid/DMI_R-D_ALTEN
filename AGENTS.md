@@ -11,7 +11,9 @@ Do not build the future backend or redesign the GUI as part of this work.
 
 ## Development from home
 
-Implement all six phases from home before testing on the physical robot.
+Implement all six numbered phases plus Phase 3A from home before testing on the
+physical robot. Phase 3A follows the completed calibration phase and precedes
+Phase 4; keep the existing phase numbers and accepted history unchanged.
 Use existing recordings through the live processing path, synthetic calibration
 points and fake robot/transport objects for development. Hardware availability
 must not block implementation or require physical validation between phases.
@@ -154,7 +156,7 @@ limitations. Do not silently refactor the accepted detector.
 Complete offline when replay through the live path produces correct annotations,
 valid output and bounded buffering, and the intended camera adapter is ready.
 Document untested device behavior and proceed to Phase 3. Confirm actual camera
-input and image quality after all six implementation phases.
+input and image quality after all implementation phases, including Phase 3A.
 
 ## Phase 3 — Calibrate pixels to robot millimeters
 
@@ -207,6 +209,74 @@ calibration rejection pass focused tests. Review recorded examples, then proceed
 Physical accuracy and the final tolerance must be verified on the installed robot
 before any physical movement based on vision.
 
+## Phase 3A — Reduce processing and publish meaningful changes
+
+Implement this next, before target export. Phases 1–3 are already implemented
+and accepted offline; preserve their behavior and calibration evidence.
+
+Do not process or transmit every captured frame. Separate camera acquisition,
+expensive detection, and target publication: skipping a detection and suppressing
+an unchanged output are different optimizations. Keep the live camera buffer
+bounded to the most recent frame and keep robot actions independent of capture.
+
+1. Measure current detection/annotation time, processed frames and output volume
+   on representative stable sections and screen transitions. The existing
+   `CompactWriter` already uses change-based output and a 5-pixel geometry
+   tolerance; reuse its behavior where suitable instead of building another log
+   protocol. `process_live` still processes/annotates every consumed frame, and
+   Phase 4's simple target output has not been implemented yet.
+2. Add a small configurable processing policy: cap detection rate and use a cheap
+   image-change check to request detection when the scene changes. Also run full
+   detection at a bounded refresh interval even when the check sees no change.
+   Never rely on a title comparison alone: recognizing the title itself requires
+   detection, and buttons, fields or occlusion can change without a new title.
+3. Prefer prompt detection after change evidence, startup, capture/session reset,
+   resolution change and a completed robot action. Do not queue old images.
+   Choose rate/refresh settings from measured response delay, not an arbitrary
+   promise of real-time speed. Keep regular processing available for regression
+   comparison and calibration collection.
+4. Compare target centers against their last published centers in original-image
+   pixels. Default the configurable publication tolerance to **4 pixels per
+   coordinate**: publish geometry only when `max(abs(dx), abs(dy)) > 4`.
+   Ignore 3–4 pixel jitter, including exactly 4. Compare to the published baseline,
+   not the preceding frame, so repeated small steps eventually reveal real drift.
+   This is an output tolerance, not permission to change calibration limits or
+   conceal meaningful physical movement.
+5. Publish an initial complete target snapshot. Publish subsequent target data
+   when the confirmed screen/title, target identities/labels, target presence,
+   field values when exported, or centers beyond tolerance change. Visibility,
+   usability, calibration/session changes and target loss must also propagate.
+   Semantic changes and invalidation bypass the pixel tolerance. Reuse existing
+   detector confirmation; do not add delays that hide genuine UI transitions.
+6. Keep the latest internal observation current after every actual detection,
+   even when publication is suppressed. Preserve the actual receipt/evidence age;
+   skipped frames or an unchanged cheap image check do not refresh target evidence.
+   Send a small configurable status heartbeat with session/revision and the last
+   detection time for consumers, without resending all coordinates. Expire or
+   invalidate targets when evidence is too old or the source fails. Silence must
+   not be interpreted as proof that an old target is still safe to use.
+7. Avoid repeat mm conversion, calibration-file refitting, annotation encoding and
+   target serialization for unchanged content. Validate calibration on load and
+   context changes; cache validated state without bypassing per-action checks.
+   Keep full annotation/debug output optional for review and calibration. A reused
+   preview must show its observation age rather than look like a fresh detection.
+8. Verify the policy with offline replay and focused tests: 3/4 pixel jitter,
+   threshold crossing, cumulative drift, same-title button changes, screen
+   transitions, target removal, stale evidence, failure and post-action refresh.
+   Measure detection calls, output updates/bytes, processing time and maximum
+   recognition delay against the regular processing path.
+
+Existing temporal confirmation counts processed frames. Reducing processing rate
+can increase state/value response delay and trigger history resets across gaps.
+Measure both effects and preserve accurate timestamps; do not silently change
+confirmation thresholds or pretend skipped frames were processed. Brief events
+may still be missed; report this tradeoff and select settings for the test's needs.
+
+Complete offline when stable scenes require fewer detection calls and target
+updates, small jitter produces no geometry updates, and meaningful changes/loss
+are reported within documented timing limits. Report measured savings and
+transition behavior, update `STATE.md`, and request approval before Phase 4.
+
 ## Phase 4 — Export a simple current target file
 
 Keep the existing rich vision logs. Add a small projection for robot consumers;
@@ -214,7 +284,11 @@ do not replace the detector contract or make the robot parse annotation images.
 Use `LatestState` or an equally small current-state interface, not a historical
 JSONL record that may no longer describe the visible screen.
 
-Prefer an atomically replaced `targets.json` containing only the latest snapshot.
+Apply Phase 3A's change and freshness policy. Prefer an atomically replaced
+`targets.json` containing the latest published snapshot, written on meaningful
+changes rather than every frame. Keep current evidence/status available separately
+through a lightweight heartbeat and the in-memory state; suppressed target writes
+must not obscure freshness or postpone expiry.
 Optional JSONL history may use the same full snapshot format; keep it separate
 from the file used to select current targets. Minimal proposed format:
 
@@ -253,7 +327,7 @@ The example pixel position is illustrative, not a known detection. Specify:
 - `usable` means fresh enough and within validated calibration/geometry limits.
   It does not mean every exported field or box is an approved pressing target.
   Do not invent confidence scores or observation ages the detector does not supply.
-- Remove vanished targets on every snapshot. On loss/failure/stop publish an empty
+- Remove vanished targets on the next change snapshot. On loss/failure/stop publish an empty
   target set where possible; consumer expiry must also handle abrupt process death.
 - Never act on a retained center unless its recent supporting evidence is checked.
   A fresh frame alone does not establish that every tracked element was observed.
@@ -269,7 +343,8 @@ Provide one small interactive terminal program. Start it once; run acquisition
 and detection in the background while the terminal accepts one label at a time,
 for example `KEY_1`. The user does not need to start a second command or enter
 coordinates. Resolve the label from the latest in-memory snapshot when entered;
-continue exporting `targets.json` for inspection and future external consumers.
+continue exporting `targets.json` on meaningful changes for inspection and future
+external consumers. Consult current evidence/status, not only the file timestamp.
 
 Select an explicit session mode: dry run, simulated press, move-only or physical
 press. Default to dry run and display the active mode clearly. In press mode,
@@ -286,7 +361,7 @@ thread, respect that requirement rather than moving it blindly into a worker.
 At home, implement all modes and test their command payloads using a fake robot
 and transport. Simulate DONE, ERROR, timeout and disconnect; do not open GPIO or
 send packets to the actual robot. The following physical sequence is deferred
-until all six implementation phases are finished.
+until all implementation phases, including Phase 3A, are finished.
 
 1. Read a fresh live target and require the expected screen, unique label,
    validated calibration and stable visible geometry.
@@ -332,10 +407,10 @@ Leave a small documented interface that a future application/backend can call:
 get current targets, preview a label and request one validated action. Keep backend
 transport, autonomous navigation and broader DMI models outside this first scope.
 
-Complete when all six phases are implemented, offline checks pass and documented
+Complete when all six numbered phases and Phase 3A are implemented, offline checks pass and documented
 startup commands are ready for the later physical trial.
 
-## Physical validation — After all six phases
+## Physical validation — After all implementation phases
 
 1. Confirm the installed camera, network settings and hardware dependencies.
 2. Start observation only; inspect annotations on the real camera and supported

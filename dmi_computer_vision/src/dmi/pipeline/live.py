@@ -18,6 +18,11 @@ from dmi_computer_vision.src.dmi.output.json_writer import CompactWriter, Progre
 from dmi_computer_vision.src.dmi.output.latest_state import LatestState
 
 
+class ProcessingPolicy(Protocol):
+    def start_session(self) -> None: ...
+    def should_process(self, packet: CapturedFrame, now: float) -> bool: ...
+
+
 class LiveSource(Protocol):
     def read(self) -> CapturedFrame: ...
 
@@ -35,13 +40,22 @@ class LiveRunSummary:
     mean_receipt_to_result_seconds: float = 0.0
     max_receipt_to_result_seconds: float = 0.0
     max_capture_age_seconds: float = 0.0
+    detection_seconds: float = 0.0
+    annotation_seconds: float = 0.0
+    consumed_frames: int = 0
+    policy_skipped_frames: int = 0
 
 
 def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dict | None = None,
                  max_frames: int | None = None, max_gap_seconds: float = 1.0,
                  preview: Callable[[Frame], bool] | None = None,
                  debug: bool = False, geometry_tolerance: float = 5.0,
-                 latest_state: LatestState | None = None) -> LiveRunSummary:
+                 latest_state: LatestState | None = None,
+                 processing_policy: ProcessingPolicy | None = None,
+                 annotate: bool = True,
+                 on_detection: Callable[[dict, CapturedFrame, float], None] | None = None,
+                 on_skipped: Callable[[], bool] | None = None,
+                 max_capture_frames: int | None = None) -> LiveRunSummary:
     """Consume received frames until a limit, preview stop, Ctrl-C or failure.
 
     Sources are opened/closed by the caller. Each emitted JSONL record is flushed;
@@ -50,10 +64,16 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     """
     if max_frames is not None and (type(max_frames) is not int or max_frames <= 0):
         raise ValueError("max_frames must be a positive integer")
+    if max_capture_frames is not None and (type(max_capture_frames) is not int or max_capture_frames <= 0):
+        raise ValueError("max_capture_frames must be positive")
+    if not annotate and preview is not None:
+        raise ValueError("Preview requires annotation")
     if (type(geometry_tolerance) not in (int, float)
             or not math.isfinite(geometry_tolerance) or geometry_tolerance < 0):
         raise ValueError("geometry_tolerance must be a finite nonnegative number")
     processor = FrameProcessor(max_gap_seconds=max_gap_seconds)
+    if processing_policy is not None:
+        processing_policy.start_session()
     directory = Path(output_dir).expanduser().resolve()
     directory.mkdir(parents=True, exist_ok=True)
     jsonl_path, preview_path = directory / "results.jsonl", directory / "last_annotated.png"
@@ -61,7 +81,10 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     for path in [jsonl_path, preview_path] + ([debug_path] if debug else []):
         if path.exists():
             raise FileExistsError(f"refusing to overwrite existing output: {path}")
-    count = skipped = 0
+    count = skipped = consumed = policy_skipped = 0
+    detection_seconds = annotation_seconds = 0.0
+    previous_consumed_index = -1
+    last_consumed_receipt = None
     processing_seconds = 0.0
     latency_total = latency_max = capture_age_max = 0.0
     first_received = last_received = None
@@ -80,26 +103,37 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                "timestamp_basis": "monotonic_receipt_seconds_since_first_processed_frame",
                "max_gap_seconds": max_gap_seconds}, geometry_tolerance=geometry_tolerance)
         try:
-            while max_frames is None or count < max_frames:
+            while (max_frames is None or count < max_frames) and (max_capture_frames is None or consumed < max_capture_frames):
                 try:
                     packet = source.read()
                 except EOFError:
                     reason = "eof"
                     break
-                if (type(packet.capture_index) is not int or packet.capture_index <= previous_index
+                if (type(packet.capture_index) is not int or packet.capture_index <= previous_consumed_index
                         or not math.isfinite(packet.received_at)
-                        or (last_received is not None and packet.received_at <= last_received)):
+                        or (last_consumed_receipt is not None and packet.received_at <= last_consumed_receipt)):
                     raise ValueError("live capture indices and finite receipt times must increase")
                 if packet.received_at > time.monotonic():
                     raise ValueError("live receipt time must not be in the future")
+                consumed += 1
+                previous_consumed_index, last_consumed_receipt = packet.capture_index, packet.received_at
+                if processing_policy is not None and not processing_policy.should_process(packet, time.monotonic()):
+                    policy_skipped += 1
+                    if on_skipped is not None and not on_skipped():
+                        reason = "preview_closed"
+                        break
+                    continue
                 if first_received is None:
                     first_received = packet.received_at
                 timestamp = packet.received_at - first_received
                 started_processing = time.monotonic()
                 capture_age = started_processing - packet.received_at
                 result = processor.process(packet.image, timestamp)
-                annotated = annotate_frame(packet.image, result)
+                finished_detection = time.monotonic()
+                annotated = annotate_frame(packet.image, result) if annotate else None
                 finished_processing = time.monotonic()
+                detection_seconds += finished_detection - started_processing
+                annotation_seconds += finished_processing - finished_detection if annotate else 0.0
                 seconds = finished_processing - started_processing
                 latency = finished_processing - packet.received_at
                 dropped = packet.capture_index - previous_index - 1
@@ -109,6 +143,9 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                                         "temporal_reset": processor.last_reset_reason})
                 if debug_stream is not None:
                     write_record(debug_stream, {"type": "frame", "capture_index": packet.capture_index,
+                        "received_at_monotonic": packet.received_at,
+                        "received_at_utc": getattr(packet, "received_at_utc", None),
+                        "source_video_seconds": getattr(packet, "source_video_seconds", None),
                         "skipped_frames": dropped,
                         "frame_size": [packet.image.shape[1], packet.image.shape[0]],
                         "processing_seconds": seconds,
@@ -119,6 +156,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                         received_at=packet.received_at, processed_at=finished_processing,
                         frame_size=(packet.image.shape[1], packet.image.shape[0]),
                         temporal_reset=processor.last_reset_reason)
+                if on_detection is not None:
+                    on_detection(result, packet, finished_processing)
                 count += 1
                 skipped += dropped
                 processing_seconds += seconds
@@ -131,6 +170,9 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                 if preview is not None and not preview(annotated):
                     reason = "preview_closed"
                     break
+            if (reason == "max_frames" and max_capture_frames is not None and consumed >= max_capture_frames
+                    and (max_frames is None or count < max_frames)):
+                reason = "max_capture_frames"
         except KeyboardInterrupt:
             reason = "interrupted"
         except Exception as exc:
@@ -148,6 +190,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                 raise
             finally:
                 logger.finish(processed_frames=count, skipped_frames=skipped,
+                              detection_seconds=detection_seconds, annotation_seconds=annotation_seconds,
+                              consumed_frames=consumed, policy_skipped_frames=policy_skipped,
                               elapsed_seconds=elapsed, processing_seconds=processing_seconds,
                               mean_receipt_to_result_seconds=latency_total / count if count else 0.0,
                               max_receipt_to_result_seconds=latency_max,
@@ -157,4 +201,5 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                 progress.report(count, force=True)
     return LiveRunSummary(jsonl_path, preview_path if last_image is not None else None,
                           count, skipped, elapsed, processing_seconds, reason, debug_path,
-                          latency_total / count if count else 0.0, latency_max, capture_age_max)
+                          latency_total / count if count else 0.0, latency_max, capture_age_max,
+                          detection_seconds, annotation_seconds, consumed, policy_skipped)

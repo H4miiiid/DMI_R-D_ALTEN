@@ -18,9 +18,14 @@ from dmi_robot_master.integration.camera import RobotCamera
 
 
 class FrameBridge:
-    def __init__(self, source: RobotCamera, max_age_seconds: float = 1.0) -> None:
+    def __init__(self, source: RobotCamera, max_age_seconds: float = 1.0,
+                 max_publish_fps: float | None = None) -> None:
         if not 0 < max_age_seconds < float('inf'):
             raise ValueError('Frame age limit must be finite and positive')
+        if max_publish_fps is not None and not 0 < max_publish_fps < float("inf"):
+            raise ValueError("JPEG publish rate must be finite and positive")
+        self._encode_interval = 1/max_publish_fps if max_publish_fps is not None else 0.0
+        self._last_encoded = None
         self.session_id = uuid.uuid4().hex
         self.source = source
         self.max_age_seconds = max_age_seconds
@@ -39,6 +44,10 @@ class FrameBridge:
         try:
             while not self._stop.is_set():
                 packet = self.source.read()
+                now = time.monotonic()
+                if self._last_encoded is not None and now - self._last_encoded < self._encode_interval:
+                    continue
+                self._last_encoded = now
                 ok, encoded = cv2.imencode('.jpg', packet.image, [cv2.IMWRITE_JPEG_QUALITY, 95])
                 if not ok:
                     raise RuntimeError('JPEG encoding failed')
@@ -113,12 +122,13 @@ def main(argv=None) -> int:
     parser.add_argument('--camera', type=int, required=True)
     parser.add_argument('--width', type=int)
     parser.add_argument('--height', type=int)
+    parser.add_argument('--frame-fps', type=float, help='Optional cap on JPEG encoding rate')
     parser.add_argument('--max-age-seconds', type=float, default=1.0)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error('port must be 1..65535')
     source = RobotCamera(args.camera, width=args.width, height=args.height)
-    with FrameBridge(source, args.max_age_seconds) as bridge:
+    with FrameBridge(source, args.max_age_seconds, args.frame_fps) as bridge:
         with ThreadingHTTPServer((args.bind, args.port), handler_for(bridge)) as server:
             server.daemon_threads = True
             print(json.dumps({'mode': 'observation only', 'endpoint': '/frame.jpg',
