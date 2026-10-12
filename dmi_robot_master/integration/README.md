@@ -1,7 +1,9 @@
-# Robot/CV integration — Phase 1
+# Robot/CV integration
 
 Implemented and tested offline; not validated on hardware. Detector behavior,
 GPIO assignments, homing, motor timing and movement routines are unchanged.
+
+# Phase 1 — existing command interface
 
 ## PC setup and offline checks
 
@@ -640,8 +642,8 @@ A caller can retain `CurrentTargets()` and pass `current_targets=store` to
 `observe(..., export_targets=True, ...)`; `store.get()` returns an independent
 current full snapshot or None before observation, after expiry/failure/stop.
 It uses the latest actual detection instead of a historical file. It is a small
-future-app interface, not a backend/action implementation. Target label selection
-and motor validation/dispatch will be added only in Phase 5.
+future-app interface. Phase 5's LabelActions supplies label preview and validated
+single-action dispatch without adding a backend.
 
 Phase 4 review evidence is inside `outputs/robot_integration/phase4/` under the
 vision project. driver12/targets_example.simulation.json is a labelled historical
@@ -773,3 +775,143 @@ DONE, newer camera observation, UI unconfirmed (recorded value stayed 12).
 replay_dry_button_tests.jsonl records a dry-run geometry rejection, NOT_SENT.
 Both current target files are empty after quit. Source progress/compact/debug
 logs remain for inspection; generated evidence is ignored by Git.
+
+# Phase 6 — complete offline verification
+
+From the repository root in the configured detector environment:
+
+```sh
+python3 -m unittest discover -s tests -q
+python3 -m unittest discover -s dmi_computer_vision/tests -q
+python3 -m dmi_robot_master.integration.verify_offline \
+  --output-dir dmi_computer_vision/outputs/robot_integration/phase6/verification_NEW
+```
+
+Choose a new output directory. The verification command accepts only an output
+path: its inputs are existing recordings and its transport is always fake. It
+collects a fresh development calibration from stable Driver ID observations,
+then independently resolves KEY_4, KEY_5 and KEY_6 and sends one simulated press
+per request through the existing master/slave protocol. A rejected dispatch or
+failed response fails the run without retry. Preview may wait for usable current
+geometry; it never makes the stored calibration or targets physically valid.
+
+The full Driver ID-to-Level recording runs through the same live path with
+selective processing, original image coordinates and bounded latest-frame capture.
+Both recognized screens must reach output; without a calibration for that source,
+their targets remain pixels with mm=null and usable=false. Stopped sessions must
+clear targets. Contract validation, compact reconstruction and full annotation
+video decoding run for all three observation sessions. No detector thresholds,
+temporal confirmation or calibration tolerances are altered.
+
+`verification.json` records environment, independent calibration errors, selected
+actions/packets, screen counts, resets, contracts and processing/latency summaries.
+`button_tests.jsonl` records the three actions. Each observation directory retains
+compact/debug logs, receipt/video-time sidecar, annotations, session summary and
+current target/status files; actions/transition also retain target history.
+Partial evidence remains if a run fails. These generated files are Git-ignored.
+Saved annotations need visual review; contract checks establish output consistency,
+not recognition accuracy or physical center accuracy.
+
+Verified run on 2026-10-12: macOS ARM64, Python 3.13.3, OpenCV 5.0.0, existing
+Tesseract/numpy environment. All 101 integration and 129 vision tests passed.
+Evidence is under vision `outputs/robot_integration/phase6/run03/`: 12 calibration,
+7 action-session and 421 transition detections (440 total) passed contracts,
+compact reconstruction and annotation decode checks. Simulation held-out error
+was mean 0.653 mm/max 1.119 mm against stored JSON. Actual selected fake packets
+were [1,100,250,200], [1,150,251,200], [1,200,251,200]; the latter Y values reflect
+current detection and the documented rounding. All three received DONE and a
+newer observation; field value stayed 12, so all UI outcomes remained unconfirmed.
+
+Full transition: 855 captured, 619 consumed, 236 overwritten and 198 policy-skipped
+captures, 421 actual detections in 111.41 seconds (7.67 capture/3.78 processed FPS).
+Receipt-to-result latency averaged 239.7 ms, max 424.0 ms; mean detector/annotation
+time per detection was 188.1/5.3 ms. No temporal history resets occurred. Recognized
+observations: 192 Driver ID, 146 Level, 83 unknown (79 obstructed). First confirmed
+Level observation used source-video time 19.56 s; no ground-truth transition-delay
+bound is claimed. Startup/decoding/shutdown and annotation saving are included in
+session rates; sensor/driver/network delay is excluded from this local replay.
+Brief transitions may be missed. This run is verification, not a new optimization
+comparison; retain Phase 3A's accepted comparative measurements.
+
+Reviewed images: `run03/actions/Driver_ID_review.png`, and
+`run03/transition/Driver_ID_review.png` / `Level_review.png`. Titles, fields and
+keypad/Level layout align broadly in those samples; reviewing three images does
+not establish accuracy over every frame. Existing OCR/dropouts/border instability
+and physical limitations remain. Both current target files finish empty.
+
+For an interactive default dry run using the newly generated simulation fit:
+
+```sh
+python3 -m dmi_robot_master.integration.press_label \
+  --replay dmi_computer_vision/data/videos/dev/driver_id_12.mp4 \
+  --start-seconds 2.5 --replay-fps 1.5 \
+  --calibration dmi_computer_vision/outputs/robot_integration/phase6/run03/calibration.simulation.json \
+  --calibration-context dmi_computer_vision/outputs/robot_integration/phase6/run03/context.simulation.json \
+  --evidence-tolerance-px 3 --max-x-mm 380 --max-y-mm 470 \
+  --output-dir dmi_computer_vision/outputs/robot_integration/phase6/terminal_NEW
+```
+
+Enter one KEY_n or quit. Substitute your successful verification directory if
+different; choose a new terminal directory. Add --mode simulated-press only for
+an explicit fake press request. Geometry rejections remain valid outcomes.
+
+`tests/test_offline_integration.py` exercises the actual observe → FrameProcessor →
+target projection/publication → CurrentTargets → LabelActions → master/slave →
+fake robot path with controlled synthetic detector observations. Three separate
+key selections produce expected integer-mm/ms packets and require a newer raw
+and confirmed field value after DONE. Additional cases reject wrong screen,
+removed key, invalid calibration, travel bounds, old file/evidence and camera
+failure; ERROR, timeout and disconnect latch commands while observation continues.
+Earlier tests retain duplicate/hull/source-context/simulation rejection, 3/4-pixel
+jitter, drift, busy-action, refresh and terminal cleanup coverage.
+
+Controlled observations check the verification logic. Real-recording UI outcomes
+remain unconfirmed when the expected append is not observed: prerecorded input
+cannot establish robot causation. DONE also does not prove UI input. Simulated
+mm fitting, 380/470-mm bounds, 3-pixel evidence tolerance, 5-mm fit acceptance and
+200-ms presses are development settings, never proposed physical acceptance facts.
+
+## Small application interface
+
+Reuse the existing interfaces; no backend transport or autonomous navigation is
+implemented. Keep a `CurrentTargets` and `LatestState`, pass them to `observe`,
+and retain a `LabelActions` wired to those same objects and the selected RobotLink:
+
+```python
+snapshot = targets.get()             # Exact latest targets, or None on expiry/loss.
+preview = actions.preview('KEY_5')    # Pixel/mm/command center or rejection reason.
+requested = actions.request('KEY_5') # One validated request; never queues a label.
+```
+
+`observe(..., export_targets=True, current_targets=targets, latest_state=state,
+calibration_path=..., calibration_context=..., evidence_tolerance_px=...,
+processing_policy=policy, stop_event=stop)` owns acquisition and publication.
+`LabelActions(targets, state, link, calibration_path=..., context_path=...,
+source_info=..., policy=policy, mode=SessionMode.DRY_RUN, stop_event=stop,
+on_result=callback)` uses that same session. Current context comes from independent
+camera/origin metadata; physical use must also provide actual-source checking and
+verified hardware readiness. The working examples are `run_terminal` in
+press_label.py and the recording-only verify_offline.py.
+
+Run observation independently of blocking input/communication. Optional GUI
+preview stays on the main thread. `request` returns a pending result for an accepted
+asynchronous command; its completion arrives via `on_result`, or `last_result`
+after completion. Use the callback to update an application, with its own UI thread
+handoff if needed. A dry run returns synchronously and sends nothing. `preview`
+never authorizes a later send: `request` re-resolves and revalidates current evidence.
+Keep one outstanding request and handle explicit rejection; never retry a press
+on timeout. On shutdown set the shared stop event, close actions and join observation;
+the session clears current targets and releases source/output resources. A callback
+must not close its own action worker or block indefinitely.
+
+## Later physical trial
+
+Use the observation/bridge and terminal commands above after confirming the installed
+camera, dependencies and network. Fit a new calibration on the installed fixed camera;
+the replay calibration must be rejected by physical execution. Establish actual axis
+directions/reference keys, measured bounds/tolerance, retraction/contact/homing and
+physical stop. Review the known contact/Z defects separately. Inspect real annotations
+and freshness first, then dry run, reviewed move-only alignment and one explicitly
+selected physical press with newer-camera UI verification. Keep wider controls and
+the other screen uncalibrated until separately measured and validated. Offline
+completion does not establish camera compatibility, physical accuracy or pressing.

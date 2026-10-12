@@ -2,11 +2,16 @@
 
 ## Current status
 
-**Phase 5: Completed offline — accepted.** User approved the revised phase,
-including the timestamp correction, for commit and push on 2026-10-12.
+**Phase 6: Completed offline — accepted.** User approved Phase 6 for commit and
+push on 2026-10-12. All numbered phases plus 3A are implemented/tested offline; real
+camera/robot validation remains outstanding.
+Phase 5 was accepted including its timestamp correction on 2026-10-12.
 Accepted/pushed: Phase 1 e95e274, Phase 2 bd99ef6, Phase 3 5f2abe0, Phase 3A 160ea04,
-Phase 4 ea6f5d1, all on origin/main. Phase 5 commit/push are being performed to
-verified origin/main (https://github.com/H4miiiid/DMI_R-D_ALTEN.git); Phase 6 not started. No physical camera/robot/UDP/GPIO access or backend implementation.
+Phase 4 ea6f5d1, Phase 5 ed66b83, all recorded on origin/main
+(https://github.com/H4miiiid/DMI_R-D_ALTEN.git). Local main/origin/main both point
+to Phase 5; working tree was clean at Phase 6 start. No physical camera/robot/UDP/
+GPIO access or backend implementation. Approved Phase 6 commit/push are being
+performed to the same verified origin/main destination.
 
 User facts: two webcams probably on Pi; type/index/network unconfirmed. PC detector,
 one selected camera/latest-JPEG bridge, local-camera option; Picamera2 adapter still
@@ -129,6 +134,46 @@ Recognition/value confirmation delay and raw geometry jitter remain; unknown bas
 or missing direct field evidence cannot establish successful UI input. Integer-mm
 rounding and physical button/tool accuracy need assessment on installed hardware.
 
-Next: complete approved Phase 5 commit/push to verified origin/main, excluding
-ignored data/outputs. Report commit ID/result in chat; record at the next natural
-handoff update. Phase 6 is full offline integration verification; not started.
+## Phase 6 — completed offline, accepted 2026-10-12
+
+New verify_offline.py runs fresh recording calibration, three independent fake
+label presses and the full Driver ID-to-Level transition, with output/compact and
+annotation decode checks. New test_offline_integration.py connects actual live
+orchestration/projection/publication/actions/master/slave with controlled synthetic
+observations for verification and failure cases. README documents startup and the
+existing get/preview/request interface. Detector/base robot code unchanged.
+
+101 integration and 129 vision tests pass; compile/whitespace checks pass. Four
+new cross-phase tests cover three fake selected presses with controlled newer
+field observations, wrong screen/removal/calibration/bounds rejection, stale file/
+evidence/camera failure and ERROR/timeout/disconnect latch with detection continuing.
+
+Passing recorded run: ignored vision outputs/robot_integration/phase6/run03/;
+verification.json, button_tests.jsonl and calibration/actions/transition artifacts.
+440 actual detections (12 calibration + 7 action + 421 transition) passed output
+contracts, compact reconstruction and annotation decode checks. Three fake presses
+KEY_4/5/6 received DONE/newer evidence, UI unconfirmed (recorded value stayed 12).
+Fresh simulation fit held-out mean/max error 0.653/1.119 mm against reference JSON.
+Transition captured 855/processed 421 in 111.41 s; 236 overwritten + 198 policy
+skips, 7.67/3.78 FPS; mean/max receipt-to-result 239.7/424.0 ms. No history resets.
+192 Driver ID/146 Level/83 unknown observations (79 obstructed). Uncalibrated
+transition mm stayed null/unusable; both sessions cleared targets on stop.
+Three Driver ID/Level sample annotations inspected and retained as *_review.png;
+broad layout alignment, inherited jitter/OCR/loss limits remain. No per-frame
+ground truth, sensor/network latency or physical accuracy claim.
+
+Reproduce from root in existing Python 3.13.3/OpenCV/Tesseract environment:
+`python3 -m unittest discover -s tests -q`,
+`python3 -m unittest discover -s dmi_computer_vision/tests -q`,
+`python3 -m dmi_robot_master.integration.verify_offline --output-dir
+dmi_computer_vision/outputs/robot_integration/phase6/verification_NEW` (one line).
+Use new output directory. Test logs: /private/tmp/dmi_phase6_integration_tests.log,
+_vision_tests.log; replay: /private/tmp/dmi_phase6_replay.log. Earlier run01/path
+smoke and run02/report-serialization failures are incomplete evidence; both runner
+issues fixed before passing run03. No calibration/detector/base robot behavior changed.
+
+User approved Phase 6 for commit/push on 2026-10-12. Stage only STATE.md,
+integration README/verify_offline.py and tests/test_offline_integration.py;
+generated data stays ignored. Report commit ID/push result in chat; record it at
+the next natural handoff update. Next implementation milestone is the deferred
+physical trial following AGENTS.md; no hardware execution has occurred.
