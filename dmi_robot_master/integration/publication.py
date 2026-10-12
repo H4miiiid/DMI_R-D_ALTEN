@@ -84,6 +84,7 @@ class ChangePublisher:
         self._frame_index = self._capture_index = None
         self._support_centers = None
         self._support_tolerance = None
+        self._direct_driver_value = None
         self._last_heartbeat = None
         self._expired = self._closed = False
         self.revision = self.updates = self.heartbeats = 0
@@ -100,7 +101,8 @@ class ChangePublisher:
     def update(self, snapshot: dict, *, received_at: float, detected_at: float,
                observed_at_utc: str | None = None, upstream_age_seconds: float = 0.0,
                frame_index: int | None = None, capture_index: int | None = None,
-               support_centers: dict | None = None, support_tolerance_px: float | None = None) -> None:
+               support_centers: dict | None = None, support_tolerance_px: float | None = None,
+               direct_driver_value: str | None = None) -> None:
         if not all(math.isfinite(v) for v in (received_at, detected_at, upstream_age_seconds)) or upstream_age_seconds < 0 or detected_at < received_at:
             raise ValueError('Invalid detection evidence timestamps')
         with self._lock:
@@ -108,6 +110,7 @@ class ChangePublisher:
                 raise RuntimeError('Publisher closed')
             if self._received is not None and received_at <= self._received:
                 raise ValueError('Evidence receipt times must increase')
+            self._direct_driver_value = direct_driver_value
             self._frame_index, self._capture_index = frame_index, capture_index
             self._support_centers, self._support_tolerance = deepcopy(support_centers), support_tolerance_px
             self._current = deepcopy(snapshot)
@@ -166,7 +169,7 @@ class ChangePublisher:
                 self._last_heartbeat = now
                 self.heartbeats += 1
 
-    def current(self, now: float | None = None) -> dict | None:
+    def current(self, now: float | None = None, *, include_evidence: bool = False) -> dict | None:
         with self._lock:
             now = time.monotonic() if now is None else now
             if self._closed or self._expired or self._received is None or not 0 <= now - self._received + self._upstream_age <= self.max_age:
@@ -174,6 +177,12 @@ class ChangePublisher:
             snapshot = deepcopy(self._current)
             snapshot.update(frame_index=self._frame_index, capture_index=self._capture_index,
                             observed_at=self._observed_utc, session_id=self.session_id, revision=self.revision)
+            if include_evidence:
+                snapshot.update(received_at_monotonic=self._received,
+                                detected_at_monotonic=self._detected,
+                                upstream_age_seconds=self._upstream_age,
+                                support_centers=deepcopy(self._support_centers),
+                                support_tolerance_px=self._support_tolerance, direct_driver_value=self._direct_driver_value)
             return snapshot
 
     def close(self, reason: str = 'stopped') -> None:

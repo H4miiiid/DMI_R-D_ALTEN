@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 import sys
 import time
+from threading import Event
 
 import cv2
 
@@ -109,7 +110,7 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
             max_capture_frames: int | None = None, export_targets: bool = False,
             calibration_path: str | Path | None = None, calibration_context: dict | None = None,
             evidence_tolerance_px: float | None = None, target_history: bool = False,
-            current_targets: CurrentTargets | None = None) -> dict:
+            current_targets: CurrentTargets | None = None, stop_event: Event | None = None) -> dict:
     """Observe and annotate. Source is the sole owner; no motor transport exists."""
     if export_targets:
         check_target_source(source, source_info)
@@ -169,13 +170,15 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
                             observed_at_utc=packet.received_at_utc,
                             upstream_age_seconds=packet.remote_capture_age_seconds + packet.transport_round_trip_seconds,
                             frame_index=result['frame_index'], capture_index=packet.capture_index,
-                            support_centers=support, support_tolerance_px=evidence_tolerance_px)
+                            support_centers=support, support_tolerance_px=evidence_tolerance_px,
+                            direct_driver_value=(evidence.get("right_field_value")
+                                if evidence.get("right_state") == "Driver ID" and evidence.get("right_visibility") == "clear" else None))
             run = process_live(source, directory, source_info=source_info,
                 max_frames=max_frames, preview=sink.show if sink else None, debug=debug,
                 latest_state=latest_state or LatestState(), processing_policy=processing_policy,
                 annotate=annotations, on_detection=callback,
                 on_skipped=sink.idle if sink else None, max_capture_frames=max_capture_frames,
-                on_detection_evidence=evidence_callback)
+                on_detection_evidence=evidence_callback, stop_event=stop_event)
     except BaseException as exc:
         failure = f'{type(exc).__name__}: {exc}'
         raise

@@ -7,6 +7,7 @@ import math
 from pathlib import Path
 import time
 from typing import Callable, Protocol
+from threading import Event
 
 import cv2
 
@@ -56,7 +57,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                  on_detection: Callable[[dict, CapturedFrame, float], None] | None = None,
                  on_skipped: Callable[[], bool] | None = None,
                  max_capture_frames: int | None = None,
-                 on_detection_evidence: Callable[[dict, CapturedFrame, float, dict], None] | None = None) -> LiveRunSummary:
+                 on_detection_evidence: Callable[[dict, CapturedFrame, float, dict], None] | None = None,
+                 stop_event: Event | None = None) -> LiveRunSummary:
     """Consume received frames until a limit, preview stop, Ctrl-C or failure.
 
     Sources are opened/closed by the caller. Each emitted JSONL record is flushed;
@@ -106,10 +108,16 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                "max_gap_seconds": max_gap_seconds}, geometry_tolerance=geometry_tolerance)
         try:
             while (max_frames is None or count < max_frames) and (max_capture_frames is None or consumed < max_capture_frames):
+                if stop_event is not None and stop_event.is_set():
+                    reason = "stopped"
+                    break
                 try:
                     packet = source.read()
                 except EOFError:
                     reason = "eof"
+                    break
+                if stop_event is not None and stop_event.is_set():
+                    reason = "stopped"
                     break
                 if (type(packet.capture_index) is not int or packet.capture_index <= previous_consumed_index
                         or not math.isfinite(packet.received_at)
@@ -180,8 +188,11 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
         except KeyboardInterrupt:
             reason = "interrupted"
         except Exception as exc:
-            reason, failure = "error", str(exc)
-            raise
+            if stop_event is not None and stop_event.is_set():
+                reason = "stopped"
+            else:
+                reason, failure = "error", str(exc)
+                raise
         finally:
             # Completed JSONL records survive failures; the summary is not a
             # claim that an errored or forcibly killed session completed.

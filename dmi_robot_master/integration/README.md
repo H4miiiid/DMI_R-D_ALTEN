@@ -663,3 +663,113 @@ production read path. Regression fixtures block publication while advancing the
 clock beyond expiry. Live source binding rejects kind/index/requested-size/endpoint
 mismatches even when the supplied context and pixel geometry fit the calibration;
 source metadata participates in negative-cache invalidation/recovery checks.
+
+# Phase 5 — one-label terminal session
+
+Start one program; acquisition/detection and target export run while the terminal
+accepts KEY_0..KEY_9. It never asks for coordinates or runs an XML sequence.
+Default mode is dry-run, default transport is fake; the banner names both.
+
+```sh
+python3 -m dmi_robot_master.integration.press_label \
+  --replay dmi_computer_vision/data/videos/dev/driver_id_12.mp4 \
+  --start-seconds 2.5 --replay-fps 1.5 \
+  --calibration dmi_computer_vision/outputs/robot_integration/phase3/driver12/calibration.simulation.json \
+  --calibration-context dmi_computer_vision/outputs/robot_integration/phase4/driver12_context.simulation.json \
+  --evidence-tolerance-px 3 --max-x-mm 380 --max-y-mm 470 \
+  --output-dir dmi_computer_vision/outputs/robot_integration/phase5/terminal_NEW
+```
+
+Wait for a current observation, then enter `KEY_5`, for example. Dry run prints
+pixel/mm/rounded command and any rejection reason, sending no command. Geometry
+jitter can make a recognized key unusable: rejection is intentional, not a reason
+to relax physical gates. Add `--mode simulated-press` to send exactly one validated
+request to a fake robot. `--fake-response DONE|ERROR|TIMEOUT|DISCONNECT` and
+`--fake-delay` support offline trials. Press ms defaults to the current 200 ms
+reference example; XY bounds are explicitly required (380/470 here are repository
+simulation bounds, not verified hardware travel). Use fresh output names.
+
+Modes: dry-run, simulated-press, move-only, physical-press. With fake transport,
+move-only and physical-press exercise the corresponding command payloads and are
+explicitly labelled FAKE/SIMULATION. They establish neither movement nor pressing
+on hardware. Simulated press cannot use a real motor transport. A valid label in
+press modes requests one press; writing targets.json never triggers action.
+
+`actions.py` handles preview/request/validation and owns at most one action worker.
+Requests received while command or UI verification is outstanding are rejected,
+not queued. Detection/target publication continue during motor/network waits.
+The selected label is resolved immediately when entered, and re-resolved again
+before dispatch after file/refit checks. Session/calibration changes, loss of
+support, unusable/duplicate/type/display/wrong-screen targets, stale input,
+outside-keypad positions and out-of-travel coordinates reject without dispatch.
+Commands require full current calibration/source/context/reference validation,
+complete fresh raw key recheck and matching mm. Cached publication cannot authorize
+an action. Integer protocol conversion is explicitly nearest whole mm with .5
+rounded upward; both floating and rounded positions must satisfy exclusive XY
+upper bounds. This rounding remains to be assessed against physical button/tool
+accuracy before enabling movement.
+
+`action_transport.py` reuses existing master/slave and RobotCommands. FakeTransport
+uses a fake robot through the existing slave method mapping; TIMEOUT can follow
+an executed fake action, illustrating why no retries are allowed. RobotLink traces
+DONE/ERROR/timeout/disconnect/send/malformed-response failures. Only DONE with the
+expected empty payload is completion. Failure latches the session against further
+commands; restart only after operator review. Existing UDP action-ID/correlation
+limitations remain; at most one outstanding action and no automatic retries.
+
+DONE does not prove UI input. Press completion requests a processing-policy refresh,
+then waits for a newer source observation received after completion, conservatively
+accounting for Pi age/HTTP round-trip. A known directly observed/confirmed Driver ID
+value implies an expected appended digit. Confirmation requires that expected
+value in both raw and confirmed data on a newer frame. Unknown baseline, wrong/
+missing value, session/calibration change, timeout or shutdown yields unconfirmed.
+Replay/fake transport only reports `expected_change_observed_in_simulation`, never
+physical causality. The small added raw-field-value side channel is used only for
+verification; target files still omit field values. Recognition errors can remain.
+
+The main thread owns detector processing and optional `--preview` OpenCV GUI.
+A daemon thread owns blocking terminal input; a separate bounded action worker
+owns communication/verification. Progress and controller warnings go to a separate
+`<session>_progress.log`, results stay near the input prompt, and one JSONL action
+record logs label/source frame/calibration, pixel/float/command mm, mode/transport,
+response and observed outcome in `<session>_button_tests.jsonl`. quit/EOF/Ctrl-C
+signal coordinated stop, clear targets and release camera/output/transport resources.
+A blocked stdin reader can remain until process exit but owns no device and cannot
+launch an action after shutdown. A native camera/action backend blocked indefinitely
+may require process exit, with outcome reported unconfirmed. Software quit is not
+an immediate hardware stop; it cannot undo an already issued movement/press.
+
+## Physical execution (implemented policy, deferred trial)
+
+No UDP, GPIO or real camera operations were executed for Phase 5. Later,
+`--transport udp` requires explicit --mode move-only or physical-press, a live
+source, confirmed PC robot YAML via --robot-config, and --hardware-checks JSON.
+That JSON must assert actual verified facts, not placeholder defaults:
+
+- homed, xy_limits_verified, z_retracted, contact_sensing_checked;
+- stop_mechanism_available, origin_and_mount_verified, contact_routine_reviewed;
+- move_only_alignment_reviewed additionally for physical-press.
+
+Simulation/unverified calibration/targets cannot pass hardware execution even
+with those flags. Verify real camera context/source identity, origin/axes/reference
+positions, bounds, retraction/contact and physical stop before any command. Review
+and resolve the known contact/Z accounting defect separately before asserting the
+contact routine reviewed flag. Inspect move-only alignment with the tool retracted
+before authorizing the first press. Flags record operator checks; they do not
+perform homing, read sensors, certify a camera or provide an emergency stop.
+All six phases plus 3A must finish offline before this physical procedure.
+
+Offline checks: all four modes/payloads, single outstanding action, target change
+before send, calibration/context/stale/wrong screen/hull/bounds rejection, fake
+ERROR/timeout/disconnect failure latch, post-action evidence, log/shutdown races,
+EOF/quit/Ctrl-C and main-thread preview ownership. Controlled synthetic observations
+validate the verification logic; hardware-policy fixtures are synthetic test
+assertions and never physical calibrations. Existing detector/motor thresholds,
+timing, GPIO pins and wire protocol remain unchanged.
+
+Actual replay evidence under vision outputs/robot_integration/phase5/:
+replay_press_button_tests.jsonl records one KEY_5 fake request at [150,250] mm,
+DONE, newer camera observation, UI unconfirmed (recorded value stayed 12).
+replay_dry_button_tests.jsonl records a dry-run geometry rejection, NOT_SENT.
+Both current target files are empty after quit. Source progress/compact/debug
+logs remain for inspection; generated evidence is ignored by Git.

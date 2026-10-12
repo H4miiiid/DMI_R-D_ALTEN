@@ -32,6 +32,39 @@ def _point(value) -> list:
     return list(value)
 
 
+def validate_camera_source(camera: dict, source_info: dict) -> None:
+    """Match independent camera context to the actual selected source configuration."""
+    settings = camera.get('settings', {})
+    if (settings.get('rotation_clockwise', 0) != source_info.get('rotation_clockwise', 0) or
+            settings.get('mirror_horizontal', False) != source_info.get('mirror_horizontal', False) or
+            settings.get('crop') is not None):
+        raise ValueError('Current image orientation/crop differs from context')
+    source_kind = source_info.get('kind')
+    if source_kind not in ('recorded_replay', 'local_camera', 'remote_bridge', 'synthetic'):
+        raise ValueError('Unsupported calibration source kind')
+    if camera.get('source_kind') != source_kind:
+        raise ValueError('Current source kind differs from calibration camera context')
+    if source_kind == 'local_camera':
+        index = source_info.get('index')
+        requested_size = source_info.get('requested_size')
+        if (type(index) is not int or index < 0 or type(settings.get('camera_index')) is not int or
+                settings['camera_index'] != index):
+            raise ValueError('Current local camera index differs from calibration context')
+        if (not isinstance(requested_size, list) or len(requested_size) != 2 or
+                any(v is not None and (type(v) is not int or v <= 0) for v in requested_size) or
+                (requested_size[0] is None) != (requested_size[1] is None) or
+                'requested_size' not in settings or settings['requested_size'] != requested_size):
+            raise ValueError('Current requested camera size differs from calibration context')
+    elif source_kind == 'remote_bridge':
+        endpoint = source_info.get('url')
+        if not isinstance(endpoint, str) or not endpoint or settings.get('bridge_url') != endpoint:
+            raise ValueError('Current bridge endpoint differs from calibration context')
+    elif source_kind == 'recorded_replay':
+        identity = 'simulation:' + str(Path(source_info['path']).expanduser().resolve())
+        if camera.get('identity') != identity or camera.get('source_kind') != 'recorded_replay':
+            raise ValueError('Recording identity differs from independent current context')
+
+
 class TargetProjector:
     """Use the current detector result/evidence, never a historical log record."""
     def __init__(self, *, source_info: dict, calibration_path: str | Path | None = None,
@@ -61,35 +94,7 @@ class TargetProjector:
         if not self.context or not isinstance(self.context.get('camera'), dict) or not isinstance(self.context.get('origin'), dict):
             raise ValueError('Independent current camera/origin context is required')
         camera, origin = self.context['camera'], self.context['origin']
-        settings = camera.get('settings', {})
-        if (settings.get('rotation_clockwise', 0) != self.source_info.get('rotation_clockwise', 0) or
-                settings.get('mirror_horizontal', False) != self.source_info.get('mirror_horizontal', False) or
-                settings.get('crop') is not None):
-            raise ValueError('Current image orientation/crop differs from context')
-        source_kind = self.source_info.get('kind')
-        if source_kind not in ('recorded_replay', 'local_camera', 'remote_bridge', 'synthetic'):
-            raise ValueError('Unsupported calibration source kind')
-        if camera.get('source_kind') != source_kind:
-            raise ValueError('Current source kind differs from calibration camera context')
-        if source_kind == 'local_camera':
-            index = self.source_info.get('index')
-            requested_size = self.source_info.get('requested_size')
-            if (type(index) is not int or index < 0 or type(settings.get('camera_index')) is not int or
-                    settings['camera_index'] != index):
-                raise ValueError('Current local camera index differs from calibration context')
-            if (not isinstance(requested_size, list) or len(requested_size) != 2 or
-                    any(v is not None and (type(v) is not int or v <= 0) for v in requested_size) or
-                    (requested_size[0] is None) != (requested_size[1] is None) or
-                    'requested_size' not in settings or settings['requested_size'] != requested_size):
-                raise ValueError('Current requested camera size differs from calibration context')
-        elif source_kind == 'remote_bridge':
-            endpoint = self.source_info.get('url')
-            if not isinstance(endpoint, str) or not endpoint or settings.get('bridge_url') != endpoint:
-                raise ValueError('Current bridge endpoint differs from calibration context')
-        elif source_kind == 'recorded_replay':
-            identity = 'simulation:' + str(Path(self.source_info['path']).expanduser().resolve())
-            if camera.get('identity') != identity or camera.get('source_kind') != 'recorded_replay':
-                raise ValueError('Recording identity differs from independent current context')
+        validate_camera_source(camera, self.source_info)
         if self._cache is None:
             self._cache = ValidatedCalibration(self._document, frame_size=size, camera=camera,
                                                origin=origin, hardware=not self.simulation)
@@ -142,6 +147,7 @@ class TargetProjector:
                                 for name, pixel in evidence.get('right_buttons', {}).items()
                                 if name in {f'digit_{n}' for n in range(10)}}
                     self._cache.recheck(observed, tolerance_px=self.geometry_tolerance)
+                    support = deepcopy(observed)
                     if evidence.get('right_field') is not None:
                         observed['right/field/input'] = _point(evidence['right_field'])
                     for label, raw_pixel in observed.items():
@@ -209,6 +215,12 @@ class CurrentTargets:
             publisher = self._publisher
         current = publisher.current() if publisher is not None else None
         return target_snapshot(current, current['simulation']) if current is not None else None
+
+    def action_observation(self) -> dict | None:
+        """Current monotonic evidence and raw supporting centers for action recheck."""
+        with self._lock:
+            publisher = self._publisher
+        return publisher.current(include_evidence=True) if publisher is not None else None
 
     def close(self) -> None:
         with self._lock:

@@ -134,6 +134,8 @@ def process_frame(
             "right_visibility": right_content["visibility"],
             "right_buttons": {name: list(region["center"])
                               for name, region in right_content["buttons"].items() if region is not None},
+            "right_field_value": (right_content["data_field"].get("value")
+                                  if right_content["data_field"] is not None else None),
             "right_field": (list(right_content["data_field"]["center"])
                             if right_content["data_field"] is not None else None),
         })
