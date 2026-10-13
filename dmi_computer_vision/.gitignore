@@ -4,5 +4,6 @@ __pycache__/
 .pytest_cache/
 .venv/
 outputs/
-data/
+data/reference/
+data/videos/
 docs/
