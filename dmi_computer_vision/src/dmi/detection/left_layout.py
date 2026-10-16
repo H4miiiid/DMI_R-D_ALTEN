@@ -116,13 +116,13 @@ def quad(left: Line, right: Line, top: Line, bottom: Line) -> np.ndarray:
     )
 
 
-def consistent_sidebar(rows: list[Line], cross: float) -> bool:
+def consistent_sidebar(rows: list[Line | None], cross: float) -> bool:
     """Reject noise peaks that do not preserve the observed row topology."""
-    heights = np.diff([position(row, cross) for row in rows])
+    heights = np.diff([position(row, cross) if row is not None else np.nan for row in rows])
     unit = float(np.median(heights[2:]))
     return bool(
         unit > 0
-        and 1.65 * unit < heights[0] < 2.55 * unit
+        and (rows[0] is None or 1.65 * unit < heights[0] < 2.55 * unit)
         and 8 * unit < heights[1] < 10.5 * unit
         and np.all((heights[2:] > 0.7 * unit) & (heights[2:] < 1.3 * unit))
     )
@@ -138,12 +138,25 @@ def valid_quad(points: np.ndarray) -> bool:
     )
 
 
-def sidebar_borders(evidence: BorderEvidence) -> tuple[Line, list[Line]] | None:
+def sidebar_borders(evidence: BorderEvidence) -> tuple[Line, list[Line | None]] | None:
     """Find the sidebar divider and its 2, 9, 1, ... unit row topology.
 
     Relative row heights identify the UI structure; all reported borders are
     subsequently fitted to visible image edges, never to reference pixels.
     """
+    legacy = _fit_sidebar_borders(evidence, minimum_top_fraction=.04)
+    if legacy is not None:
+        return legacy
+    reduced_margin = _fit_sidebar_borders(evidence, minimum_top_fraction=.02)
+    if reduced_margin is not None:
+        return reduced_margin
+    return _fit_sidebar_borders(evidence, minimum_top_fraction=.02, allow_missing_top=True)
+
+
+def _fit_sidebar_borders(
+    evidence: BorderEvidence, *, minimum_top_fraction: float, allow_missing_top: bool = False,
+) -> tuple[Line, list[Line | None]] | None:
+    """Allow a smaller upper margin only after the accepted fit fails."""
     h, w = evidence.horizontal.shape
     profile = np.median(evidence.vertical[:, int(h * 0.2) : int(h * 0.85)], axis=1)
     lo, hi = int(w * 0.07), int(w * 0.3)
@@ -169,43 +182,49 @@ def sidebar_borders(evidence: BorderEvidence) -> tuple[Line, list[Line]] | None:
         work[max(0, i - 15) : i + 16] = 0
     candidates = np.array(sorted(candidates))
     units = np.array([0, 2, 11, 12, 13, 14, 15, 16, 17, 18])
-    best = None
+    hypotheses = []
     for first in candidates[(candidates > h * 0.12) & (candidates < h * 0.32)]:
         for lower in candidates[(candidates > h * 0.5) & (candidates < h * 0.72)]:
             step = (lower - first) / 9
             expected = first + (units - 2) * step
-            if expected[0] < h * 0.04 or expected[-1] > h * 0.99:
+            if ((not allow_missing_top and expected[0] < h * minimum_top_fraction)
+                    or expected[-1] > h * 0.99):
                 continue
             distance = np.abs(expected[:, None] - candidates)
             ids = distance.argmin(axis=1)
             errors = distance[np.arange(10), ids]
             matched = errors < step * 0.32
-            if matched.sum() < 8 or not matched[:4].all():
+            if allow_missing_top:
+                # The nine lower borders must establish their own topology.
+                # The unavailable top border contributes no score or geometry.
+                matched, errors, ids = matched[1:], errors[1:], ids[1:]
+                if matched.sum() < 8 or not matched[:3].all():
+                    continue
+            elif matched.sum() < 8 or not matched[:4].all():
                 continue
             score = (
                 matched.sum() * 4
                 - np.minimum(errors / step, 1).sum()
                 + np.log1p(profile[candidates[ids]] / noise_floor).sum()
             )
-            if best is None or score > best[0]:
-                best = score, expected, step
-    if best is None:
-        return None
-    _, expected, step = best
-    borders = []
-    for y in expected:
-        border = evidence.fit(
-            "h",
-            y,
-            side / 2,
-            side * 0.13,
-            side * 0.82,
-            radius=step * 0.32,
-            slope_radius=0.12,
-        )
-        if border is None:
-            return None
-        borders.append(border)
-    if not consistent_sidebar(borders, side / 2):
-        return None
-    return divider, borders
+            hypotheses.append((score, expected, step))
+    ranked = sorted(hypotheses, key=lambda item: item[0], reverse=True)
+    # Preserve the accepted complete fit. Only the lower-only recovery checks
+    # alternate hypotheses against all nine actually observed borders.
+    candidates_to_fit = ranked if allow_missing_top else ranked[:1]
+    for _, expected, step in candidates_to_fit:
+        borders = []
+        for index, y in enumerate(expected):
+            if index == 0 and allow_missing_top:
+                borders.append(None)
+                continue
+            border = evidence.fit(
+                "h", y, side / 2, side * 0.13, side * 0.82,
+                radius=step * 0.32, slope_radius=0.12,
+            )
+            if border is None:
+                break
+            borders.append(border)
+        if len(borders) == 10 and consistent_sidebar(borders, side / 2):
+            return divider, borders
+    return None

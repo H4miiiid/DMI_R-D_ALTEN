@@ -2,10 +2,72 @@
 
 ## Current status
 
+**Monitor-support Step 3 — completed offline and approved (2026-10-16).**
+User approved the corrected shared analysis and explicitly authorized commit/push.
+Step 2 was pushed as 27b085e; user committed camera setup as 6b6aebd. This handoff
+accompanies the approved Step 3 changes; the publication result is reported in chat.
+
+- Title OCR still supplies screen identity, but its search path/position no longer
+  selects layout. Measured blue extent, margin/grid borders and action structure
+  choose the crop convention. Moving only the synthetic title by 27 or 41 pixels
+  now preserves all 13 Driver ID controls with identical centers/corners; previously
+  it produced 16 controls and moved digit_1 about 103 pixels. Main's 11 controls
+  also remain identical. Missing active-grid evidence cannot invent legacy slots.
+- Corrected the previous report: its claim that both Driver clips read 23 on all
+  209 frames described stabilized output. Saved raw evidence had 186 correct and
+  23 incorrect readings (Driver02: 5 wrong; Driver03: 18 wrong), not perfect direct
+  recognition. Cold Driver03 frame 78 independently reproduced 73.
+- New regular replay direct results: 181 correct, 0 incorrect,
+  28 unknown / 209 (86.6% correct-reading coverage). Stabilized output:
+  202 correct, 0 incorrect, 7 unknown / 209. This is measured
+  saved-image performance, not general 100% accuracy. Stronger glyph correlation,
+  runner-up separation, shape/alignment and whole-value rejection return null on
+  uncertainty instead of dropping glyphs into partial values. Weak bright-field
+  proposals require independent existing OCR agreement to preserve legible legacy
+  values. No supplied answers, new model or recording-derived templates.
+- Cold Driver03 frame 78 now returns null, retaining Driver ID, field geometry and
+  13 controls. Driver02 initially remains unknown through frame 6; first accepted
+  reading at frame 7 / 1.217 s source receipt elapsed. Stable clips cannot establish
+  screen-transition delay. Retained stabilized values do not refresh raw evidence.
+- Full replay still has 435/436 expected right titles/control counts. Main04 frame
+  102 retains Step 2's ambiguous-division rejection. All 435 localized observations
+  retain 20–22 left boxes; 368 have all 22. Existing optical-flow tracking contributes;
+  cold frames can lack complete fits. Left analyzer changes from the prior Step 3
+  remain unchanged by this correction. Sample03 uncertainty stays accepted.
+- 158 vision/109 integration tests, compile and whitespace checks pass. All 144
+  fresh separated results exactly match accepted results; 11 frozen separated
+  state examples match the previous Step 3 results. Full/compact contracts and
+  four complete review-video decodes pass. Comparison with prior Step 3, ignoring
+  only the field value, preserves all 436 results including control geometry.
+- 44 draft region references: mean/max center difference 2.8/7.7 native px;
+  P95/max corner difference 7.1/10.2 px, with about 6–10 px manual uncertainty.
+  These use accepted Step 2 rectification, not independent calibration truth.
+  New processing means 01–04: 1.10, 1.11, 1.14, 1.07 s/frame;
+  offline saved-image timing is not real-time hardware throughput.
+- Final review: dmi_computer_vision/outputs/monitor_support/
+  step3_correction_20261016_review01/REVIEW.md, review.mp4/review.jsonl per capture,
+  contact sheets and explicit direct/stabilized HUD. Reproduction, old snapshots,
+  exact field crops, cold frame 78 and test logs: step3_correction_20261016_run01/.
+  Earlier step3_20261016_review03 field/layout claims are superseded; its artifacts
+  remain intact. Owning specifications/handoff updated under existing docs ignore.
+- Integrity: 68 protected files checked against correction start; only
+  right_display.py/right_layout.py changed. All 20 capture artifacts, left analyzers
+  and other protected sources are unchanged. Temporal logic, actual evidence age,
+  schemas, calibration/motion limits and 4-pixel publication tolerance are intact.
+  No camera/robot command or physical validation. Step 4 has not started; next is
+  partial-region retention and layout/session-history stability after a separate
+  implementation request. Other connected states/transitions and selective/
+  freshness/export checks remain pending.
+- Approved commit scope: four shared analyzer/layout modules,
+  tests/test_active_area_analysis.py inside vision, and this root handoff. Owning
+  vision docs and generated review evidence remain locally ignored under the
+  existing repository policy; recordings/local settings are not included.
+
 **Step 2 localization accepted (2026-10-16), implemented and tested offline.**
 User accepted the correction on captures 01–04 and explicitly authorized committing
 and pushing the monitor-support updates before the next step. Fixed installed
-distance/rotation remains the intended setup. Step 3 has not started.
+distance/rotation remains the intended setup. This section records Step 2 acceptance;
+Step 3 is tracked above.
 
 - Corrected the existing connected fallback in display_geometry.py: bounded
   analysis scale with native pixel-center mapping, blue-seeded boundary proposals,
@@ -143,12 +205,14 @@ cost; measure the installed path before changing freshness limits or robot gates
 
 **Current milestone: support separated displays and the connected single monitor
 in the shared vision pipeline — Step 2 localization accepted on captures 01–04;
-Step 3 shared screen analysis is next, pending implementation request.** User
-accepted Step 2 and authorized commit/push on 2026-10-16, including lower-confidence
+Step 3 shared screen analysis is completed offline and approved; Step 4 awaits
+a separate implementation request.** User accepted corrected Step 3 and authorized
+its commit/push on 2026-10-16. Step 2 acceptance includes lower-confidence
 acceptance of sample03's dark corner. Root AGENTS.md defines the steps. User confirms real camera capture,
 transmission and master-PC reception have been tested on hardware; remaining work
 concerns detection. Connected localization now succeeds on 435/436 current frames;
-shared content analysis and partial/stability handling remain incomplete.
+shared analysis is verified on Main/Driver ID, while partial/stability and
+end-to-end validation remain incomplete.
 No physical calibration accuracy or robot pressing has been validated.
 
 Phase 6 is completed offline and accepted (2026-10-12). The original numbered
@@ -280,7 +344,8 @@ Phase 6 work. User accepted this correction with Phase 5 approval.
 
 Accepted phase evidence is simulation. User has now demonstrated live Picamera2
 capture and HTTP reception on the Mac. Single-monitor localization is accepted
-on the reviewed captures; shared title/control analysis remains incomplete.
+on the reviewed captures, with Main/Driver ID shared analysis tested offline.
+Some left boxes are omitted when borders are unsupported; Step 4/5 verification remains.
 No real pressing or physical calibration accuracy has been demonstrated.
 Actual bounds/axis/reference/offset/camera/mount/tolerance/homing/retraction/contact/
 physical stop and move-only alignment must be verified after all six phases plus

@@ -6,6 +6,8 @@ import cv2
 import numpy as np
 from numpy.typing import NDArray
 
+from dmi_computer_vision.src.dmi.detection.left_layout import BorderEvidence, valid_quad
+
 Frame = NDArray[np.uint8]
 Quad = NDArray[np.float32]
 Line = tuple[float, float]
@@ -34,6 +36,22 @@ def detect_button_quads(
             ("shunting", "non_leading"),
             ("maintain_shunting", "radio_data"),
         )
+        observed = _fit_active_area_grid(frame, names, action="close")
+        if observed is not None:
+            # A standalone close button can remain visible without a menu.
+            # Retain its measured borders without inventing the missing grid.
+            lower = [line for line in horizontal
+                     if height * .7 <= _line_position(line, width / 2) <= height * .99]
+            pair = any(height * .06 <= _line_position(b, width / 2) - _line_position(a, width / 2) <= height * .18
+                       for a in lower for b in lower)
+            sides = all(any(abs(_line_position(line, height * .9) - x) < width * .04
+                            and line[2] >= height * .06 for line in vertical)
+                        for x in (0., width * .25))
+            upper_grid = any(_line_position(line, width / 2) < height * .7
+                             and line[2] >= width * .6 for line in horizontal)
+            if not observed and pair and sides and not upper_grid:
+                return {"close": _fit_main_close(horizontal, vertical, width, height)}
+            return observed
         grid = _fit_grid(
             horizontal,
             vertical,
@@ -53,6 +71,11 @@ def detect_button_quads(
             ("digit_7", "digit_8", "digit_9"),
             ("delete", "digit_0", "decimal"),
         )
+        observed = _fit_active_area_grid(
+            frame, keypad_names, action="cancel" if state == "Driver ID" else "close",
+        )
+        if observed is not None:
+            return observed
         keypad_x_lines = _fit_axis_topology(
             vertical,
             tuple(value * width for value in (0.001, 0.304, 0.609, 0.905)),
@@ -376,6 +399,123 @@ def field_quad_from_contour(contour: NDArray[np.int32]) -> Quad:
         ],
         dtype=np.float32,
     )
+
+
+def _fit_active_area_grid(
+    frame: Frame, names: tuple[tuple[str, ...], ...], *, action: str,
+) -> dict[str, Quad] | None:
+    """Fit a border-supported grid when UI columns fill the logical crop.
+
+    Distinguish legacy margins/action columns from full-width UI evidence.
+    Missing full-width borders must cause omissions rather than falling back
+    to nominal legacy controls.
+    """
+    height, width = frame.shape[:2]
+    rows, columns = len(names), len(names[0])
+    menu = columns == 2
+    evidence = BorderEvidence(frame)
+    start, end = ((.16, .65) if menu else (.46, .85))
+    # A gradient at the crop edge can be a black bezel, not a UI column.
+    # Measure the active blue extent as well as the internal grid lines.
+    edge = frame[round(height * start):round(height * end),
+                 round(width * .97):round(width * .995)].astype(np.int16)
+    blue_extent = np.mean((edge[:, :, 0] >= 18)
+                          & (edge[:, :, 0] - edge[:, :, 1] >= 6)
+                          & (edge[:, :, 0] - edge[:, :, 2] >= 12)) >= .65
+    if not blue_extent:
+        return None
+    verticals = []
+    for index in range(columns + 1):
+        expected = (width - 1) * index / columns
+        line = evidence.fit("v", expected, height / 2, height * start, height * end,
+                            radius=width * .025, slope_radius=.015)
+        if line is not None and abs(_line_position((*line, 0), height / 2) - expected) > width * .025:
+            line = None
+        verticals.append(line)
+    if verticals[-1] is None:
+        margin_edge = evidence.fit("v", width * .915, height / 2,
+                                   height * start, height * end,
+                                   radius=width * .025, slope_radius=.04)
+        if margin_edge is not None:
+            return None
+    if columns == 3 and any(line is None for line in verticals):
+        # Extra observed action-row columns identify the accepted multi-slot
+        # layout even when an upper keypad border is occluded.
+        lower = np.median(evidence.vertical[:, round(height * .89):round(height * .94)], axis=1)
+        lo, hi = round(width * .3), round(width * .9)
+        peak = lo + int(np.argmax(lower[lo:hi]))
+        if lower[peak] > max(4., float(np.median(lower)) * 5):
+            action_column = evidence.fit("v", peak, height * .915,
+                                         height * .89, height * .94,
+                                         radius=5, slope_radius=.025)
+            if action_column is not None:
+                return None
+
+    profile = np.median(evidence.horizontal[:, round(width * .07):round(width * .93)], axis=1)
+    profile = cv2.GaussianBlur(profile[:, None], (1, 5), 0).ravel()
+    low, high = ((.08, .70) if menu else (.35, .89))
+    work = profile.copy()
+    work[:round(height * low)] = 0
+    work[round(height * high):] = 0
+    horizontal = []
+    for _ in range(24):
+        peak = int(work.argmax())
+        if work[peak] < max(2.0, float(np.median(profile)) * 4):
+            break
+        work[max(0, peak - 12):peak + 13] = 0
+        line = evidence.fit("h", peak, width / 2, width * .05, width * .95,
+                            radius=6, slope_radius=.02)
+        if line is not None:
+            horizontal.append(line)
+    if not any(verticals[1:-1]) and len(horizontal) < 3:
+        return {}
+    if any(line is None for line in verticals):
+        return {}
+    horizontal.sort(key=lambda line: _line_position((*line, 0), width / 2))
+    positions = np.array([_line_position((*line, 0), width / 2) for line in horizontal])
+    best = None
+    for first in positions:
+        if not (height * (.08 if menu else .35) < first < height * (.23 if menu else .53)):
+            continue
+        for last in positions:
+            step = (last - first) / rows
+            if not height * .07 < step < height * .13:
+                continue
+            expected = first + np.arange(rows + 1) * step
+            distance = np.abs(expected[:, None] - positions)
+            indices = distance.argmin(axis=1)
+            errors = distance[np.arange(rows + 1), indices]
+            if len(set(indices)) != rows + 1 or errors.max() > step * .17:
+                continue
+            score = float(errors.sum() + .05 * abs(step - height * .1))
+            if best is None or score < best[0]:
+                best = score, indices, step
+    if best is None:
+        return {}
+    _, indices, step = best
+    fitted = [horizontal[index] for index in indices]
+    result = _cells_from_lines(verticals, fitted, names,
+                               x_indices=tuple(range(columns + 1)),
+                               y_indices=tuple(range(rows + 1)))
+    # Only one cross control is visible in these layouts. Additional Driver ID
+    # action slots are not inferred from the older model's four-slot row.
+    bottom_y = height * .965 if menu else _line_position((*fitted[-1], 0), width / 2) + step
+    top_y = bottom_y - step
+    right = evidence.fit("v", width * .25, (top_y + bottom_y) / 2,
+                         top_y + step * .15, bottom_y - step * .15,
+                         radius=width * .04, slope_radius=.025)
+    if right is not None:
+        right_x = _line_position((*right, 0), (top_y + bottom_y) / 2)
+        left = evidence.fit("v", 2, (top_y + bottom_y) / 2,
+                            top_y + step * .15, bottom_y - step * .15,
+                            radius=6, slope_radius=.025)
+        top = evidence.fit("h", top_y, right_x / 2, 8, right_x - 8,
+                           radius=height * .025, slope_radius=.025)
+        bottom = evidence.fit("h", bottom_y, right_x / 2, 8, right_x - 8,
+                              radius=height * .025, slope_radius=.025)
+        if left is not None and top is not None and bottom is not None:
+            result[action] = _quad(left, right, top, bottom)
+    return {name: points for name, points in result.items() if valid_quad(points)}
 
 
 def _fit_grid(

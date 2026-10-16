@@ -41,12 +41,26 @@ def analyze_right_display(
     title_text = (read_title(title_crop, (0, 0, title_crop.shape[1], title_crop.shape[0]))
                   if title_crop is not None else None)
     state = title_state(title_text)
+    upper_title_used = False
+    if state == "unknown" and state_hint is None:
+        # An active-area crop can put the title above the legacy bezel band.
+        # Search above the observed field, without using a field to infer state.
+        upper_title = _detect_title_box(rectified, field_box, upper=True)
+        if upper_title is not None and upper_title != title_box:
+            crop = _title_crop(frame, geometry, upper_title)
+            text = read_title(crop, (0, 0, crop.shape[1], crop.shape[0]))
+            if title_state(text) != "unknown":
+                title_box, title_text, state = upper_title, text, title_state(text)
+                upper_title_used = True
     if state == "unknown" and state_hint is not None:
         state = state_hint
     title = None
     if title_box is not None:
+        x1, y1, x2, y2 = title_box
+        title_quad = (np.array([[x1, y1], [x2, y1], [x2, y2], [x1, y2]], np.float32)
+                      if upper_title_used else detect_title_quad(rectified, title_box))
         title = _region_result(
-            detect_title_quad(rectified, title_box),
+            title_quad,
             geometry,
             frame.shape[:2],
         )
@@ -127,17 +141,20 @@ def _title_crop(
 
 
 def _detect_title_box(
-    frame: Frame, field_box: tuple[int, int, int, int] | None = None
+    frame: Frame, field_box: tuple[int, int, int, int] | None = None,
+    *, upper: bool = False,
 ) -> tuple[int, int, int, int] | None:
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     width, height = RECTIFIED_SIZE
     search_y1, search_y2 = round(height * 0.07), round(height * 0.19)
+    if upper:
+        search_y1, search_y2 = round(height * 0.02), round(height * 0.12)
     if field_box is not None:
         search_y2 = min(search_y2, field_box[1] - 5)
     mask = cv2.inRange(
         hsv[search_y1:search_y2, : round(width * 0.55)],
         (0, 0, 75),
-        (179, 120, 255),
+        (179, 170 if upper else 120, 255),
     )
     count, _, stats, _ = cv2.connectedComponentsWithStats(mask)
     components = [
@@ -178,7 +195,19 @@ def _detect_data_field(
                 ((x, y, x + box_width, y + box_height), contour)
             )
     if not candidates:
-        return None
+        # A cool camera white balance can make the pale input field cyan.
+        # Retry only when the accepted neutral-field search found nothing.
+        mask = cv2.inRange(hsv, (0, 0, 120), (179, 190, 255))
+        mask[:round(height * 0.1)] = 0
+        mask[round(height * 0.44):] = 0
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        for contour in contours:
+            x, y, box_width, box_height = cv2.boundingRect(contour)
+            if (box_width >= width * .7 and height * .05 <= box_height <= height * .2
+                    and cv2.contourArea(contour) >= box_width * box_height * .8):
+                candidates.append(((x, y, x + box_width, y + box_height), contour))
+        if not candidates:
+            return None
     return max(
         candidates,
         key=lambda item: (item[0][2] - item[0][0]) * (item[0][3] - item[0][1]),
@@ -225,10 +254,70 @@ def _crop_box(frame: Frame, box: tuple[int, int, int, int]) -> Frame:
 def _read_digits(field: Frame, *, last_only: bool) -> str | None:
     gray = cv2.cvtColor(field, cv2.COLOR_BGR2GRAY)
     mask = cv2.inRange(gray, 0, 200)
+    value = _digits_from_mask(mask, last_only=last_only)
+    if value is not None:
+        return value
+    if float(np.median(gray)) > 200:
+        # An absolute mask is meaningful on a bright field. Faint legacy text
+        # needs independent OCR agreement, not a relaxed template decision.
+        value = _confirmed_bright_digits(field, mask, last_only=last_only)
+        if value is not None:
+            return value
+    # Remove slow illumination gradients and encoded display texture before
+    # extracting dark glyphs in a dim/cyan field. Keep the same digit matcher.
+    inset = max(2, round(gray.shape[0] * .1))
+    interior = gray[inset:-inset, inset:-inset]
+    if interior.size == 0:
+        return None
+    interior = cv2.medianBlur(interior, 5)
+    size = max(15, round(gray.shape[0] * .3) | 1)
+    contrast = cv2.morphologyEx(interior, cv2.MORPH_BLACKHAT, np.ones((size, size), np.uint8))
+    _, mask = cv2.threshold(contrast, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    return _digits_from_mask(mask, last_only=last_only)
+
+
+def _confirmed_bright_digits(field: Frame, mask: Frame, *, last_only: bool) -> str | None:
     count, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
-    characters: list[tuple[int, str, float]] = []
+    glyph_mask = np.zeros_like(mask)
+    boxes = []
+    for index in range(1, count):
+        x, y, width, height, area = map(int, stats[index])
+        if area < 30 or height < 12 or width < 3 or height > 60:
+            continue
+        if width > 50 or width > height:
+            return None
+        glyph_mask[labels == index] = 255
+        boxes.append((x, y, x + width, y + height))
+    if not boxes:
+        return None
+    # This weak proposal is never published on its own. The existing general
+    # OCR reader must independently recognize exactly the same complete value.
+    proposal = _digits_from_mask(glyph_mask, last_only=last_only,
+                                minimum_score=.3, minimum_margin=0.)
+    if proposal is None:
+        return None
+    x1 = max(0, min(box[0] for box in boxes) - 4)
+    y1 = max(0, min(box[1] for box in boxes) - 4)
+    x2 = min(field.shape[1], max(box[2] for box in boxes) + 4)
+    y2 = min(field.shape[0], max(box[3] for box in boxes) + 4)
+    text = read_field(field, (x1, y1, x2, y2))
+    if last_only and text:
+        text = text[-1]
+    return proposal if text == proposal else None
+
+
+def _digits_from_mask(
+    mask: Frame, *, last_only: bool, minimum_score: float = .6, minimum_margin: float = .05,
+) -> str | None:
+    # A field background selected by an absolute threshold is not glyph evidence.
+    if np.mean(mask > 0) > .2:
+        return None
+    count, labels, stats, _ = cv2.connectedComponentsWithStats(mask)
+    characters: list[tuple[int, int, int, str, float, float]] = []
     for index in range(1, count):
         x, y, width, height, area = stats[index]
+        if not last_only and area >= 30 and height >= 12 and (width > 50 or height > 60):
+            return None
         if not (3 <= width <= 50 and 12 <= height <= 60 and area >= 30):
             continue
         glyph = (labels[y : y + height, x : x + width] == index).astype(np.uint8) * 255
@@ -237,15 +326,25 @@ def _read_digits(field: Frame, *, last_only: bool) -> str | None:
             digit: max(_correlation(normalized, template) for template in variants)
             for digit, variants in _digit_templates().items()
         }
-        digit = max(scores, key=scores.get)
-        characters.append((int(x), digit, scores[digit]))
-    reliable = [(x, digit) for x, digit, score in characters if score >= 0.3]
-    if not reliable:
+        ordered = sorted(scores, key=scores.get, reverse=True)
+        digit = ordered[0]
+        # Retain uncertain candidates until whole-value validation. Dropping
+        # one glyph would turn a multi-digit value into a plausible partial value.
+        characters.append((int(x), int(y), int(height), digit, scores[digit],
+                           scores[digit] - scores[ordered[1]] if width <= height else -1.0))
+    if not characters:
         return None
-    reliable.sort()
+    characters.sort()
     if last_only:
-        return reliable[-1][1]
-    return "".join(digit for _, digit in reliable)
+        characters = characters[-1:]
+    if any(score < minimum_score or margin < minimum_margin
+           for _, _, _, _, score, margin in characters):
+        return None
+    tops = [y for _, y, _, _, _, _ in characters]
+    heights = [height for _, _, height, _, _, _ in characters]
+    if max(tops) - min(tops) > max(heights) * .3 or min(heights) < max(heights) * .65:
+        return None
+    return "".join(digit for _, _, _, digit, _, _ in characters)
 
 
 @lru_cache(maxsize=1)

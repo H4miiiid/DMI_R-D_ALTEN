@@ -141,6 +141,8 @@ def detect_left_regions(
     step = np.median(np.diff([position(r, sx) for r in rows[2:]]))
     main = {}
     for index in (0, 3, 5, 9):
+        if rows[index] is None:
+            continue
         line = evidence.fit(
             "h",
             position(rows[index], sx),
@@ -157,6 +159,8 @@ def detect_left_regions(
     if len(main) >= 2:
         anchors = sorted((position(line, sx), line[0]) for line in main.values())
         for index, row in enumerate(rows):
+            if row is None:
+                continue
             if index in main:
                 rows[index] = main[index]
                 continue
@@ -188,7 +192,8 @@ def detect_left_regions(
             ]
             if not all(0.65 * units * step < gap < 1.4 * units * step for gap in gaps):
                 return {}, None
-    boxes = {f"box_{i+1}": quad(left, divider, rows[i], rows[i + 1]) for i in range(9)}
+    boxes = {f"box_{i+1}": quad(left, divider, rows[i], rows[i + 1]) for i in range(9)
+             if rows[i] is not None and rows[i + 1] is not None}
     speed = quad(divider, right, main[0], main[3]) if 0 in main and 3 in main else None
     if 3 in main and 5 in main:
         verticals = _verticals(
