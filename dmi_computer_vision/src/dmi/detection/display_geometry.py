@@ -1,4 +1,4 @@
-"""Detection and rectification of the two physical DMI displays."""
+"""Detection and rectification of logical DMI regions on one or two surfaces."""
 
 from __future__ import annotations
 
@@ -50,14 +50,21 @@ class DisplayGeometry:
         }
 
 
-def detect_displays(frame: Frame) -> dict[str, DisplayGeometry | None]:
+def detect_displays(
+    frame: Frame,
+    *,
+    diagnostics: dict[str, str] | None = None,
+) -> dict[str, DisplayGeometry | None]:
     """Locate the left and right display surfaces in one BGR frame.
 
     The illuminated DMI surfaces have a consistent blue hue even as their
     brightness changes. Large blue components are grouped horizontally, then
-    four boundary lines are fit to each group. No absolute screen coordinates
-    are used.
+    four boundary lines are fit to each group. A connected-surface fallback
+    requires a monitor boundary and independently aligned field/grid edges.
+    Optional diagnostics are per-call only; no warnings are emitted per frame.
     """
+    if diagnostics is not None:
+        diagnostics.clear()
     height, width = frame.shape[:2]
     mask, strong_mask = _display_color_masks(frame)
     contours, _ = cv2.findContours(
@@ -69,19 +76,351 @@ def detect_displays(frame: Frame) -> dict[str, DisplayGeometry | None]:
     ]
     groups = _split_display_components(components, width)
     if groups is None:
-        return {"left": None, "right": None}
+        return _detect_connected_displays(frame, mask, diagnostics)
 
     geometries: list[DisplayGeometry] = []
     for group in groups:
         geometry = _fit_display(group, strong_mask, (height, width))
         if geometry is None:
-            return {"left": None, "right": None}
+            return _detect_connected_displays(frame, mask, diagnostics)
         geometries.append(geometry)
 
     if geometries[0].center[0] >= geometries[1].center[0]:
         return {"left": None, "right": None}
     geometries = _align_display_box_aspect(geometries, height)
+    if diagnostics is not None:
+        diagnostics.update(path="separated", reason="")
     return {"left": geometries[0], "right": geometries[1]}
+
+
+def _detect_connected_displays(
+    frame: Frame,
+    blue_seed: NDArray[np.uint8],
+    diagnostics: dict[str, str] | None,
+) -> dict[str, DisplayGeometry | None]:
+    """Require a unique blue-seeded surface and an observed logical division."""
+    # Work at a bounded scale: gradients in native high-resolution captures
+    # spread over more pixels. Map pixel centers back after fitting, never use
+    # the analysis image as the published coordinate system.
+    original_height, original_width = frame.shape[:2]
+    scale = min(1.0, 960 / max(original_height, original_width))
+    if scale < 1:
+        size = (round(original_width * scale), round(original_height * scale))
+        frame = cv2.resize(frame, size, interpolation=cv2.INTER_AREA)
+        blue_seed = cv2.resize(blue_seed, size, interpolation=cv2.INTER_NEAREST)
+    height, width = frame.shape[:2]
+    sx, sy = original_width / width, original_height / height
+    to_original = np.array([[sx, 0, (sx - 1) / 2], [0, sy, (sy - 1) / 2], [0, 0, 1]])
+    # Dim upper margins are less saturated than the illuminated lower surface.
+    # This mask only proposes boundaries; it cannot establish a DMI by itself.
+    broad = cv2.inRange(
+        cv2.cvtColor(frame, cv2.COLOR_BGR2HSV), (85, 40, 18), (125, 255, 255)
+    )
+    size = _odd_kernel_size(min(height, width) * 0.01, minimum=3)
+    broad = cv2.morphologyEx(
+        broad, cv2.MORPH_CLOSE, np.ones((size, size), np.uint8), iterations=2
+    )
+    broad = cv2.morphologyEx(broad, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    contours, _ = cv2.findContours(broad, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    accepted = []
+    reason = "no_surface"
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if cv2.contourArea(contour) < height * width * 0.1 or not 1.05 < w / h < 2.1:
+            continue
+        local = np.zeros((h, w), np.uint8)
+        cv2.drawContours(local, [contour - (x, y)], -1, 255, -1)
+        if np.count_nonzero(blue_seed[y:y + h, x:x + w] & local) < w * h * 0.25:
+            continue
+        surface = _connected_surface_corners(frame, contour)
+        if surface is None:
+            clipped = x <= 2 or y <= 2 or x + w >= width - 2 or y + h >= height - 2
+            reason = "unobserved_boundary" if clipped else "invalid_surface"
+            continue
+        side_lengths = np.linalg.norm(np.roll(surface, -1, axis=0) - surface, axis=1)
+        rect_width = 800
+        rect_height = round(
+            rect_width * (side_lengths[1] + side_lengths[3])
+            / (side_lengths[0] + side_lengths[2])
+        )
+        destination = np.array(
+            [[0, 0], [rect_width - 1, 0], [rect_width - 1, rect_height - 1],
+             [0, rect_height - 1]], np.float32,
+        )
+        transform = cv2.getPerspectiveTransform(surface, destination)
+        rectified = cv2.warpPerspective(frame, transform, (rect_width, rect_height))
+        division = _connected_division(rectified)
+        if division is None:
+            reason = "ambiguous_division"
+            continue
+        top_x, bottom_x = division
+        inverse = to_original @ np.linalg.inv(transform)
+        regions = []
+        for corners in (
+            [[0, 0], [top_x, 0], [bottom_x, rect_height - 1], [0, rect_height - 1]],
+            [[top_x, 0], [rect_width - 1, 0], [rect_width - 1, rect_height - 1],
+             [bottom_x, rect_height - 1]],
+        ):
+            original = cv2.perspectiveTransform(np.array([corners], np.float32), inverse)[0]
+            # The connected path has smaller logical areas than the legacy mask;
+            # validate each real quadrilateral without changing legacy thresholds.
+            sides = np.linalg.norm(np.roll(original, -1, axis=0) - original, axis=1)
+            if (
+                not cv2.isContourConvex(original)
+                or cv2.contourArea(original, oriented=True) <= 0
+                or (sides[1] + sides[3]) <= 1.2 * (sides[0] + sides[2])
+            ):
+                break
+            oriented = _fit_oriented_box(original.reshape(-1, 1, 2))
+            outline = np.concatenate((original, oriented))
+            x1, y1 = np.floor(outline.min(axis=0))
+            x2, y2 = np.ceil(outline.max(axis=0))
+            bbox = (int(x1), int(y1), int(x2), int(y2))
+            regions.append(DisplayGeometry(original, oriented, bbox))
+        if len(regions) == 2:
+            accepted.append({"left": regions[0], "right": regions[1]})
+        else:
+            reason = "invalid_region"
+    if len(accepted) == 1:
+        reason = ""
+    elif len(accepted) > 1:
+        reason = "ambiguous_surface"
+    if diagnostics is not None:
+        diagnostics.update(path="connected", reason=reason)
+    return accepted[0] if len(accepted) == 1 else {"left": None, "right": None}
+
+
+def _connected_surface_corners(
+    frame: Frame, contour: NDArray[np.int32],
+) -> PointArray | None:
+    """Refine a color-boundary hypothesis against measured inward blue edges."""
+    hull = cv2.convexHull(contour)
+    approximation = cv2.approxPolyDP(hull, cv2.arcLength(hull, True) * 0.02, True)
+    if len(approximation) == 4:
+        points = approximation.reshape(-1, 2).astype(np.float32)
+        sums, differences = points.sum(axis=1), np.diff(points, axis=1).ravel()
+        guess = points[[sums.argmin(), differences.argmin(), sums.argmax(), differences.argmax()]]
+    else:
+        guess = _fit_oriented_box(hull)
+    span = max(5, round(min(cv2.boundingRect(contour)[2:]) * 0.05))
+    corners = _refine_connected_surface(frame, guess, span)
+    if corners is None and len(approximation) == 4:
+        # A dark upper corner can pull the color hull down into the UI. A
+        # rotated enclosure is a second boundary hypothesis, not an accepted
+        # replacement: all four edges must still pass the same image checks.
+        corners = _refine_connected_surface(frame, _fit_oriented_box(hull), span)
+    return corners
+
+
+def _refine_connected_surface(
+    frame: Frame, guess: PointArray, search_span_px: int,
+) -> PointArray | None:
+    """Fit one boundary hypothesis from distributed, contrast-supported edges."""
+    chroma = frame[:, :, 0].astype(np.float32) - frame[:, :, 2].astype(np.float32)
+    chroma = cv2.GaussianBlur(chroma, (5, 5), 1)
+    lines = []
+    for index in range(4):
+        start, end = guess[index], guess[(index + 1) % 4]
+        edge = end - start
+        inward = np.array([-edge[1], edge[0]]) / np.linalg.norm(edge)
+        span = search_span_px
+        positions = start + np.linspace(0.1, 0.9, 64)[:, None] * edge
+        offsets = np.arange(-span, span + 1)
+        samples = positions[:, None, :] + offsets[None, :, None] * inward
+        values = cv2.remap(
+            chroma, samples[:, :, 0].astype(np.float32), samples[:, :, 1].astype(np.float32),
+            cv2.INTER_LINEAR, borderMode=cv2.BORDER_REPLICATE,
+        )
+        gradient = np.diff(values, axis=1)
+        outside = np.median(values[:, :max(2, span // 2)], axis=1)
+        inside = np.median(values[:, -max(2, span // 2):], axis=1)
+        midpoint = (inside + outside)[:, None] / 2
+        crossing = (values[:, :-1] < midpoint) & (values[:, 1:] >= midpoint)
+        peaks = np.where(crossing, gradient, 0).argmax(axis=1)
+        strength = np.where(crossing, gradient, 0)[np.arange(len(peaks)), peaks]
+        # A control line inside a clipped blue surface is not its outer edge.
+        noise = np.median(np.abs(gradient), axis=1)
+        contrast_floor = np.maximum(4.0, np.maximum(inside * 0.25, noise * 6))
+        keep = ((strength >= np.maximum(0.8, noise * 2.5))
+                & ((inside - outside) >= contrast_floor))
+        if np.count_nonzero(keep) < len(keep) * 0.6:
+            return None
+        observed = positions + (offsets[peaks] + 0.5)[:, None] * inward
+        if index % 2 == 0:
+            independent, dependent = observed[:, 0], observed[:, 1]
+        else:
+            independent, dependent = observed[:, 1], observed[:, 0]
+        fit = _robust_linear_fit(independent[keep], dependent[keep])
+        residual = np.abs(dependent - np.polyval(fit, independent))
+        if np.count_nonzero(residual < 3.0) < len(keep) * 0.6:
+            return None
+        lines.append(fit)
+    top, right, bottom, left = lines
+    corners = np.array(
+        [_intersect_lines(left, top), _intersect_lines(right, top),
+         _intersect_lines(right, bottom), _intersect_lines(left, bottom)], np.float32,
+    )
+    height, width = frame.shape[:2]
+    if (
+        not np.isfinite(corners).all() or not cv2.isContourConvex(corners)
+        or cv2.contourArea(corners, oriented=True) < height * width * 0.1
+        or (corners < 2).any() or (corners[:, 0] >= width - 2).any()
+        or (corners[:, 1] >= height - 2).any()
+    ):
+        return None
+    return corners
+
+
+def _connected_division(rectified: Frame) -> tuple[float, float] | None:
+    """Find a division from an input grid or a bordered two-column menu.
+
+    Equal-width columns are only search hypotheses. Every column, including
+    the division, must have independent local chromatic-edge evidence.
+    """
+    height, width = rectified.shape[:2]
+    value = cv2.cvtColor(rectified, cv2.COLOR_BGR2HSV)[:, :, 2]
+    background = float(np.median(value))
+    threshold = max(
+        70, float(np.percentile(value, 90)), background + max(15, background * 0.25)
+    )
+    bright = (value >= threshold).astype(np.uint8) * 255
+    bright = cv2.morphologyEx(bright, cv2.MORPH_CLOSE, np.ones((3, 3), np.uint8))
+    contours, _ = cv2.findContours(bright, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    chroma = rectified[:, :, 0].astype(np.float32) - rectified[:, :, 1].astype(np.float32)
+    chroma = cv2.GaussianBlur(chroma, (5, 5), 1)
+    gradient = cv2.Sobel(chroma, cv2.CV_32F, 1, 0)
+    border_signal = chroma - cv2.blur(chroma, (17, 1))
+    candidates = []
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if (
+            not 0.3 * width < x < 0.68 * width or x + w < 0.9 * width
+            or not 0.25 * width < w < 0.7 * width or y + h > 0.4 * height
+            or not 0.035 * height < h < 0.22 * height or w < h * 3
+            or cv2.contourArea(contour) < w * h * 0.7
+        ):
+            continue
+        lower_start = round(max(0.48 * height, y + h + 0.1 * height))
+        lower = gradient[lower_start:round(0.94 * height)]
+        profile = np.mean(np.abs(lower), axis=0)
+        noise = float(np.median(profile))
+        search = max(4, round(w * 0.045))
+        borders = []
+        for hypothesis in (x, x + w / 3, x + 2 * w / 3):
+            low, high = round(hypothesis) - search, round(hypothesis) + search + 1
+            peak = low + int(np.argmax(profile[low:high]))
+            if profile[peak] < max(2.0, noise * 1.8):
+                break
+            borders.append(peak)
+        if len(borders) != 3:
+            continue
+        if abs((borders[1] - borders[0]) - (borders[2] - borders[1])) > w * 0.08:
+            continue
+        # Fit the division using separated lower-row evidence plus the field edge;
+        # do not extrapolate a midpoint or publish the field edge by itself.
+        ys, xs = [float(y + h / 2)], [float(x)]
+        # Locate the blue line's center, rather than either of its two gradient
+        # edges. This matters when fitting and extrapolating a thin sloping line.
+        lower_signal = border_signal[lower_start:round(0.94 * height)]
+        signal_profile = lower_signal.mean(axis=0)
+        left = x - search + int(np.argmax(signal_profile[x - search:x + search + 1]))
+        local_search = max(2, round(w * 0.008))
+        consumed_rows = 0
+        for rows in np.array_split(lower_signal, 5):
+            local_profile = rows.mean(axis=0)
+            low, high = left - local_search, left + local_search + 1
+            peak = low + int(np.argmax(local_profile[low:high]))
+            if local_profile[peak] >= max(0.75, float(np.median(np.abs(local_profile))) * 2.5):
+                ys.append(lower_start + consumed_rows + len(rows) / 2)
+                xs.append(float(peak))
+            consumed_rows += len(rows)
+        if len(xs) < 4:
+            continue
+        fit = _robust_linear_fit(np.array(ys), np.array(xs))
+        if np.max(np.abs(np.array(xs) - np.polyval(fit, ys))) > width * 0.015:
+            continue
+        top_x, bottom_x = float(np.polyval(fit, 0)), float(np.polyval(fit, height - 1))
+        if (
+            abs(top_x - bottom_x) <= width * 0.035
+            and 0.3 * width < min(top_x, bottom_x)
+            and max(top_x, bottom_x) < 0.7 * width
+        ):
+            candidates.append((top_x, bottom_x))
+    candidates.extend(_connected_menu_divisions(gradient, rectified))
+    if not candidates or np.ptp(np.array(candidates), axis=0).max() > width * 0.025:
+        return None
+    top_x, bottom_x = np.median(candidates, axis=0)
+    return float(top_x), float(bottom_x)
+
+
+def _connected_menu_divisions(
+    gradient_x: NDArray[np.float32], rectified: Frame,
+) -> list[tuple[float, float]]:
+    """Require two measured columns and at least three bordered menu rows.
+
+    This is structure evidence only, not screen recognition. Both column edges
+    and each horizontal row must be observed; no field or title is required.
+    """
+    height, width = rectified.shape[:2]
+    chroma = rectified[:, :, 0].astype(np.float32) - rectified[:, :, 1].astype(np.float32)
+    gradient_y = cv2.Sobel(cv2.GaussianBlur(chroma, (5, 5), 1), cv2.CV_32F, 0, 1)
+    profile = np.abs(gradient_x[round(height * 0.1):round(height * 0.7)]).mean(axis=0)
+    noise = float(np.median(profile))
+    peaks = np.flatnonzero((profile > np.roll(profile, 1)) & (profile >= np.roll(profile, -1))
+                           & (profile > max(4.0, noise * 2.5)))
+    candidates = []
+    for x in peaks:
+        if not 0.3 * width < x < 0.68 * width or height <= 1.2 * max(x, width - x):
+            continue
+        half_width = (width - 1 - x) / 2
+        search = max(4, round(half_width * 0.08))
+        middle = round(x + half_width)
+        middle = middle - search + int(np.argmax(profile[middle - search:middle + search + 1]))
+        if profile[middle] < max(4.0, noise * 2.5):
+            continue
+        region = np.abs(gradient_y[:, x + 4:round(width * 0.98)])
+        coverage = (region > max(2.0, float(np.median(region)) * 3)).mean(axis=1)
+        supported = np.flatnonzero((coverage > 0.88)
+                                   & (np.arange(height) > 0.07 * height)
+                                   & (np.arange(height) < 0.72 * height))
+        groups = np.split(supported, np.flatnonzero(np.diff(supported) > 1) + 1)
+        rows = [int(group[np.argmax(coverage[group])]) for group in groups if len(group)]
+        best = []
+        for first, second in zip(rows, rows[1:]):
+            spacing = second - first
+            if not 0.07 * height < spacing < 0.18 * height:
+                continue
+            chain = [first, second]
+            for row in rows:
+                if row > chain[-1] and abs(row - chain[-1] - spacing) < spacing * 0.2:
+                    chain.append(row)
+            if len(chain) > len(best):
+                best = chain
+        if len(best) < 4:
+            continue
+        # Row endpoints alone can produce a column peak. Require each vertical
+        # edge to persist between the observed rows as well as at intersections.
+        menu_edges = np.abs(gradient_x[best[0]:best[-1], x:round(width * 0.98)])
+        threshold = max(2.0, float(np.median(menu_edges)) * 2.5)
+        if any(np.mean(np.abs(gradient_x[best[0]:best[-1], column - 3:column + 4]).max(axis=1)
+                       > threshold) < 0.6 for column in (x, middle)):
+            continue
+        xs, ys = [], []
+        columns = np.arange(max(0, x - 5), min(width, x + 6))
+        for top, bottom in zip(best, best[1:]):
+            local = np.abs(gradient_x[top + 3:bottom - 3, columns]).mean(axis=0)
+            weights = np.maximum(local - noise, 0)
+            if weights.sum() > 0:
+                xs.append(float(np.dot(columns, weights) / weights.sum()))
+                ys.append((top + bottom) / 2)
+        if len(xs) < 3:
+            continue
+        fit = _robust_linear_fit(np.array(ys), np.array(xs))
+        top_x, bottom_x = float(np.polyval(fit, 0)), float(np.polyval(fit, height - 1))
+        if (max(abs(np.array(xs) - np.polyval(fit, ys))) < width * 0.012
+                and abs(top_x - bottom_x) < width * 0.035):
+            candidates.append((top_x, bottom_x))
+    return candidates
 
 
 def _align_display_box_aspect(

@@ -9,11 +9,168 @@ robot coordinates; then test one physical button press by its label.
 Implement one phase at a time. Keep the first integration small and easy to test.
 Do not build the future backend or redesign the GUI as part of this work.
 
+## Current work — Support both monitor arrangements
+
+The original integration phases 1–6 and 3A are complete offline. Their sections
+below retain the implementation scope and acceptance rules, not a request to
+restart them. Follow root `STATE.md` for the active milestone.
+
+The next vision update must support both views present on the installed robot:
+
+- **Separated displays:** left and right DMI regions with a dark separator,
+  supported by the accepted recordings and current detector.
+- **Single monitor:** the same logical left and right DMI regions on one surface,
+  with a connected blue background and no dark separator.
+
+These are different physical arrangements, not new screen states. Driver ID,
+Level, Train Running Number, Main and the existing train-data workflows retain
+their meanings, fields, buttons and labels. Both cameras must use the same core
+pipeline. Camera index must not determine screen identity or hardcoded geometry.
+Process one selected camera per session; concurrent multi-camera orchestration
+is outside this update. Keep each session's history and calibration separate.
+
+### Current camera evidence
+
+Use these directories under `dmi_computer_vision/data/videos/dev/` as the current
+connected-monitor inputs, replacing the removed `dmi_detection_check_03/` sample:
+
+- `dmi_capture_quality_01/`: 118 processed frames at 2304x1728; the reviewed final
+  view shows Main, its menu buttons and the left indicator/boxes.
+- `dmi_capture_quality_02/`: 53 processed frames at 2304x1728; the reviewed final
+  view shows Driver ID, field value `23`, keypad and action controls.
+- `dmi_capture_quality_03/`: 156 processed frames at 2304x1728; additional Driver ID
+  evidence with field `23` and a dark upper monitor boundary.
+- `dmi_capture_quality_04/`: 109 processed frames at 2304x1728; additional Main/menu
+  evidence with clearer blue borders. User added 03/04 for the Step 2 correction.
+
+All four show one connected monitor with the complete outer boundary visible in
+the reviewed final images. They cover two UI states, not evidence of both
+physical arrangements. Preserve the original separated-display recordings as
+regressions. Do not infer camera index or screen state from directory names.
+
+Each directory contains `annotated.mp4`, `last_annotated.png`, `results.jsonl`,
+`processed_frames.jsonl` and `session.json`. Treat sources as read-only. The saved
+results have unknown geometry/state and no controls despite the improved image.
+The refreshed Step 1 locator baseline rejected all 171 frames from 01/02;
+see root STATE.md for subsequent localization changes and current verification.
+The old sample's partial localization result is not acceptance of these inputs.
+
+These are annotated outputs, not raw recordings. Existing overlays/compression
+can affect localization and OCR; exclude overlay pixels from image measurements
+and do not treat old annotations as ground truth. Prefer equivalent unannotated
+frames when available, but continue diagnosis with the supplied evidence. The
+MP4 plays at 5 FPS; use the sidecar receipt times for timing/replay evaluation,
+not playback duration. These sessions do not record actual sensor mode or camera index.
+
+Target the current bridge's upright 4:3 capture profile: requested 2304x1728,
+continuous autofocus, -2 EV, 30-FPS capture and 180-degree source rotation;
+receiver rotation remains 0. Confirm actual selected settings separately. Handle
+the observed dark upper panel, thin blue borders, perspective and extra bezel
+without requiring a brighter exposure, tight crop or the old zoomed framing.
+Keep image centers in original input pixels even if analysis uses a smaller image.
+
+### Implementation approach
+
+Make the smallest evidence-backed changes, primarily in
+`dmi_computer_vision/src/dmi/detection/display_geometry.py`. Reuse existing
+rectification, left/right analyzers, OCR, annotations, temporal processing and
+output contracts. Change an existing analyzer only when a measured failure
+remains after localization is correct. Do not duplicate complete pipelines,
+rename working modules or introduce a model/framework merely for this extension.
+
+Implement and review the following steps separately:
+
+1. **Refresh the failure and regression baseline.** Inspect both current capture
+   directories, including first/middle/last frames, metadata and receipt times.
+   Compare saved results with fresh processing using the current local code;
+   the deployed detector version is not recorded in these sessions. Preserve
+   separated-display regression examples and accepted history. Earlier Steps 1/2
+   used the removed 1280x720 sample; keep their reports as historical evidence,
+   then revalidate localization on these new inputs before advancing the milestone.
+   Do not require the removed directory or restart accepted integration phases.
+2. **Extend localization.** Keep the accepted separated-display path. Add a
+   fallback for connected surfaces: detect the monitor boundary/perspective and
+   locate the logical division using actual edge, border and UI-structure evidence.
+   Fit each logical region and map its geometry to the original input image.
+   Do not accept the entire wide monitor as one portrait display. A fixed 50/50
+   split, copied pixel coordinates or a synthetic black stripe is not a solution.
+   Use layout proportions only as hypotheses, validated against image evidence.
+   Reject ambiguous splits and background blue distractors. Keep any necessary
+   helper small and colocated with geometry; add a file only for a clear responsibility.
+   Reuse and correct the existing connected fallback rather than adding another
+   pipeline. Localize both Main and Driver ID: a pale input field plus a
+   three-column keypad cannot be a mandatory gate for every screen. Use observed
+   monitor/internal-border and layout evidence available in each view, with
+   conservative rejection when evidence is insufficient. A visible full monitor
+   rejected by a color-boundary hypothesis needs investigation; a diagnostic label
+   such as `clipped_surface` alone is not proof that the camera image is clipped.
+3. **Verify shared screen analysis.** Supply the same logical regions/coordinate
+   convention expected by the accepted analyzers, despite different physical
+   bezels or margins. Check titles, fields, keypad/action rows and left boxes.
+   In-memory diagnostic partitions recovered a field but not title/buttons, so
+   successful geometry fitting alone is insufficient. If verified regions still
+   fail, make focused evidence-based title/border-search adjustments, such as
+   searching above the observed field instead of relying only on a narrow fixed
+   title band. Keep existing identities and avoid inventing controls where local
+   evidence is missing. Unknown-state handling must remain conservative.
+   Review Main menu controls separately from Driver ID's field/keypad and verify
+   left boxes on both captures. Use reviewed visible centers/borders as references,
+   not the assumption that every control is visible or enabled on every state.
+4. **Handle partial evidence and stability.** Review the all-or-nothing locator:
+   retain an independently validated region when the other cannot be fitted,
+   without fabricating its partner. Check downstream state hints and visibility.
+   Prevent identity swapping and perspective jumps. Reset incompatible temporal
+   history when the camera or logical geometry changes; never blend two layouts
+   into false stability. Preserve the existing 4-pixel publication tolerance,
+   real evidence age, invalidation and latest-frame processing policy.
+5. **Validate both arrangements end to end.** Run existing vision/integration
+   tests and representative separated-display regressions. Add focused cases
+   for connected/separated backgrounds, off-center monitor placement, perspective,
+   scale, modest exposure/blur, blue distractors, missing/occluded regions and
+   screen transitions. Use actual single-monitor evidence for supported states;
+   report states without representative footage as unverified. Retain regular
+   processing as the initial diagnostic path, then check selective mode, freshness,
+   target export and timing. Generate review outputs in a new directory, never
+   overwrite source recordings or approved evidence.
+
+### Acceptance and scope
+
+- Both arrangements produce correctly aligned logical regions, screen titles,
+  fields, buttons, centers and left boxes on representative visible frames.
+  Assess center/border errors and missed detections against reviewed examples;
+  valid JSON, nonempty boxes or screen recognition alone do not prove alignment.
+- Existing separated-display detections remain equivalent unless a specific
+  reviewed correction justifies a difference. Report detection rate, jitter,
+  transition delay, processing time and any false positives on the new view.
+- Log concise optional failure reasons (no surface, ambiguous division, invalid
+  region, title/field not found). Avoid repeating identical warnings each frame.
+  Do not replace established robot-facing schemas just to add diagnostics.
+- Preserve calibration/source matching, raw-evidence checks and motion limits.
+  Do not loosen calibration tolerances to accommodate an uncertain split. Review
+  or refit calibration when localization changes; each installed camera/view needs
+  its own validated context. Pixel detection success does not authorize motion.
+- Camera focus/exposure/framing can improve evidence but must not substitute for
+  connected-monitor support. Report clipped boundaries and poor image quality.
+  Do not claim support for arbitrary layouts or physically validate robot presses
+  from recorded-image results.
+- Update the owning vision specifications when behavior changes, plus root
+  `STATE.md` for the integration handoff. Keep the accepted V2 history distinct
+  from this follow-up. Report each step, request review, and obtain explicit
+  approval before commit/push, following the workflow below.
+
+Step 2 localization on captures 01–04 was accepted on 2026-10-16, with explicit
+authorization to commit/push the monitor-support work. Sample03's small dark-corner
+limitation is accepted with qualitatively lower confidence; do not discard the
+otherwise supported regions solely for this reviewed limitation. This does not
+introduce a numerical confidence schema or relax calibration/motion limits.
+Further detector changes require the next implementation request. Do not mark
+complete monitor support from localization alone or superseded-sample checks.
+
 ## Development from home
 
-Implement all six numbered phases plus Phase 3A from home before testing on the
-physical robot. Phase 3A follows the completed calibration phase and precedes
-Phase 4; keep the existing phase numbers and accepted history unchanged.
+The original six numbered phases plus Phase 3A were implemented from home before
+the hardware trial. Keep their numbers and accepted history unchanged. The active
+monitor-support follow-up uses saved live evidence and new observation-only trials.
 Use existing recordings through the live processing path, synthetic calibration
 points and fake robot/transport objects for development. Hardware availability
 must not block implementation or require physical validation between phases.
@@ -33,10 +190,12 @@ hardware execution must reject them.
 - Read this file and the files involved in the current phase.
 - Read the root `STATE.md` when present to resume integration work from the
   latest handoff. Create it when Phase 1 implementation begins.
-- For vision changes, also follow `dmi_computer_vision/AGENTS.md` and read
-  `docs/STATE.md`, the relevant workflow section and relevant output requirements
-  inside that directory. Its accepted V2 behavior remains the baseline.
-- Read `dmi_computer_vision/review.md` for known detector limitations.
+- For vision changes, also follow `dmi_computer_vision/AGENTS.md` when present and
+  read its `docs/STATE.md`, relevant workflow and output requirements when available.
+  Accepted V2 behavior remains the baseline. These vision guidance/review files
+  may be locally removed; do not restore them or require them as runtime inputs.
+- Read `dmi_computer_vision/review.md` when present for known detector limitations;
+  use root `STATE.md` and current code/evidence for the latest findings.
 - The root README is a GitLab template, not a description of working behavior.
 - Check the current code before acting: files and imports may have changed since
   the review. Do not overwrite unrelated user changes.
@@ -211,8 +370,8 @@ before any physical movement based on vision.
 
 ## Phase 3A — Reduce processing and publish meaningful changes
 
-Implement this next, before target export. Phases 1–3 are already implemented
-and accepted offline; preserve their behavior and calibration evidence.
+This phase's original scope preceded target export. It is now accepted offline;
+preserve its behavior and calibration evidence during the monitor-support update.
 
 Do not process or transmit every captured frame. Separate camera acquisition,
 expensive detection, and target publication: skipping a detection and suppressing
@@ -413,6 +572,8 @@ startup commands are ready for the later physical trial.
 ## Physical validation — After all implementation phases
 
 1. Confirm the installed camera, network settings and hardware dependencies.
+   For the current trial, first complete/review support for both monitor
+   arrangements; camera streaming alone is not detection validation.
 2. Start observation only; inspect annotations on the real camera and supported
    screens. Measure capture/processing rate, buffering and latency.
 3. Verify reference key positions, mounting, homing and robot coordinate axes.
