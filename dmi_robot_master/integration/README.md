@@ -1,5 +1,54 @@
 # Robot/CV integration
 
+## Hardware camera trial: Picamera2/libcamera
+
+For cameras that work with `rpicam-hello`, the bridge defaults to Picamera2.
+OpenCV device numbers and Picamera2 camera numbers are different interfaces.
+The installed slave reported two IMX708 cameras, numbered 0 and 1, and Picamera2
+is already available. Close `rpicam-hello` before starting the bridge. From the
+project root on the Pi/Linux slave:
+
+```sh
+python3 -m dmi_robot_master.integration.frame_bridge --bind 0.0.0.0
+```
+
+The default camera is 1, matching CameraTool2.py. Use --camera 0 for the other
+view. Copy both the updated
+`frame_bridge.py` and new `picamera_source.py` into the same integration package
+on the slave before using this command. Keep the existing package dependencies.
+Use --backend opencv explicitly for USB/V4L2 capture devices.
+
+The Picamera2 source copies BGR images into one pending slot, discards replaced
+frames, times out on missing frames and releases the camera on exit/startup failure.
+It starts no Pi preview or motor controller. Capture defaults match CameraTool2:
+2304x1728 BGR output, requested 2304x1728/10-bit sensor mode, continuous autofocus,
+ExposureValue -2 EV, requested 30 FPS and both horizontal/vertical flips (180 degrees).
+No capture flags are required. Picamera2 selects the closest supported sensor
+mode when there is no exact native match; startup JSON reports actual sensor/output
+configuration. A request is not proof of delivered capture FPS or field of view.
+This profile requires a camera supporting autofocus and exposure compensation.
+Width/height may still override output dimensions; the sensor-mode request stays
+the CameraTool2 default. Recheck focus, framing and actual mode on the Pi.
+JPEG publication defaults to 10 FPS at quality 95, independently of sensor FPS.
+The recording tool's MP4/25-Mbps setting is not used for individual JPEG images.
+Local receipt timestamps describe callback receipt, not sensor exposure; upstream
+sensor/driver delay remains to be measured on hardware.
+
+On the Windows master, from the project root, use the existing receiver:
+
+```powershell
+python -m dmi_robot_master.integration.observe --bridge-url http://192.168.1.210:8080/frame.jpg --processing selective --preview --rotation 0 --output-dir C:\Temp\dmi_picamera_trial_02
+```
+
+The address is the confirmed Ethernet slave address; verify it on deployment.
+Rotation is now applied in the Picamera2 bridge. Remove the previous PC
+--rotation 180; use --rotation 0 (the receiver default) to avoid a double rotation.
+On macOS use a fresh /tmp/dmi_picamera_trial_02 output path instead of C:\Temp.
+Use a new output directory for each attempt.
+All later calibration must use the final selected camera, resolution and orientation.
+The updated capture profile has fake-device checks only until the Pi trial succeeds.
+HTTP format and PC detector behavior are unchanged.
+
 Implemented and tested offline; not validated on hardware. Detector behavior,
 GPIO assignments, homing, motor timing and movement routines are unchanged.
 

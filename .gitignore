@@ -4,3 +4,4 @@ __pycache__/
 .pytest_cache/
 .venv/
 dmi_robot_common/log/
+dmi_detection_check_03/

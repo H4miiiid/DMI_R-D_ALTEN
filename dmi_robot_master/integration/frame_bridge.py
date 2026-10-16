@@ -15,10 +15,11 @@ import logging
 import cv2
 
 from dmi_robot_master.integration.camera import RobotCamera
+from dmi_robot_master.integration.picamera_source import PicameraSource
 
 
 class FrameBridge:
-    def __init__(self, source: RobotCamera, max_age_seconds: float = 1.0,
+    def __init__(self, source: RobotCamera | PicameraSource, max_age_seconds: float = 1.0,
                  max_publish_fps: float | None = None) -> None:
         if not 0 < max_age_seconds < float('inf'):
             raise ValueError('Frame age limit must be finite and positive')
@@ -119,20 +120,26 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--bind', required=True, help='Camera-host interface address')
     parser.add_argument('--port', type=int, default=8080)
-    parser.add_argument('--camera', type=int, required=True)
+    parser.add_argument('--camera', type=int, default=1, help='Camera index (default: 1, as CameraTool2)')
+    parser.add_argument('--backend', choices=['opencv', 'picamera2'], default='picamera2',
+                        help='Default: picamera2; use opencv for USB/V4L2 cameras')
     parser.add_argument('--width', type=int)
     parser.add_argument('--height', type=int)
-    parser.add_argument('--frame-fps', type=float, help='Optional cap on JPEG encoding rate')
+    parser.add_argument('--frame-fps', type=float, default=10.0,
+                        help='JPEG publication cap (default: 10), independent of sensor FPS')
     parser.add_argument('--max-age-seconds', type=float, default=1.0)
     args = parser.parse_args(argv)
     if not 1 <= args.port <= 65535:
         parser.error('port must be 1..65535')
-    source = RobotCamera(args.camera, width=args.width, height=args.height)
+    source_class = PicameraSource if args.backend == 'picamera2' else RobotCamera
+    source = source_class(args.camera, width=args.width, height=args.height)
     with FrameBridge(source, args.max_age_seconds, args.frame_fps) as bridge:
         with ThreadingHTTPServer((args.bind, args.port), handler_for(bridge)) as server:
             server.daemon_threads = True
             print(json.dumps({'mode': 'observation only', 'endpoint': '/frame.jpg',
-                              'camera': args.camera, 'bind': args.bind, 'port': args.port}), flush=True)
+                              'camera': args.camera, 'backend': args.backend,
+                              'capture_settings': getattr(source, 'capture_settings', None),
+                              'bind': args.bind, 'port': args.port}), flush=True)
             try:
                 server.serve_forever(poll_interval=0.2)
             except KeyboardInterrupt:
