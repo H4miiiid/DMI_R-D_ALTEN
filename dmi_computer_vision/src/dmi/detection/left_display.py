@@ -38,6 +38,15 @@ def analyze_train_left_display(
               if stats[index, cv2.CC_STAT_AREA] >= 20
               and 10 <= stats[index, cv2.CC_STAT_HEIGHT] <= height * .07]
     if glyphs:
+        # A title is a text row. Gauge ticks/numbers form an arc and used to
+        # trigger every expensive OCR retry on the connected active-area crop.
+        # Check the current image on every pass; no cached identity is reused.
+        centers = np.array([item[cv2.CC_STAT_TOP] + item[cv2.CC_STAT_HEIGHT] / 2
+                            for item in glyphs])
+        text_height = float(np.median([item[cv2.CC_STAT_HEIGHT] for item in glyphs]))
+        if np.percentile(centers, 90) - np.percentile(centers, 10) > text_height:
+            return None
+    if glyphs:
         x1 = min(int(item[cv2.CC_STAT_LEFT]) for item in glyphs) + round(width * .25)
         x2 = max(int(item[cv2.CC_STAT_LEFT] + item[cv2.CC_STAT_WIDTH])
                  for item in glyphs) + round(width * .25)

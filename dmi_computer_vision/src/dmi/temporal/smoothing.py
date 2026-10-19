@@ -19,23 +19,39 @@ class GeometryStabilizer:
             raise ValueError("smoothing must be in the interval (0, 1]")
         self._smoothing = smoothing
         self._previous: dict[str, DisplayGeometry] = {}
+        self._layout: str | None = None
+        self.reset_regions: set[str] = set()
+        self.last_reset_reason: str | None = None
 
     def update(
         self,
         displays: dict[str, DisplayGeometry | None],
         frame_shape: tuple[int, int],
+        *, layout: str | None = None,
     ) -> dict[str, DisplayGeometry | None]:
         """Return stabilized geometry for one sequential video frame."""
+        self.reset_regions = set()
+        self.last_reset_reason = None
+        if layout is not None:
+            if self._layout is not None and layout != self._layout:
+                self._previous.clear()
+                self.reset_regions.update(("left", "right"))
+                self.last_reset_reason = "display_layout_changed"
+            self._layout = layout
         stabilized: dict[str, DisplayGeometry | None] = {}
         for name in ("left", "right"):
             current = displays[name]
             previous = self._previous.get(name)
             if current is None:
                 self._previous.pop(name, None)
+                self.reset_regions.add(name)
                 stabilized[name] = None
                 continue
             if previous is None or _is_geometry_jump(previous, current, frame_shape):
                 result = current
+                self.reset_regions.add(name)
+                if previous is not None and self.last_reset_reason is None:
+                    self.last_reset_reason = "display_geometry_changed"
             else:
                 alpha = _adaptive_smoothing(
                     previous, current, frame_shape, self._smoothing
@@ -623,11 +639,21 @@ def _is_geometry_jump(
     width_change = abs(current_width / previous_width - 1)
     height_change = abs(current_height / previous_height - 1)
     angle_change = abs(_wrapped_angle_delta(previous_angle, current_angle))
+    # Perspective can jump while the rotated enclosure remains stationary.
+    # Compare the corner offsets within each enclosure, in display units.
+    previous_offsets = (previous.corners - previous.oriented_box) / np.array(
+        [previous_width, previous_height]
+    )
+    current_offsets = (current.corners - current.oriented_box) / np.array(
+        [current_width, current_height]
+    )
+    perspective_change = float(np.max(np.abs(current_offsets - previous_offsets)))
     return bool(
         center_change > frame_diagonal * 0.06
         or width_change > 0.12
         or height_change > 0.12
         or angle_change > np.deg2rad(6)
+        or perspective_change > 0.12
     )
 
 

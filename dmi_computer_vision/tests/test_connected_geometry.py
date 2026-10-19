@@ -49,6 +49,16 @@ def menu(split: float = .54, *, rows: int = 5) -> np.ndarray:
 
 
 class ConnectedGeometryTest(unittest.TestCase):
+    def test_invalid_logical_partner_does_not_discard_a_supported_region(self):
+        # A measured off-center division can leave one region too wide to be
+        # a portrait display. Validate the regions independently after division.
+        frame, _ = perspective(menu(.34))
+        diagnostics = {}
+        actual = detect_displays(frame, diagnostics=diagnostics)
+        self.assertIsNotNone(actual['left'])
+        self.assertIsNone(actual['right'])
+        self.assertEqual(diagnostics, {'path': 'connected', 'reason': 'invalid_region'})
+
     def test_menu_localization_requires_no_field_or_ocr_title(self):
         for fraction in (.44, .54):
             with self.subTest(fraction=fraction):

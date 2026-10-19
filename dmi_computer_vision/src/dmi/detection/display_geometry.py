@@ -76,13 +76,21 @@ def detect_displays(
     ]
     groups = _split_display_components(components, width)
     if groups is None:
-        return _detect_connected_displays(frame, mask, diagnostics)
+        connected = _detect_connected_displays(frame, mask, diagnostics)
+        if any(value is not None for value in connected.values()):
+            return connected
+        return _retain_partial_displays(
+            frame, [[component] for component in components], strong_mask, diagnostics,
+        )
 
     geometries: list[DisplayGeometry] = []
     for group in groups:
         geometry = _fit_display(group, strong_mask, (height, width))
         if geometry is None:
-            return _detect_connected_displays(frame, mask, diagnostics)
+            connected = _detect_connected_displays(frame, mask, diagnostics)
+            if any(value is not None for value in connected.values()):
+                return connected
+            return _retain_partial_displays(frame, list(groups), strong_mask, diagnostics)
         geometries.append(geometry)
 
     if geometries[0].center[0] >= geometries[1].center[0]:
@@ -91,6 +99,52 @@ def detect_displays(
     if diagnostics is not None:
         diagnostics.update(path="separated", reason="")
     return {"left": geometries[0], "right": geometries[1]}
+
+
+def _retain_partial_displays(
+    frame: Frame, contour_groups: list[list[NDArray[np.int32]]],
+    strong_mask: NDArray[np.uint8], diagnostics: dict[str, str] | None,
+) -> dict[str, DisplayGeometry | None]:
+    """Keep only a full portrait region with independently observed UI topology.
+
+    A lone component has no horizontal partner to establish its role. Use the
+    existing sidebar or verified grid-cell borders, never camera index, image
+    half, screen OCR or the location of a missing partner. Wide connected
+    surfaces cannot pass the portrait fit. No occluded boundary is extrapolated.
+    """
+    from dmi_computer_vision.src.dmi.detection.left_layout import BorderEvidence, sidebar_borders
+    from dmi_computer_vision.src.dmi.detection.right_layout import has_button_grid
+
+    candidates: dict[str, list[DisplayGeometry]] = {"left": [], "right": []}
+    height, width = frame.shape[:2]
+    for group in contour_groups:
+        geometry = _fit_display(group, strong_mask, (height, width))
+        if geometry is None:
+            continue
+        outline = geometry.corners
+        if (outline[:, 0].min() <= 2 or outline[:, 1].min() <= 2
+                or outline[:, 0].max() >= width - 3 or outline[:, 1].max() >= height - 3):
+            continue
+        rectified = rectify_display(frame, geometry, (800, 1280))
+        if sidebar_borders(BorderEvidence(rectified)) is not None:
+            candidates["left"].append(geometry)
+            continue
+        if has_button_grid(rectified):
+            candidates["right"].append(geometry)
+    if any(len(values) > 1 for values in candidates.values()):
+        if diagnostics is not None:
+            diagnostics.update(path="partial", reason="ambiguous_region")
+        return {"left": None, "right": None}
+    result = {side: values[0] if values else None for side, values in candidates.items()}
+    if all(value is not None for value in result.values()):
+        if result["left"].center[0] >= result["right"].center[0]:
+            return {"left": None, "right": None}
+        result["left"], result["right"] = _align_display_box_aspect(
+            [result["left"], result["right"]], height,
+        )
+    if diagnostics is not None and any(value is not None for value in result.values()):
+        diagnostics.update(path="partial", reason="partner_not_validated")
+    return result
 
 
 def _detect_connected_displays(
@@ -170,19 +224,21 @@ def _detect_connected_displays(
                 or cv2.contourArea(original, oriented=True) <= 0
                 or (sides[1] + sides[3]) <= 1.2 * (sides[0] + sides[2])
             ):
-                break
+                regions.append(None)
+                continue
             oriented = _fit_oriented_box(original.reshape(-1, 1, 2))
             outline = np.concatenate((original, oriented))
             x1, y1 = np.floor(outline.min(axis=0))
             x2, y2 = np.ceil(outline.max(axis=0))
             bbox = (int(x1), int(y1), int(x2), int(y2))
             regions.append(DisplayGeometry(original, oriented, bbox))
-        if len(regions) == 2:
+        if any(region is not None for region in regions):
             accepted.append({"left": regions[0], "right": regions[1]})
         else:
             reason = "invalid_region"
     if len(accepted) == 1:
-        reason = ""
+        reason = ("" if all(value is not None for value in accepted[0].values())
+                  else "invalid_region")
     elif len(accepted) > 1:
         reason = "ambiguous_surface"
     if diagnostics is not None:
@@ -370,7 +426,9 @@ def _connected_menu_divisions(
                            & (profile > max(4.0, noise * 2.5)))
     candidates = []
     for x in peaks:
-        if not 0.3 * width < x < 0.68 * width or height <= 1.2 * max(x, width - x):
+        # Validate the two resulting portrait regions independently after the
+        # border-supported division, rather than rejecting a valid partner here.
+        if not 0.3 * width < x < 0.68 * width:
             continue
         half_width = (width - 1 - x) / 2
         search = max(4, round(half_width * 0.08))

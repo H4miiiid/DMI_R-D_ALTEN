@@ -2,6 +2,93 @@
 
 ## Current status
 
+**Monitor-support Step 4 — completed offline and approved (2026-10-19).**
+User approved Step 4 and authorized its commit/push. Publication result is reported
+in chat. Step 5 has not started; it requires a separate implementation request.
+
+- Connected candidates validate independently. A complete orphan component/group
+  requires measured sidebar or repeated control-border topology to establish its
+  role; no partner, identity, image-half or camera-index assumptions. Basis changes
+  (separated/connected/partial), existing enclosure jumps and 12%-dimension
+  perspective-offset jumps reset incompatible geometry/content history. Missing
+  left geometry cannot supply a train-workflow hint. Source/session/size/gap
+  resets, numeric confirmation and original-pixel outputs remain intact.
+- Current-image glyph-row evidence avoids train-title OCR on gauge arcs. No title
+  recognition cache, scheduler, dependency, OCR-confidence or numeric matcher
+  change. Direct evidence is still read each actual detection; timestamps,
+  freshness, 4-pixel publication and calibration/motion gates are unchanged.
+- Matched serial profiles: 48 connected frames, mean/P95 **1003/1043 → 238/267 ms**,
+  **76.3% lower mean analysis cost**, OCR **11 → 1 call/frame**. Cold means
+  1025 → 238 ms; steady 1001 → 238 ms. Separated 144-frame mean/P95 stays
+  **187/267 ms**, OCR 188 calls in each trial. All 192 profile outputs/direct
+  evidence match exactly. Geometry, analyzers, OCR, annotation, decode and JPEG
+  costs are separated; nested OCR time is not counted twice.
+- Fresh 436-frame connected replay exactly preserves corrected Step 3 results
+  and direct evidence: 435 expected titles/control counts, 20–22 left boxes;
+  direct values 181 correct/0 incorrect/28 unknown, stabilized 202/0/7 across
+  209 Driver frames. Main04 frame 102 remains unknown. Accepted sample03 corner
+  uncertainty and other connected-state coverage gaps remain unchanged.
+- All 144 separated full-pipeline regressions and 11 frozen examples match;
+  4330-frame raw-geometry audit and final rejected-frame recheck find no changes.
+  The row gate rejects none of 1513 recognized train-title observations.
+  Three controlled removal/recovery sequences (99 processed frames) clear loss
+  immediately and retain supported roles; maximum partial-control center changes
+  relative to full-image predictions: Main 3.16 px, connected Driver 1 px,
+  separated Driver 0 px. Natural occlusion remains unverified. Earlier masks
+  clipping healthy border pixels caused 17–32 px control changes; those diagnostic
+  artifacts are retained and are not accepted alignment evidence.
+- Regular paced simulation, identical options/images: measured producer about
+  24 FPS despite a requested 30. Connected Main **0.97 → 4.35 processed FPS**,
+  Driver **0.95 → 3.63**; mean receipt-to-result **1086/1129 → 254/298 ms**.
+  Overwrites 229/229 → 196/203; gap resets 6/9 → 0/0; target updates 22/20 → 2/2.
+  Existing 1.5-second expiry remains active; all runs clear targets on stop.
+  Debug volume increases with more actual detections; compact/target volume falls.
+  Preview/annotations disabled equally in these runs. No sensor/network timing,
+  selective-mode transition-delay or 30-FPS detection claim.
+- **172 vision/109 integration tests pass**, plus final focused 13-test checks;
+  compile/whitespace, full/compact contracts and review-video decodes pass.
+  Source capture artifacts and other production sources are hash-identical.
+  The pre-existing root AGENTS.md plan edits are untouched. Only five production
+  modules, two tests and this handoff are implementation changes; owning vision
+  UI/output/evaluation/state docs and generated evidence remain locally ignored.
+- Review: `dmi_computer_vision/outputs/monitor_support/step4_20261019_review02/REVIEW.md`,
+  direct/stabilized videos and native PNGs. Controlled-removal review:
+  `step4_20261019_stability_review03/`; scripts/snapshots/profiles/audits/hashes:
+  `step4_20261019_run01/`. Paths are under the same monitor_support directory;
+  `/private/tmp/dmi_step4_*` logs record checks. Final report has exact reproduction
+  commands with new output directories. Earlier exploratory artifacts remain intact.
+- Next: publish the approved Step 4 changes; await a separate Step 5 request.
+  Step 5 still needs
+  regular/selective transitions, partial-border/occlusion and same-title changes,
+  confirmation delay, preview age/rate and per-arrangement state coverage. Connected
+  Level/TRN/Train Data/validation/pages need representative footage; unsupported
+  orphan train panes may remain unknown. Hardware capture settings, calibration,
+  alignment and pressing remain unvalidated. No motor command was sent.
+
+**Plan update — monitor-support Steps 4/5 (2026-10-16).** User requested speed
+improvements alongside the remaining stability/end-to-end work. Root AGENTS.md
+now adds profiling, evidence-based OCR retry reduction, bounded title reuse with
+explicit invalidation, and before/after regular/selective timing and accuracy
+checks. Existing latest-frame scheduling, raw evidence age, confirmation counts,
+4-pixel publication policy and calibration/motion gates must remain intact.
+This request updates the plan only; no Step 4/5 implementation or commit/push.
+
+Read-only spot profiling on this Mac: first Main01/Driver03 frames took
+1.179/1.143 s; each made 11 OCR calls consuming 0.965/0.899 s, mostly while checking
+left-side train titles. These two cold observations identify a likely bottleneck,
+not steady-state throughput or proof of a future speedup. Profile both arrangements
+and preserve genuine train-title recognition before removing unnecessary retries.
+
+Camera mapping is now user-confirmed: 0 = lower separated displays, 1 = upper
+connected monitor, one selected source per session. This selects acquisition only;
+do not hardcode geometry or screen identity. Connected coverage is Main/Driver ID
+on the four supplied captures. Train Running Number shares the updated keypad
+path but is unverified there; Level/Train Data/other accepted workflows also need
+connected localization and control-alignment evidence. Step 5 must track these
+gaps separately from preserved separated-display regressions. Hardware calibration
+and pressing remain unvalidated. Documentation whitespace checks pass; no detector
+tests rerun for this plan-only update. Next: implement Step 4 after its request.
+
 **Monitor-support Step 3 — completed offline and approved (2026-10-16).**
 User approved the corrected shared analysis and explicitly authorized commit/push.
 Step 2 was pushed as 27b085e; user committed camera setup as 6b6aebd. This handoff
@@ -205,14 +292,15 @@ cost; measure the installed path before changing freshness limits or robot gates
 
 **Current milestone: support separated displays and the connected single monitor
 in the shared vision pipeline — Step 2 localization accepted on captures 01–04;
-Step 3 shared screen analysis is completed offline and approved; Step 4 awaits
-a separate implementation request.** User accepted corrected Step 3 and authorized
+Step 3 shared screen analysis is completed offline and approved; Step 4 is
+completed offline and approved on 2026-10-19; Step 5 has not started.**
+User accepted corrected Step 3 and authorized
 its commit/push on 2026-10-16. Step 2 acceptance includes lower-confidence
 acceptance of sample03's dark corner. Root AGENTS.md defines the steps. User confirms real camera capture,
 transmission and master-PC reception have been tested on hardware; remaining work
 concerns detection. Connected localization now succeeds on 435/436 current frames;
-shared analysis is verified on Main/Driver ID, while partial/stability and
-end-to-end validation remain incomplete.
+shared analysis is verified on Main/Driver ID, Step 4 partial/stability work is
+approved offline, and Step 5 end-to-end validation remains incomplete.
 No physical calibration accuracy or robot pressing has been validated.
 
 Phase 6 is completed offline and accepted (2026-10-12). The original numbered

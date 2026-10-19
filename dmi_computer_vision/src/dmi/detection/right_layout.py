@@ -20,6 +20,44 @@ def detect_border_lines(frame: Frame) -> BorderLines:
     return _line_candidates(frame)
 
 
+def has_button_grid(frame: Frame) -> bool:
+    """Validate an orphan region's role from repeated measured control borders.
+
+    Layouts are hypotheses only. Even legacy nominal cells must have all four
+    borders fitted locally before they support a region. No screen identity or
+    named controls are returned from this geometry check.
+    """
+    evidence = BorderEvidence(frame)
+    borders = detect_border_lines(frame)
+    height, width = frame.shape[:2]
+    for state in ("Main", "Driver ID", "Level"):
+        centers = []
+        for points in detect_button_quads(frame, state, borders).values():
+            if not valid_quad(points):
+                continue
+            supported = True
+            for a, b in zip(points, np.roll(points, -1, axis=0)):
+                horizontal = abs(b[0] - a[0]) >= abs(b[1] - a[1])
+                axis = "h" if horizontal else "v"
+                start, end = sorted((a[0], b[0]) if horizontal else (a[1], b[1]))
+                cross = (start + end) / 2
+                position = float((a[1] + b[1]) / 2 if horizontal else (a[0] + b[0]) / 2)
+                slope = float((b[1] - a[1]) / (b[0] - a[0]) if horizontal
+                              else (b[0] - a[0]) / (b[1] - a[1]))
+                inset = (end - start) * .15
+                if evidence.fit(axis, position, cross, start + inset, end - inset,
+                                radius=6, slope=slope, slope_radius=.025) is None:
+                    supported = False
+                    break
+            if supported:
+                centers.append(points.mean(axis=0))
+        if len(centers) >= 6:
+            centers = np.asarray(centers)
+            if np.ptp(centers[:, 0]) > width * .3 and np.ptp(centers[:, 1]) > height * .15:
+                return True
+    return False
+
+
 def detect_button_quads(
     frame: Frame,
     state: str,

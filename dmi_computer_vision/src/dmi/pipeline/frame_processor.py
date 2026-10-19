@@ -76,6 +76,8 @@ class FrameProcessor:
                          self._left, self._left_workflow)
             result = (process_frame(*arguments, target_evidence=self.target_evidence)
                       if self.collect_target_evidence else process_frame(*arguments))
+            if self.last_reset_reason is None:
+                self.last_reset_reason = self._geometry.last_reset_reason
         except Exception:
             self._reset_history()
             raise
@@ -106,9 +108,22 @@ def process_frame(
     if not math.isfinite(timestamp) or timestamp < 0:
         raise ValueError("timestamp must be finite and non-negative")
 
-    displays = detect_displays(frame)
+    diagnostics: dict[str, str] = {}
+    displays = detect_displays(frame, diagnostics=diagnostics)
     if geometry_stabilizer is not None:
-        displays = geometry_stabilizer.update(displays, frame.shape[:2])
+        layout = diagnostics.get("path")
+        # An independently fitted orphan uses a different crop basis from a
+        # connected-surface partition, even when their enclosures nearly agree.
+        if layout not in {"connected", "separated", "partial"} or not any(displays.values()):
+            layout = None
+        displays = geometry_stabilizer.update(displays, frame.shape[:2], layout=layout)
+        if "right" in geometry_stabilizer.reset_regions and right_display_stabilizer is not None:
+            right_display_stabilizer.reset()
+        if "left" in geometry_stabilizer.reset_regions:
+            if left_display_stabilizer is not None:
+                left_display_stabilizer.reset()
+            if left_workflow_stabilizer is not None:
+                left_workflow_stabilizer.reset()
     left_geometry = displays["left"]
     right_geometry = displays["right"]
     left_rectified = (rectify_display(frame, left_geometry, LEFT_SIZE)
