@@ -1,5 +1,48 @@
 # Robot/CV integration
 
+## Monitor-support offline validation
+
+The installed source mapping is camera 0 for the lower separated displays and
+camera 1 for the upper connected monitor. Select one per session. Image evidence
+still determines screen identity and geometry; each view needs its own calibration.
+Connected footage establishes Main and Driver ID only. Level, Train Running
+Number, Train Data, Validate Train Data and both Train Data pages need connected
+recordings with visible boundaries, fields and controls before coverage is claimed.
+
+From the repository root, use new output directories:
+
+```sh
+python3 dmi_computer_vision/scripts/verify_monitors.py --output-dir /tmp/dmi_monitor_corpus_01 --annotations
+python3 -m dmi_robot_master.integration.monitor_benchmark --arrangement connected --processing regular --output-dir /tmp/dmi_monitor_regular_01
+python3 -m dmi_robot_master.integration.monitor_benchmark --arrangement connected --processing selective --output-dir /tmp/dmi_monitor_selective_01
+```
+
+Use `--arrangement separated` for the other controlled replay. These simulations
+exercise the existing latest-frame source, detector, policy and target files.
+They include drawn same-title field changes, erased controls, brief transitions,
+partial regions and recovery; they do not establish additional real screen
+coverage. The helper imports no motor transport. Targets remain uncalibrated.
+Add `--annotations` equally to both benchmark commands to include native video
+encoding and headless preview callbacks. Callback rate is not GUI paint rate.
+
+For a supplied connected capture, add
+`--recording dmi_computer_vision/data/videos/dev/dmi_capture_quality_02`.
+This uses saved receipt intervals rather than MP4 playback FPS. The source files
+remain unchanged; old annotations outside the monitor are masked on replay copies.
+Reports separate analysis/OCR cost, queue overwrites, policy skips, processed FPS,
+receipt-to-result age, confirmation delays and output bytes. Nested OCR/stage
+times must not be added together. Run matched performance trials sequentially.
+Full debug JSON and target history are enabled for evaluation in both policies.
+
+The Step 5 review under `dmi_computer_vision/outputs/monitor_support/` records
+remaining detection/coverage limits. Passing contracts or recognizing a title
+does not establish control alignment or authorize motion. Existing confirmation,
+freshness, calibration and four-pixel publication limits remain in force.
+Sustained Main-to-Driver replay can confirm Driver ID before its key geometry
+agrees with the current image. A focused expected-failure test records this open
+transition defect. Complete monitor-support acceptance remains open; see root
+STATE.md and the review before treating the static-capture checks as broader support.
+
 ## Hardware camera trial: Picamera2/libcamera
 
 For cameras that work with `rpicam-hello`, the bridge defaults to Picamera2.

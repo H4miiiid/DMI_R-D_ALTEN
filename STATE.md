@@ -2,9 +2,63 @@
 
 ## Current status
 
+**Monitor-support Step 5 — offline validation approved for commit/push (2026-10-19).**
+User approved committing and pushing the Step 5 validation deliverable after
+reviewing its reported limits. Step 4 was published as `6ecdcc2`. Validation
+is implemented and run offline, but complete monitor-support acceptance remains
+open because transition/control-alignment checks fail. No detector, scheduler,
+confirmation, freshness, calibration or motor code changed. Publication result
+will be reported in chat. No robot command or physical validation. Preserve
+user-owned AGENTS.md edits.
+
+- Added `scripts/verify_monitors.py`, `integration/monitor_benchmark.py`, eight
+  integration checks and reproduction guidance in integration README. Full fresh
+  corpus: **4,766 frames**, contracts/compact reconstruction/video decoding pass.
+  All 436 connected results equal approved Step 4; 44 reviewed controls/boxes
+  found, mean/max center error 2.78/7.66 px (coarse manual references). Direct
+  connected Driver values 181 correct/0 incorrect/28 unknown; stabilized 202/0/7.
+- Separated first 144 and all 11 frozen examples match exactly. Full V2 comparison
+  has **1,896/4,330 changed frames** outside the formerly sampled checks; do not
+  claim full historical equivalence. Pre-Step-4 comparison covers 633 frames:
+  direct evidence identical; 11 stabilized changes follow the accepted reset.
+- Serial 28-trial matrix, equal inputs/options/timing: pooled connected regular
+  mean/P95 analysis **1030/1085 → 289/336 ms**, observed mean cost down 71.9%;
+  OCR 11 → typically 1 call/detection, processed FPS **0.97 → 3.41**. Receipt age
+  mean/P95 **1128/1413 → 357/475 ms**, but a 1.846-s analysis outlier remains.
+  Current selective makes 149 versus 215 calls (193 policy skips; 94 overwrites),
+  reducing debug/history volume. Saved receipt-paced producer is about 7 FPS;
+  controlled producer measures about 30 Hz. Neither is 30-FPS detection/hardware proof.
+- Explicit refresh `.25` improves connected field confirmation **5.73 → 3.88 s**
+  (4.35 s with native encoding/headless preview), at increased sampling cost.
+  Defaults and 15-frame confirmation, 1.5-s expiry, 4-pixel publication and
+  calibration limits stay unchanged. Preview reuse retains actual evidence age.
+- **Open alignment failure:** four sustained Main→Driver trials confirm Driver
+  before key geometry agrees with the same-image cold reference. Connected
+  transient discrepancy ~127 px; separated peak ~369 px. First 3-px agreement
+  takes ~3.8–4.4 s and is not permanent stability. Separated transient direct `2`
+  instead of `12` stays unconfirmed. A tracked expected-failure regression records
+  this defect. Legacy cancel erasure still leaves a nominal cell; distractors and
+  15% exposure changes expose conservative rejection/control-loss limits.
+- Existing separated numeric error remains at reviewed frame 549 (`735` versus
+  visible `235`), as does the 97.8-px validation close jump. Connected coverage
+  remains Main/Driver only; Level/TRN/Train Data/validation/pages need real footage.
+  The report lists the next observation for every missing state/arrangement.
+- **172 vision tests pass; 117 integration tests run: 116 pass, 1 expected failure.**
+  Target/receipt/session audits, simulation calibration rejection, source failure,
+  preview-age and paired-fixture hashes pass. Timed targets are uncalibrated and
+  unusable and clear on stop; no hardware safety/accuracy claim follows.
+- Review: `dmi_computer_vision/outputs/monitor_support/step5_20261019_review01/REVIEW.md`.
+  New corpus, timing, perturbation, alignment, frozen and sustained-transition
+  directories share the `step5_20261019_` prefix. Scripts/logs/hashes are in
+  `step5_20261019_run01/`. Owning vision docs and generated evidence remain ignored.
+  Next: focus the next detector correction on
+  geometry/layout-basis invalidation and legacy border evidence, then rerun these
+  regressions. Step 5 commit/push is authorized for the validation changes only;
+  approval does not establish complete monitor support or hardware readiness.
+
 **Monitor-support Step 4 — completed offline and approved (2026-10-19).**
 User approved Step 4 and authorized its commit/push. Publication result is reported
-in chat. Step 5 has not started; it requires a separate implementation request.
+in chat. At that handoff Step 5 had not started; the later request is handled above.
 
 - Connected candidates validate independently. A complete orphan component/group
   requires measured sidebar or repeated control-border topology to establish its
@@ -57,8 +111,8 @@ in chat. Step 5 has not started; it requires a separate implementation request.
   `step4_20261019_run01/`. Paths are under the same monitor_support directory;
   `/private/tmp/dmi_step4_*` logs record checks. Final report has exact reproduction
   commands with new output directories. Earlier exploratory artifacts remain intact.
-- Next: publish the approved Step 4 changes; await a separate Step 5 request.
-  Step 5 still needs
+- At the Step 4 handoff, next work was publication and a separate Step 5 request.
+  Its then-outstanding checklist included
   regular/selective transitions, partial-border/occlusion and same-title changes,
   confirmation delay, preview age/rate and per-arrangement state coverage. Connected
   Level/TRN/Train Data/validation/pages need representative footage; unsupported
