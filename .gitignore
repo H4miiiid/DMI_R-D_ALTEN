@@ -5,3 +5,7 @@ __pycache__/
 .venv/
 dmi_robot_common/log/
 dmi_detection_check_03/
+TapperWare_Flet/
+runs/
+tests/
+dmi_robot_general/

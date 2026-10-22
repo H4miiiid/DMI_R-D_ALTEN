@@ -107,6 +107,8 @@ def analyze_right_display(
     buttons = {}
     detected_buttons = (detect_button_quads(rectified, state, border_lines)
                         if state != "unknown" or title_text is not None else {})
+    if state == "Level":
+        detected_buttons = _recognize_level_buttons(rectified, detected_buttons)
     for name, quad in detected_buttons.items():
         buttons[name] = _region_result(quad, geometry, frame.shape[:2])
     return {
@@ -116,6 +118,86 @@ def analyze_right_display(
         "buttons": buttons,
         "data_field": data_field,
     }
+
+
+def _recognize_level_buttons(frame: Frame, cells: dict[str, NDArray]) -> dict[str, NDArray]:
+    """Read identities inside measured cells; omit blank/uncertain/duplicate labels."""
+    identities = {**{f"LEVEL {i}": f"level_{i}" for i in range(4)},
+                  **{name.upper(): name for name in ("pzb", "kvb", "scmt", "lzb", "memor")},
+                  "ATC-2": "atc_2", "TBL1+": "tbl1_plus"}
+    result, duplicates = {}, set()
+    for quad in cells.values():
+        span = np.linalg.norm(quad[1] - quad[0])
+        step = np.linalg.norm(quad[3] - quad[0])
+        size = (max(20, round(span)), max(20, round(step)))
+        target = np.float32([[0, 0], [size[0]-1, 0], [size[0]-1, size[1]-1], [0, size[1]-1]])
+        crop = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(quad, target), size)
+        inset_y, inset_x = round(size[1] * .15), round(size[0] * .12)
+        interior = crop[inset_y:-inset_y, inset_x:-inset_x]
+        gray = cv2.cvtColor(interior, cv2.COLOR_BGR2GRAY)
+        # Skip empty slots before OCR; contrast is relative to the local background.
+        foreground = (gray > float(np.median(gray)) + 18).astype(np.uint8) * 255
+        if cv2.countNonZero(foreground) < 20:
+            continue
+        name = _level_action_icon(foreground)
+        if name is None:
+            text = read_title(interior, (0, 0, interior.shape[1], interior.shape[0]))
+            normalized = " ".join((text or "").upper().split())
+            name = identities.get(normalized)
+            if name is None:
+                # Relative contrast exposes dim disabled-looking labels without
+                # lowering OCR confidence or supplying an expected answer.
+                text = read_title(cv2.cvtColor(foreground, cv2.COLOR_GRAY2BGR),
+                                  (0, 0, foreground.shape[1], foreground.shape[0]))
+                name = identities.get(" ".join((text or "").upper().split()))
+            if name is None:
+                enlarged = cv2.resize(interior, None, fx=1.5, fy=1.5, interpolation=cv2.INTER_LINEAR)
+                text = read_title(enlarged, (0, 0, enlarged.shape[1], enlarged.shape[0]))
+                name = identities.get(" ".join((text or "").upper().split()))
+            if name is None:
+                # A second perspective resampling can blur small photographed
+                # glyphs. Retry the same measured cell in original rectified
+                # pixels, retaining OCR's confidence and exact-text requirements.
+                low, high = quad.min(axis=0), quad.max(axis=0)
+                inset = (high-low) * (.12, .15)
+                box = tuple(np.rint(np.r_[low+inset, high-inset]).astype(int))
+                original = _crop_box(frame, box)
+                if original.size:
+                    text = read_title(original, (0, 0, original.shape[1], original.shape[0]))
+                    name = identities.get(" ".join((text or "").upper().split()))
+        if name is not None:
+            if name in result:
+                duplicates.add(name)
+            result[name] = quad
+    return {name: q for name, q in result.items() if name not in duplicates}
+
+
+def _level_action_icon(mask: Frame) -> str | None:
+    """Recognize an observed cross or three-dot icon, without slot assumptions."""
+    count, labels, stats, centers = cv2.connectedComponentsWithStats(mask)
+    largest = int(stats[1:, cv2.CC_STAT_AREA].max()) if count > 1 else 0
+    components = [i for i in range(1, count)
+                  if stats[i, cv2.CC_STAT_AREA] >= max(3, largest * .1)]
+    if len(components) == 3:
+        boxes, points = stats[components], centers[components]
+        if (np.ptp(points[:, 1]) < mask.shape[0] * .08
+                and np.ptp(points[:, 0]) > mask.shape[1] * .12
+                and np.all(boxes[:, 2:4] < min(mask.shape) * .3)
+                and np.all(boxes[:, 2] / boxes[:, 3] > .5)
+                and np.all(boxes[:, 2] / boxes[:, 3] < 2)):
+            return "more"
+    if len(components) != 1:
+        return None
+    ys, xs = np.where(labels == components[0])
+    if not len(xs) or np.ptp(xs) < 12 or np.ptp(ys) < 12:
+        return None
+    x = (xs - xs.min()) / np.ptp(xs)
+    y = (ys - ys.min()) / np.ptp(ys)
+    diagonal = np.minimum(abs(x-y), abs(x+y-1)) < .2
+    if (.65 < np.ptp(xs) / np.ptp(ys) < 1.5 and np.mean(diagonal) > .96
+            and np.mean(abs(x-y) < .2) > .4 and np.mean(abs(x+y-1) < .2) > .4):
+        return "close"
+    return None
 
 
 def _title_crop(

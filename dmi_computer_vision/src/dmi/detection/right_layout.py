@@ -176,11 +176,14 @@ def detect_button_quads(
             _cells_from_lines(
                 action_x_lines,
                 y_lines,
-                (("cancel", "empty_action", "trn", "settings"),),
-                x_indices=(0, 1, 2, 3, 4),
+                (("cancel", "empty_action"),),
+                x_indices=(0, 1, 2),
                 y_indices=(4, 5),
             )
         )
+        grid.update(_visible_driver_actions(
+            frame, BorderEvidence(frame), action_x_lines, y_lines[4], y_lines[5],
+        ))
         return grid
     if state in {"Train Data", "Validate Train Data"}:
         middle_top = .50 if state == "Train Data" else .685
@@ -250,70 +253,168 @@ def detect_button_quads(
         grid.update(_train_navigation(horizontal, vertical, width, height))
         return grid
     if state == "Level":
-        names = (
-            ("level_1", "level_2", "level_3"),
-            ("level_0", "pzb", "kvb"),
-            ("scmt", "lzb", "memor"),
-        )
-        x_lines = _fit_axis_topology(
-            vertical,
-            tuple(value * width for value in (0.001, 0.303, 0.613, 0.91)),
-            extent=width,
-            cross_center=height / 2,
-        )
-        x_expected = tuple(
-            value * width for value in (0.001, 0.303, 0.613, 0.91)
-        )
-        x_transform = _transform_from_fitted_lines(
-            x_lines, x_expected, height / 2, width
-        )
-        close_x_lines = _fit_axis_topology(
-            vertical,
-            tuple(value * width for value in (0.001, 0.241)),
-            extent=width,
-            cross_center=height * 0.86,
-            fixed_transform=x_transform,
-        )
-        y_lines = _fit_axis_topology(
-            horizontal,
-            tuple(
-                value * height
-                for value in (0.459, 0.546, 0.634, 0.723, 0.814)
-            ),
-            extent=height,
-            cross_center=width / 2,
-            min_length=width * 0.25,
-        )
-        row_heights = [
-            _line_position(y_lines[index + 1], width / 2)
-            - _line_position(y_lines[index], width / 2)
-            for index in range(3)
-        ]
-        close_top = _line_position(y_lines[-1], width / 2)
-        close_bottom = close_top + float(np.median(row_heights))
-        y_lines.append(
-            _select_horizontal(
-                horizontal,
-                close_bottom,
-                width,
-                height,
-                min_length=width * 0.18,
-                tolerance_fraction=0.018,
-            )
-        )
-        grid = _cells_from_lines(
-            x_lines,
-            y_lines,
-            names,
-            x_indices=(0, 1, 2, 3),
-            y_indices=(0, 1, 2, 3),
-        )
-        grid["more"] = _quad(x_lines[2], x_lines[3], y_lines[3], y_lines[4])
-        grid["close"] = _quad(
-            close_x_lines[0], close_x_lines[1], y_lines[4], y_lines[5]
-        )
-        return grid
+        return _level_button_cells(frame)
     return _detect_unknown_buttons(frame, horizontal, vertical)
+
+
+def _level_button_cells(frame: Frame) -> dict[str, Quad]:
+    """Propose cells from current gradients and validate every side locally.
+
+    No nominal row/column placement, missing-edge extrapolation or semantic
+    labels: Level identities are recognized from each supported cell's content.
+    """
+    height, width = frame.shape[:2]
+    evidence = BorderEvidence(frame)
+    pixels = frame.astype(np.float32)
+    glyphs = ((pixels[:, :, 2] > pixels[:, :, 0] * .25)
+              & (pixels[:, :, 1] > pixels[:, :, 0] * .45)
+              & (pixels.max(axis=2) > 40)).astype(np.uint8)
+    glyphs = cv2.dilate(glyphs, np.ones((11, 11), np.uint8))
+    evidence.horizontal[glyphs > 0] = 0
+    evidence.vertical[glyphs.T > 0] = 0
+    horizontal = np.quantile(evidence.horizontal[:, 5:-5], .8, axis=1)
+    horizontal[:round(height * .3)] = 0
+    rows = _border_peaks(horizontal, separation=round(height * .025))
+    if not rows:
+        return {}
+    row_floor = max(1.5, float(np.median(sorted(horizontal[rows], reverse=True)[:3])) * .25)
+    cells = []
+    for top in rows:
+        for bottom in rows:
+            step = bottom - top
+            if not height * .055 < step < height * .16:
+                continue
+            start, end = top + step * .15, bottom - step * .15
+            profile = np.median(evidence.vertical[:, round(start):round(end)], axis=1)
+            peaks = _border_peaks(profile, separation=round(width * .025))
+            if len(peaks) < 2:
+                continue
+            # Bezel edges can dwarf thin UI borders. Establish contrast from
+            # the strongest observed interior dividers when both are available.
+            interior = sorted((profile[x] for x in peaks if width*.08 < x < width*.92), reverse=True)
+            reference = (float(np.median(interior[:2])) if len(interior) >= 2
+                         else float(np.median(sorted(profile[peaks], reverse=True)[:3])))
+            column_floor = max(1.5, reference * (.35 if len(interior) >= 2 else .12))
+            columns = []
+            for x in peaks:
+                line = evidence.fit("v", x, (top + bottom)/2, start, end,
+                                    radius=4, slope_radius=.06)
+                if line is not None and _level_edge_supported(
+                        evidence, "v", line, top, bottom, minimum=column_floor):
+                    columns.append((x, line))
+            # Reject texture/glyph peaks before adjacency is established. A
+            # spurious peak must not split a real bordered cell into false slots.
+            for (left, left_line), (right, right_line) in zip(columns, columns[1:]):
+                span = right - left
+                if not width * .12 < span < width * .43:
+                    continue
+                cx, cy = (left + right) / 2, (top + bottom) / 2
+                sides = (
+                    left_line,
+                    right_line,
+                    evidence.fit("h", top, cx, left + span * .12, right - span * .12,
+                                 radius=4, slope_radius=.06),
+                    evidence.fit("h", bottom, cx, left + span * .12, right - span * .12,
+                                 radius=4, slope_radius=.06),
+                )
+                if any(side is None for side in sides):
+                    continue
+                if not all(_level_edge_supported(evidence, axis, line, lo, hi,
+                                                 minimum=column_floor if axis == "v" else row_floor)
+                           for axis, line, lo, hi in (
+                               ("v", sides[0], top, bottom), ("v", sides[1], top, bottom),
+                               ("h", sides[2], left, right), ("h", sides[3], left, right))):
+                    continue
+                # A nearer measured divider rules out a larger box spanning
+                # that divider (for example Close plus the monitor boundary).
+                inner = np.median(evidence.horizontal[:, round(left + span*.12):round(right - span*.12)], axis=1)
+                intervening = _border_peaks(inner, separation=round(height * .015))
+                divider = False
+                for y in intervening:
+                    if not top + step*.18 < y < bottom - step*.18:
+                        continue
+                    line = evidence.fit("h", y, cx, left + span*.12, right - span*.12,
+                                        radius=3, slope_radius=.06)
+                    if line is not None and _level_edge_supported(
+                            evidence, "h", line, left, right, minimum=row_floor):
+                        divider = True
+                        break
+                if divider:
+                    continue
+                # Neighboring buttons can have separate outlines and a narrow
+                # gap. Fit the face towards this cell instead of sharing an
+                # arbitrary member of the measured divider cluster.
+                sides = (
+                    _level_inner_edge(evidence, "v", sides[0], top, bottom,
+                                      radius=span*.06, positive=True, minimum=column_floor),
+                    _level_inner_edge(evidence, "v", sides[1], top, bottom,
+                                      radius=span*.06, positive=False, minimum=column_floor),
+                    _level_inner_edge(evidence, "h", sides[2], left, right,
+                                      radius=step*.12, positive=True, minimum=row_floor),
+                    _level_inner_edge(evidence, "h", sides[3], left, right,
+                                      radius=step*.12, positive=False, minimum=row_floor),
+                )
+                points = _quad(*sides)
+                if (valid_quad(points) and np.all(points >= 0)
+                        and np.all(points[:, 0] < width) and np.all(points[:, 1] < height)):
+                    cells.append(points)
+    cells.sort(key=lambda q: (float(q[:, 1].mean()), float(q[:, 0].mean())))
+    return {f"button_{i}": q for i, q in enumerate(cells, 1)}
+
+
+def _level_inner_edge(evidence: BorderEvidence, axis: str, line: Line,
+                      start: float, end: float, *, radius: float,
+                      positive: bool, minimum: float) -> Line:
+    """Choose this cell's supported face inside a measured border cluster."""
+    response = evidence.horizontal if axis == "h" else evidence.vertical
+    samples = np.linspace(start+(end-start)*.12, end-(end-start)*.12, 64, dtype=np.float32)
+    offsets = np.arange(-round(radius), round(radius)+1, dtype=np.float32)
+    dependent = line[0]*samples + line[1]
+    sampled = cv2.remap(response, np.broadcast_to(samples, (len(offsets), 64)),
+                        dependent[None, :] + offsets[:, None], cv2.INTER_LINEAR)
+    scores = np.median(sampled, axis=1)
+    maxima = cv2.dilate(scores[None, :], np.ones((1, 3), np.uint8))[0]
+    peaks = np.flatnonzero((scores >= maxima) & (scores >= max(minimum, float(scores.max())*.3)))
+    cross = (start+end)/2
+    for index in (peaks[::-1] if positive else peaks):
+        fitted = evidence.fit(axis, line[0]*cross+line[1]+offsets[index], cross,
+                              start+(end-start)*.12, end-(end-start)*.12,
+                              radius=1, slope=line[0], slope_radius=.015)
+        if fitted is not None and _level_edge_supported(
+                evidence, axis, fitted, start, end, minimum=minimum):
+            return fitted
+    return line  # The original edge already passed the same current-evidence check.
+
+
+def _level_edge_supported(evidence: BorderEvidence, axis: str, line: Line,
+                          start: float, end: float, *, minimum: float = 1.5) -> bool:
+    """A glyph stroke cannot stand in for a nearly complete control edge."""
+    response = evidence.horizontal if axis == "h" else evidence.vertical
+    samples = np.linspace(start + (end-start)*.04, end - (end-start)*.04, 64, dtype=np.float32)
+    dependent = line[0]*samples + line[1]
+    offsets = np.r_[np.arange(-12, -6), np.arange(-2, 3), np.arange(7, 13)]
+    sampled = cv2.remap(response, np.broadcast_to(samples, (len(offsets), 64)),
+                        (dependent[None, :] + offsets[:, None]).astype(np.float32),
+                        cv2.INTER_LINEAR)
+    values = sampled[6:11].max(axis=0)
+    background = np.median(np.r_[sampled[:6], sampled[11:]], axis=0)
+    # Camera texture can have nonzero gradients along an arbitrary line. Each
+    # edge must stand out from its parallel local background, not just be nonzero.
+    return bool(np.mean(values > np.maximum(minimum, background * 1.8)) >= .8)
+
+
+def _border_peaks(profile: NDArray, *, separation: int) -> list[int]:
+    """Return measured response peaks, never predicted missing lines."""
+    work = cv2.GaussianBlur(np.asarray(profile, np.float32)[:, None], (1, 3), 0).ravel()
+    threshold = max(1.5, float(np.median(work)) * 4, float(work.max()) * .04)
+    peaks = []
+    for _ in range(24):
+        index = int(work.argmax())
+        if work[index] < threshold:
+            break
+        peaks.append(index)
+        work[max(0, index - separation):index + separation + 1] = 0
+    return sorted(peaks)
 
 
 def _train_navigation(
@@ -535,8 +636,8 @@ def _fit_active_area_grid(
     result = _cells_from_lines(verticals, fitted, names,
                                x_indices=tuple(range(columns + 1)),
                                y_indices=tuple(range(rows + 1)))
-    # Only one cross control is visible in these layouts. Additional Driver ID
-    # action slots are not inferred from the older model's four-slot row.
+    # Fit the cross independently; optional Driver ID controls cannot be a gate
+    # for the keypad or inferred from an earlier observation.
     bottom_y = height * .965 if menu else _line_position((*fitted[-1], 0), width / 2) + step
     top_y = bottom_y - step
     right = evidence.fit("v", width * .25, (top_y + bottom_y) / 2,
@@ -553,7 +654,62 @@ def _fit_active_area_grid(
                               radius=height * .025, slope_radius=.025)
         if left is not None and top is not None and bottom is not None:
             result[action] = _quad(left, right, top, bottom)
+    if action == "cancel":
+        # These proportions propose searches in the measured full-width crop.
+        # Each optional cell still needs its own four edges and visible content.
+        action_columns = [tuple((1 - fraction) * np.array(verticals[0])
+                                + fraction * np.array(verticals[-1]))
+                          for fraction in (0., .25, .46, .73, 1.)]
+        result.update(_visible_driver_actions(
+            frame, evidence, action_columns, fitted[-1],
+            (fitted[-1][0], fitted[-1][1] + step),
+        ))
     return {name: points for name, points in result.items() if valid_quad(points)}
+
+
+def _visible_driver_actions(
+    frame: Frame, evidence: BorderEvidence, columns: list[Line], top: Line, bottom: Line,
+) -> dict[str, Quad]:
+    """Return independently visible TRN/wrench cells; keep existing identities."""
+    height, width = frame.shape[:2]
+    result = {}
+    for name, index in (("trn", 2), ("settings", 3)):
+        guess = _quad(columns[index], columns[index + 1], top, bottom)
+        center_x, center_y = guess.mean(axis=0)
+        x1, x2 = float(guess[:, 0].min()), float(guess[:, 0].max())
+        y1, y2 = float(guess[:, 1].min()), float(guess[:, 1].max())
+        if x2 - x1 < 16 or y2 - y1 < 16:
+            continue
+        left = evidence.fit("v", float(guess[[0, 3], 0].mean()), center_y,
+                            y1 + (y2 - y1) * .15, y2 - (y2 - y1) * .15,
+                            radius=width * .025, slope=columns[index][0])
+        right = evidence.fit("v", float(guess[[1, 2], 0].mean()), center_y,
+                             y1 + (y2 - y1) * .15, y2 - (y2 - y1) * .15,
+                             radius=width * .025, slope=columns[index + 1][0])
+        upper = evidence.fit("h", float(guess[:2, 1].mean()), center_x,
+                             x1 + (x2 - x1) * .15, x2 - (x2 - x1) * .15,
+                             radius=height * .025, slope=top[0])
+        lower = evidence.fit("h", float(guess[2:, 1].mean()), center_x,
+                             x1 + (x2 - x1) * .15, x2 - (x2 - x1) * .15,
+                             radius=height * .025, slope=bottom[0])
+        if any(line is None for line in (left, right, upper, lower)):
+            continue
+        points = _quad(left, right, upper, lower)
+        if not valid_quad(points):
+            continue
+        destination = np.float32([[0, 0], [119, 0], [119, 79], [0, 79]])
+        cell = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(points, destination), (120, 80))
+        # A bordered empty slot is not a visible TRN or wrench. Test interior
+        # glyph/icon evidence without OCR, supplied text or remembered controls.
+        hsv = cv2.cvtColor(cell[12:68, 18:102], cv2.COLOR_BGR2HSV)
+        mask = cv2.inRange(hsv, (0, 0, 100), (179, 120, 255))
+        count, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+        content = [stats[i, cv2.CC_STAT_AREA] for i in range(1, count)
+                   if stats[i, cv2.CC_STAT_WIDTH] >= 3 and stats[i, cv2.CC_STAT_HEIGHT] >= 6
+                   and 12 <= stats[i, cv2.CC_STAT_AREA] < mask.size * .5]
+        if sum(content) >= 18:
+            result[name] = points
+    return result
 
 
 def _fit_grid(

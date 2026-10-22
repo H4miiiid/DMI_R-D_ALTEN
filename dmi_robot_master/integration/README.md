@@ -760,6 +760,43 @@ source metadata participates in negative-cache invalidation/recovery checks.
 
 # Phase 5 — one-label terminal session
 
+## Short live-session command
+
+Configure `run_robot.json` beside `run_robot.py` once, then run from the project root:
+
+```sh
+python3 -m dmi_robot_master.integration.run_robot test_01
+```
+
+This starts the existing `press_label` session with live detection, annotated
+preview and terminal label input together. Enter `KEY_1` at the terminal prompt;
+enter `quit` to end the session. Use another name for each trial. Results go to
+`/tmp/dmi_robot/test_01`, with sibling `test_01_progress.log` and
+`test_01_button_tests.jsonl`. Existing outputs are rejected, not overwritten.
+`/tmp` is temporary storage and may be cleaned by the OS; copy useful trials to
+permanent storage. `~/tmp` would be a different folder under your home directory.
+
+The Pi camera bridge and robot UDP receiver must already be running. Do not run
+`observe.py` alongside this session: `press_label` owns its own live processing.
+The supplied config requests regular processing, preview, receiver rotation 0
+and physical UDP pressing. Verify the bridge URL and both hosts' UDP settings;
+the repository PC YAML may still contain deployment addresses/ports needing updates.
+
+Fill the null settings with the installed camera's verified calibration and
+matching context paths, hardware-checks path, reviewed pixel evidence tolerance
+and measured exclusive XY upper limits in mm. Paths are relative to the JSON
+file, or can be absolute (`~` is supported). Do not use simulation calibration
+or invent readiness flags. The template intentionally fails before opening any
+camera or socket until these settings are supplied. All existing physical gates
+remain in `press_label`; the launcher does not home or calibrate the robot.
+The known transition/control-alignment defects and physical validation work
+remain unresolved by this launcher.
+
+For another camera/calibration profile, pass `--config /path/to/settings.json`.
+The camera index is selected on the Pi bridge; it is not inferred by this launcher.
+Preview is enabled by default; set `"preview": false` in the configuration to
+disable it. The original long command remains available for advanced options.
+
 Start one program; acquisition/detection and target export run while the terminal
 accepts KEY_0..KEY_9. It never asks for coordinates or runs an XML sequence.
 Default mode is dry-run, default transport is fake; the banner names both.

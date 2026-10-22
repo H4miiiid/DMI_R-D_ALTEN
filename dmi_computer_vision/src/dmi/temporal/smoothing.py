@@ -230,7 +230,8 @@ class RightDisplayStabilizer:
             "Driver ID", "Level", "Train Running Number",
             "Train Data (1/2)", "Train Data (2/2)",
         }:
-            layout_transform = self._update_layout_transform(content, geometry)
+            if self._state != "Level":
+                layout_transform = self._update_layout_transform(content, geometry)
             header_transform = self._update_header_transform(content, geometry)
         stabilized = dict(content)
         stabilized["title"] = self._stabilize_region(
@@ -240,9 +241,12 @@ class RightDisplayStabilizer:
             "data_field", content["data_field"], geometry, header_transform
         )
         stabilized["buttons"] = {
-            name: self._stabilize_region(
+            # Level cells have current local border/content validation. Publish
+            # their measured geometry, so an initial bad anchor cannot veto a
+            # later correction or drag a valid box away from its visible edges.
+            name: (deepcopy(region) if self._state == "Level" else self._stabilize_region(
                 f"button:{name}", region, geometry, layout_transform
-            )
+            ))
             for name, region in content["buttons"].items()
         }
         active = {

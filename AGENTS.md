@@ -28,6 +28,9 @@ their meanings, fields, buttons and labels. Both cameras must use the same core
 pipeline. Camera index must not determine screen identity or hardcoded geometry.
 Process one selected camera per session; concurrent multi-camera orchestration
 is outside this update. Keep each session's history and calibration separate.
+User-confirmed acquisition mapping: camera 0 views the lower, separated displays;
+camera 1 views the upper, connected monitor. Use this mapping to select the source,
+never to assign screen identity or bypass image-based geometry validation.
 
 ### Current camera evidence
 
@@ -47,6 +50,14 @@ All four show one connected monitor with the complete outer boundary visible in
 the reviewed final images. They cover two UI states, not evidence of both
 physical arrangements. Preserve the original separated-display recordings as
 regressions. Do not infer camera index or screen state from directory names.
+
+Connected-monitor recognition has been verified offline for Main and Driver ID
+only. Train Running Number shares the updated keypad fitter but lacks connected
+footage validation. Level and Train Data workflows retain existing recognition
+code, but their connected localization/control alignment are not established.
+Existing separated-display support is not proof of connected-monitor support for
+those states. Keep these coverage gaps explicit until representative evidence is
+checked; do not claim all screens work from the two verified examples.
 
 Each directory contains `annotated.mp4`, `last_annotated.png`, `results.jsonl`,
 `processed_frames.jsonl` and `session.json`. Treat sources as read-only. The saved
@@ -116,14 +127,32 @@ Implement and review the following steps separately:
    Review Main menu controls separately from Driver ID's field/keypad and verify
    left boxes on both captures. Use reviewed visible centers/borders as references,
    not the assumption that every control is visible or enabled on every state.
-4. **Handle partial evidence and stability.** Review the all-or-nothing locator:
+4. **Handle partial evidence, stability and measured processing cost.** Review the all-or-nothing locator:
    retain an independently validated region when the other cannot be fitted,
    without fabricating its partner. Check downstream state hints and visibility.
    Prevent identity swapping and perspective jumps. Reset incompatible temporal
    history when the camera or logical geometry changes; never blend two layouts
    into false stability. Preserve the existing 4-pixel publication tolerance,
    real evidence age, invalidation and latest-frame processing policy.
-5. **Validate both arrangements end to end.** Run existing vision/integration
+   Profile representative cold and steady-state frames from both arrangements
+   before optimizing. Separate geometry, left/right analysis, OCR, annotations
+   and acquisition/transport cost. Initial two-frame profiling found 11 OCR calls
+   and about 0.90–0.97 s in OCR within 1.14–1.18 s total analysis, much of it in
+   left train-title checks; this is a lead to investigate, not a full benchmark.
+   Prefer small image-evidence checks that avoid unnecessary title/OCR retries
+   while retaining recognition of genuine train-workflow titles and transitions.
+   Reuse unchanged title work only with bounded refresh and explicit invalidation
+   on source/session/layout/size changes, changed title evidence, loss and recovery.
+   A stable title must not suppress detection of changed buttons, fields or occlusion.
+   Cached recognition and skipped work must not refresh direct evidence timestamps
+   or confirmation counts. Preserve fresh target checks and expire old support;
+   use the existing processing policy, without another scheduler or detector.
+   Keep original-pixel outputs and the current capture profile. Do not loosen OCR,
+   calibration or freshness limits for speed, or replace uncertain readings with
+   assumed values. Keep helpers small and dependencies unchanged unless profiling
+   demonstrates a need. Report the measured cost reduction and accuracy checks
+   with Step 4's stability results before requesting review.
+5. **Validate both arrangements end to end, including speed and coverage.** Run existing vision/integration
    tests and representative separated-display regressions. Add focused cases
    for connected/separated backgrounds, off-center monitor placement, perspective,
    scale, modest exposure/blur, blue distractors, missing/occluded regions and
@@ -132,6 +161,28 @@ Implement and review the following steps separately:
    processing as the initial diagnostic path, then check selective mode, freshness,
    target export and timing. Generate review outputs in a new directory, never
    overwrite source recordings or approved evidence.
+   Maintain explicit per-arrangement coverage for Main, Driver ID, Level, Train
+   Running Number and all previously supported Train Data/validation workflows.
+   For connected states without footage, document the gap and identify the next
+   observation needed; continue independent offline work. Check localization,
+   identity, field values and control alignment separately. A recognized title
+   or an existing code branch alone does not establish complete screen support.
+   Compare pre/post optimization with the same clips, timing, settings, output
+   options and environment. Report mean/P95 analysis time, OCR calls/time, actual
+   processed FPS, skipped frames, capture-to-result age where measurable, preview
+   update rate and output volume. Separate reduced cost per detection from fewer
+   detection calls; neither MP4 playback FPS nor a configured rate cap is throughput.
+   Recheck exact separated-display regressions, title-shift/control geometry,
+   direct versus stabilized numeric accuracy and unknown rate. Exercise same-title
+   field/button changes, brief transitions, missing regions, occlusion, source
+   failure and camera/session switches. Cached results must invalidate correctly;
+   no stale label, value or center may masquerade as fresh evidence.
+   Measure transition/confirmation delay under regular and selective policies.
+   Tune existing rate/refresh settings from measured delay without silently changing
+   confirmation thresholds or extending freshness limits. Keep full debug encoding
+   optional, and show observation age on reused previews. Document remaining missed
+   events and hardware limits; do not promise 30-FPS detection. Report results and
+   tradeoffs before approval, with no robot motion in offline performance checks.
 
 ### Acceptance and scope
 

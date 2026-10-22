@@ -2,6 +2,100 @@
 
 ## Current status
 
+**Level raw-evidence correction — completed offline, awaiting review (2026-10-21).**
+User rejected observation_10 and provided `runs/level_raw_01` (53 unannotated frames,
+2304x1728, 10.683-s receipt span). The approved simulated preview is a visual
+reference only. This correction is checked on actual raw camera pixels.
+
+- Fixed Level's weak/noisy edge validation: contrast against local background and
+  measured interior UI borders, supported column filtering before adjacency, and
+  the same validation for intervening dividers. Fit each button's own outline
+  face across real gaps. No nominal button positions, camera branch or inferred
+  missing borders. Added the observed thick-cross shape and a same-cell OCR retry
+  without a second warp; confidence/exact-text requirements remain unchanged.
+- Ordered full replay: all ten other controls **53/53**, TBL1+ **51/53** (omitted
+  when uncertain, no retained label). Level identity and field **Level 1 53/53**.
+  Reviewed final-frame center error mean/max **3.87/6.19 original pixels**, corner
+  mean/max **5.54/9.22 px**, against coarse independent manual border references
+  (~3-px uncertainty). No physically validated mm tolerance is inferred.
+- The pre-correction local code replayed on the identical raw sequence produced
+  only 0–2 controls/frame. observation_10 itself reports 4–7 controls/frame; its
+  deployed revision is not recorded. These are distinct comparisons, not an
+  assertion that local replay exactly reproduces the saved run.
+- Actual regular/selective latest-frame replay with annotations/debug/target export:
+  9/10 processed of 53; 44/43 producer overwrites, zero policy skips; **0.72/0.77
+  processed FPS**. Regular has 8 complete frames plus one uncertain TBL1+; selective
+  has 10 complete frames. Compact reconstruction and video decode pass; final
+  target status is stopped with no supported labels. Mean receipt-to-result
+  1.50/1.47 s, max 1.79/2.29 s: some exceed the existing 1.5-s evidence lifetime.
+  Do not loosen freshness to hide processing cost. This is offline source replay,
+  not live camera/network throughput or capture-to-result age. 5-FPS video playback
+  is not detector FPS. No selective call savings are established by this short run.
+- **196 vision tests pass; 122 integration checks: 121 pass, one pre-existing
+  expected Main→Driver geometry failure.** New cases cover real raw pixels/native
+  centers, weak texture, photographed cross strokes and individually outlined
+  cells. Current 23-image regression preserves 21 non-Level results exactly;
+  separated Level retains the same 6/7 labels, with measured-border refinements.
+  Other output in those two examples is unchanged. Pending Driver ID fix preserved.
+- Sources and unrelated AGENTS/README/launcher/recorder files are hash-verified
+  unchanged. No base motor, source profile, schema, state/value confirmation,
+  publication tolerance, calibration or motion-policy change. No hardware action.
+- Review: `dmi_computer_vision/outputs/monitor_support/level_raw_correction_20261021_review01/REVIEW.md`.
+  Corrected real-footage video/PNGs and regular/selective replay outputs are in the
+  sibling run01 directory. Static connected Level is checked on the provided raw
+  recording; transitions, other Level values, fresh live deployment and physical
+  calibration/pressing remain unvalidated. Restart observe to load changed code.
+  No commit or push; explicit review/approval is still required.
+
+**Driver ID optional TRN/wrench correction — completed offline, awaiting review (2026-10-21).**
+User reports camera 1 detection is acceptable overall, with TRN and the wrench
+visible on some initial Driver ID entries but absent after Main → Driver ID.
+The shared right-layout fitter now includes `trn` and `settings` independently
+only with current local borders and interior glyph/icon evidence. Neither is a
+requirement for the title, field, keypad or Cancel; no camera-specific branch,
+new identity, OCR call, temporal threshold or freshness/calibration change.
+Legacy crops use the same visibility rule, preserving their existing empty slot.
+
+- Eight focused tests cover either/both/neither control, empty slots, missing
+  borders, small noise, same-title disappearance/recovery, Main → Driver ID,
+  other screen identities and perspective/original-pixel conversion with value 47.
+- **180 vision tests pass. 120 integration checks: 119 pass, one existing expected
+  failure** for transition geometry; this correction does not resolve that defect.
+- Before/after checks: 11 frozen separated examples and first/middle/last frames
+  from captures 01–04 (12 connected samples). Everything outside TRN/settings is
+  exactly equal. Connected samples remain unchanged; two separated Driver ID
+  examples retain both optional controls with independently fitted borders,
+  changing their centers by 3–13.34 original pixels (review images show the fit).
+- New `runs/observation_01` and `_02`: first/middle/last control-only checks recover
+  both previously omitted buttons in all six samples. These are annotated outputs:
+  saved geometry and supplied Driver ID identity were used for this diagnostic;
+  reprocessing their overlaid titles returns unknown. This is not new end-to-end
+  localization/recognition acceptance. The two runs have no recorded Main/absence
+  transition; absence/transition tests are controlled, not new hardware evidence.
+- Optional fitting adds no OCR. Alternating crop-fitter timing (20 calls/version)
+  measured mean 70.57 → 75.20 ms, P95 75.04 → 79.96 ms; excludes acquisition,
+  transport, OCR and output, and is not live throughput. No speed claim.
+- Review: `dmi_computer_vision/outputs/monitor_support/driver_optional_20261021_review01/REVIEW.md`.
+  Inputs and unrelated launcher/AGENTS/README changes preserved. No robot action,
+  commit or push. Existing coverage/calibration/transition limits remain open.
+
+**Short robot-session launcher — completed offline, awaiting review (2026-10-20).**
+Added `integration/run_robot.py` and `run_robot.json`: run
+`python3 -m dmi_robot_master.integration.run_robot test_01` to delegate to the
+existing live `press_label` session with preview and label input together.
+Outputs use `/tmp/dmi_robot/test_01` plus sibling progress/action logs; existing
+names are rejected. Settings come from the adjacent JSON (optional `--config`);
+relative file paths resolve against that config, independent of working directory.
+Calibration/context/readiness paths, evidence tolerance and measured XY limits
+are intentionally unset: fill them from actual deployment validation before use.
+No calibration, readiness, detector or motor policy was changed. The current
+transition/alignment defects and physical calibration requirements below remain
+open. Pi bridge and UDP receiver still run separately. README documents setup,
+temporary output lifetime and the existing PC YAML address/port review requirement.
+Three launcher checks and five existing terminal-session tests pass; CLI help
+and missing-configuration rejection checked, `git diff --check` passes. No camera,
+UDP or motor operation performed. No commit/push; preserve user-owned AGENTS.md.
+
 **Monitor-support Step 5 — offline validation approved for commit/push (2026-10-19).**
 User approved committing and pushing the Step 5 validation deliverable after
 reviewing its reported limits. Step 4 was published as `6ecdcc2`. Validation

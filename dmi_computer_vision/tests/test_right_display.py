@@ -12,7 +12,7 @@ sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
 from dmi_computer_vision.src.dmi.detection.display_geometry import DisplayGeometry  # noqa: E402
 from dmi_computer_vision.src.dmi.output.annotation import annotate_frame  # noqa: E402
-from dmi_computer_vision.src.dmi.detection.right_display import analyze_right_display  # noqa: E402
+from dmi_computer_vision.src.dmi.detection.right_display import analyze_right_display, _recognize_level_buttons  # noqa: E402
 from dmi_computer_vision.src.dmi.detection.right_layout import detect_button_quads, detect_title_quad  # noqa: E402
 from dmi_computer_vision.src.dmi.temporal.smoothing import RightDisplayStabilizer  # noqa: E402
 
@@ -31,6 +31,11 @@ class RightDisplayTest(unittest.TestCase):
 
     def test_recognizes_driver_id_structure_and_digits(self) -> None:
         frame = self._base_screen("Driver ID")
+        # Optional controls need their own action-row edges and visible glyphs.
+        for x in (280, 410):
+            cv2.line(frame, (x, 845), (x, 946), (110, 50, 8), 3)
+        cv2.putText(frame, "TRN", (293, 905), 0, .55, (230, 230, 230), 2)
+        cv2.putText(frame, "W", (480, 905), 0, .8, (230, 230, 230), 2)
         cv2.rectangle(frame, (0, 190), (560, 290), (240, 245, 235), -1)
         cv2.putText(
             frame, "12", (8, 255), cv2.FONT_HERSHEY_SIMPLEX, 1.0,
@@ -263,8 +268,9 @@ class RightDisplayTest(unittest.TestCase):
         buttons = detect_button_quads(frame, "Driver ID")
 
         self.assertAlmostEqual(float(buttons["cancel"][:, 0].max()), 145, delta=7)
-        self.assertAlmostEqual(float(buttons["trn"][:, 0].min()), 254, delta=7)
-        self.assertAlmostEqual(float(buttons["settings"][:, 0].min()), 399, delta=7)
+        # Border-only empty action cells must not invent named optional controls.
+        self.assertNotIn("trn", buttons)
+        self.assertNotIn("settings", buttons)
         self.assertAlmostEqual(float(buttons["cancel"][:, 1].max()), 930, delta=7)
 
     def test_level_close_uses_its_separate_visible_button_edges(self) -> None:
@@ -274,16 +280,20 @@ class RightDisplayTest(unittest.TestCase):
         for x in (0, 182, 368, 565):
             cv2.line(frame, (x, 470), (x, 838), (110, 50, 8), 3)
         cv2.line(frame, (145, 838), (145, 958), (110, 50, 8), 3)
+        cv2.line(frame, (0, 838), (0, 958), (110, 50, 8), 3)
 
-        buttons = detect_button_quads(frame, "Level")
+        cv2.line(frame, (35, 865), (105, 935), (230, 230, 230), 5)
+        cv2.line(frame, (105, 865), (35, 935), (230, 230, 230), 5)
+        for x in (435, 460, 485):
+            cv2.circle(frame, (x, 790), 4, (230, 230, 230), -1)
+        buttons = _recognize_level_buttons(frame, detect_button_quads(frame, "Level"))
         close = buttons["close"]
         more = buttons["more"]
 
         self.assertAlmostEqual(float(close[:2, 1].mean()), 838, delta=7)
-        self.assertAlmostEqual(float(close[2:, 1].mean()), 928, delta=7)
-        self.assertAlmostEqual(
-            float(close[:2, 1].mean()), float(more[2:, 1].mean()), delta=3
-        )
+        self.assertAlmostEqual(float(close[2:, 1].mean()), 958, delta=7)
+        # Each control follows its own face of the visible thick border.
+        self.assertAlmostEqual(float(more[2:, 1].mean()), 838, delta=4)
         self.assertAlmostEqual(float(close[:, 0].max()), 145, delta=7)
 
     def test_known_layout_relocks_to_common_zoom_from_multiple_buttons(self) -> None:

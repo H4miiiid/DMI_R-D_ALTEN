@@ -1,0 +1,15 @@
+{
+  "bridge_url": "http://192.168.1.210:8080/frame.jpg",
+  "processing": "regular",
+  "preview": true,
+  "rotation": 0,
+  "transport": "udp",
+  "mode": "physical-press",
+  "robot_config": "../../dmi_robot_config/pc_cfg.yaml",
+  "calibration": null,
+  "calibration_context": null,
+  "hardware_checks": null,
+  "evidence_tolerance_px": null,
+  "max_x_mm": null,
+  "max_y_mm": null
+}

@@ -30,7 +30,7 @@ class TitleVisibilityTest(unittest.TestCase):
             result = analyze_right_display(self.image, self.geometry)
         self.assertEqual(result['state'], 'Level')
         self.assertIsNone(result['data_field'])
-        self.assertIn('level_1', result['buttons'])
+        self.assertEqual(result['buttons'], {})  # A title alone establishes no controls.
 
     def test_unreadable_title_does_not_infer_buttons_from_field(self):
         cv2.rectangle(self.image, (10, 190), (565, 290), (240, 240, 240), -1)
