@@ -97,11 +97,18 @@ def _draw_right_content(frame: Frame, display: dict[str, Any]) -> None:
             frame, field, f"field: {value}", (0, 165, 255), draw_center=True
         )
     for name, button in display["buttons"].items():
+        label, color = name, (255, 128, 0)
+        if "active" in button:
+            active = button["active"]
+            status = "active" if active is True else "inactive" if active is False else "unknown"
+            label = f"{name} [{status}]"
+            color = ((80, 230, 80) if active is True else (150, 150, 150)
+                     if active is False else (0, 190, 255))
         _draw_region(
             frame,
             button,
-            name,
-            (255, 128, 0),
+            label,
+            color,
             thickness=2,
             draw_center=True,
         )

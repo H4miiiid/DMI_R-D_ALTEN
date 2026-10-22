@@ -48,6 +48,11 @@ def compact_state(result):
         state["left_display"]["buttons"] = {
             name: button["center"] for name, button in left["buttons"].items()
         }
+    activity = {name: button["active"] for name, button in right["buttons"].items()
+                if "active" in button}
+    if activity:
+        # Preserve the existing compact name -> center contract.
+        state["right_display"]["button_activity"] = activity
     return deepcopy(state)
 
 

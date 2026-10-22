@@ -287,8 +287,8 @@ class RightDisplayTest(unittest.TestCase):
         for x in (435, 460, 485):
             cv2.circle(frame, (x, 790), 4, (230, 230, 230), -1)
         buttons = _recognize_level_buttons(frame, detect_button_quads(frame, "Level"))
-        close = buttons["close"]
-        more = buttons["more"]
+        close, _ = buttons["close"]
+        more, _ = buttons["more"]
 
         self.assertAlmostEqual(float(close[:2, 1].mean()), 838, delta=7)
         self.assertAlmostEqual(float(close[2:, 1].mean()), 958, delta=7)

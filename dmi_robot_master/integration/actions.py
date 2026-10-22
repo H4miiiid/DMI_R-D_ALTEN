@@ -90,6 +90,8 @@ class LabelActions:
         return observation, target
 
     def _validate(self, observation: dict, target: dict) -> tuple[list[float], list[int]]:
+        if 'active' in target and target['active'] is not True:
+            raise ValueError('Target is inactive or its activity is unknown')
         if not target.get('usable') or target.get('mm') is None:
             raise ValueError('Target is unusable, uncalibrated or lacks current geometry support')
         if self.link.hardware:

@@ -13,6 +13,7 @@ from dmi_robot_master.integration.calibration import save_calibration
 from dmi_robot_master.integration.publication import ChangePublisher
 from dmi_robot_master.integration.targets import (
     CurrentTargets, TargetFiles, TargetProjector, atomic_json, read_target, select_target,
+    target_snapshot,
 )
 from test_calibration import CAMERA, ORIGIN, SIZE, fit, points, record
 
@@ -42,6 +43,20 @@ class ProjectionTests(unittest.TestCase):
         self.assertTrue(snapshot['targets']['KEY_1']['usable'])
         self.assertIsNone(snapshot['targets']['left/box/box_1']['mm'])
         self.assertIsNone(snapshot['targets']['right/field/input']['mm'])
+
+    def test_inactive_and_unknown_activity_are_exported_but_unusable(self):
+        for active in (False, None):
+            with self.subTest(active=active):
+                result = record(0)['result']
+                result['right_display']['buttons']['digit_5']['active'] = active
+                snapshot, _ = self.projector.project(result,direct_evidence(),frame_size=SIZE)
+                target = snapshot['targets']['KEY_5']
+                self.assertIs(target['active'],active)
+                self.assertFalse(target['usable'])
+                exported = target_snapshot({'session_id':'activity','revision':1,**snapshot},True)
+                selected = next(t for t in exported['targets'] if t['label']=='KEY_5')
+                self.assertIn('active',selected)
+                self.assertIs(selected['active'],active)
 
     def test_fresh_frame_missing_direct_key_evidence_does_not_bless_retained_target(self):
         observed = direct_evidence()

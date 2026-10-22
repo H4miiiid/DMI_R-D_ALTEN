@@ -1,700 +1,375 @@
-# Robot and DMI Vision Integration
-
-## Purpose
-
-Connect the existing DMI detector to the robot's real camera. Detect and annotate
-the visible screens, buttons, fields and boxes; convert their image centers to
-robot coordinates; then test one physical button press by its label.
-
-Implement one phase at a time. Keep the first integration small and easy to test.
-Do not build the future backend or redesign the GUI as part of this work.
-
-## Current work — Support both monitor arrangements
-
-The original integration phases 1–6 and 3A are complete offline. Their sections
-below retain the implementation scope and acceptance rules, not a request to
-restart them. Follow root `STATE.md` for the active milestone.
-
-The next vision update must support both views present on the installed robot:
-
-- **Separated displays:** left and right DMI regions with a dark separator,
-  supported by the accepted recordings and current detector.
-- **Single monitor:** the same logical left and right DMI regions on one surface,
-  with a connected blue background and no dark separator.
-
-These are different physical arrangements, not new screen states. Driver ID,
-Level, Train Running Number, Main and the existing train-data workflows retain
-their meanings, fields, buttons and labels. Both cameras must use the same core
-pipeline. Camera index must not determine screen identity or hardcoded geometry.
-Process one selected camera per session; concurrent multi-camera orchestration
-is outside this update. Keep each session's history and calibration separate.
-User-confirmed acquisition mapping: camera 0 views the lower, separated displays;
-camera 1 views the upper, connected monitor. Use this mapping to select the source,
-never to assign screen identity or bypass image-based geometry validation.
-
-### Current camera evidence
-
-Use these directories under `dmi_computer_vision/data/videos/dev/` as the current
-connected-monitor inputs, replacing the removed `dmi_detection_check_03/` sample:
-
-- `dmi_capture_quality_01/`: 118 processed frames at 2304x1728; the reviewed final
-  view shows Main, its menu buttons and the left indicator/boxes.
-- `dmi_capture_quality_02/`: 53 processed frames at 2304x1728; the reviewed final
-  view shows Driver ID, field value `23`, keypad and action controls.
-- `dmi_capture_quality_03/`: 156 processed frames at 2304x1728; additional Driver ID
-  evidence with field `23` and a dark upper monitor boundary.
-- `dmi_capture_quality_04/`: 109 processed frames at 2304x1728; additional Main/menu
-  evidence with clearer blue borders. User added 03/04 for the Step 2 correction.
-
-All four show one connected monitor with the complete outer boundary visible in
-the reviewed final images. They cover two UI states, not evidence of both
-physical arrangements. Preserve the original separated-display recordings as
-regressions. Do not infer camera index or screen state from directory names.
-
-Connected-monitor recognition has been verified offline for Main and Driver ID
-only. Train Running Number shares the updated keypad fitter but lacks connected
-footage validation. Level and Train Data workflows retain existing recognition
-code, but their connected localization/control alignment are not established.
-Existing separated-display support is not proof of connected-monitor support for
-those states. Keep these coverage gaps explicit until representative evidence is
-checked; do not claim all screens work from the two verified examples.
-
-Each directory contains `annotated.mp4`, `last_annotated.png`, `results.jsonl`,
-`processed_frames.jsonl` and `session.json`. Treat sources as read-only. The saved
-results have unknown geometry/state and no controls despite the improved image.
-The refreshed Step 1 locator baseline rejected all 171 frames from 01/02;
-see root STATE.md for subsequent localization changes and current verification.
-The old sample's partial localization result is not acceptance of these inputs.
-
-These are annotated outputs, not raw recordings. Existing overlays/compression
-can affect localization and OCR; exclude overlay pixels from image measurements
-and do not treat old annotations as ground truth. Prefer equivalent unannotated
-frames when available, but continue diagnosis with the supplied evidence. The
-MP4 plays at 5 FPS; use the sidecar receipt times for timing/replay evaluation,
-not playback duration. These sessions do not record actual sensor mode or camera index.
-
-Target the current bridge's upright 4:3 capture profile: requested 2304x1728,
-continuous autofocus, -2 EV, 30-FPS capture and 180-degree source rotation;
-receiver rotation remains 0. Confirm actual selected settings separately. Handle
-the observed dark upper panel, thin blue borders, perspective and extra bezel
-without requiring a brighter exposure, tight crop or the old zoomed framing.
-Keep image centers in original input pixels even if analysis uses a smaller image.
-
-### Implementation approach
-
-Make the smallest evidence-backed changes, primarily in
-`dmi_computer_vision/src/dmi/detection/display_geometry.py`. Reuse existing
-rectification, left/right analyzers, OCR, annotations, temporal processing and
-output contracts. Change an existing analyzer only when a measured failure
-remains after localization is correct. Do not duplicate complete pipelines,
-rename working modules or introduce a model/framework merely for this extension.
-
-Implement and review the following steps separately:
-
-1. **Refresh the failure and regression baseline.** Inspect both current capture
-   directories, including first/middle/last frames, metadata and receipt times.
-   Compare saved results with fresh processing using the current local code;
-   the deployed detector version is not recorded in these sessions. Preserve
-   separated-display regression examples and accepted history. Earlier Steps 1/2
-   used the removed 1280x720 sample; keep their reports as historical evidence,
-   then revalidate localization on these new inputs before advancing the milestone.
-   Do not require the removed directory or restart accepted integration phases.
-2. **Extend localization.** Keep the accepted separated-display path. Add a
-   fallback for connected surfaces: detect the monitor boundary/perspective and
-   locate the logical division using actual edge, border and UI-structure evidence.
-   Fit each logical region and map its geometry to the original input image.
-   Do not accept the entire wide monitor as one portrait display. A fixed 50/50
-   split, copied pixel coordinates or a synthetic black stripe is not a solution.
-   Use layout proportions only as hypotheses, validated against image evidence.
-   Reject ambiguous splits and background blue distractors. Keep any necessary
-   helper small and colocated with geometry; add a file only for a clear responsibility.
-   Reuse and correct the existing connected fallback rather than adding another
-   pipeline. Localize both Main and Driver ID: a pale input field plus a
-   three-column keypad cannot be a mandatory gate for every screen. Use observed
-   monitor/internal-border and layout evidence available in each view, with
-   conservative rejection when evidence is insufficient. A visible full monitor
-   rejected by a color-boundary hypothesis needs investigation; a diagnostic label
-   such as `clipped_surface` alone is not proof that the camera image is clipped.
-3. **Verify shared screen analysis.** Supply the same logical regions/coordinate
-   convention expected by the accepted analyzers, despite different physical
-   bezels or margins. Check titles, fields, keypad/action rows and left boxes.
-   In-memory diagnostic partitions recovered a field but not title/buttons, so
-   successful geometry fitting alone is insufficient. If verified regions still
-   fail, make focused evidence-based title/border-search adjustments, such as
-   searching above the observed field instead of relying only on a narrow fixed
-   title band. Keep existing identities and avoid inventing controls where local
-   evidence is missing. Unknown-state handling must remain conservative.
-   Review Main menu controls separately from Driver ID's field/keypad and verify
-   left boxes on both captures. Use reviewed visible centers/borders as references,
-   not the assumption that every control is visible or enabled on every state.
-4. **Handle partial evidence, stability and measured processing cost.** Review the all-or-nothing locator:
-   retain an independently validated region when the other cannot be fitted,
-   without fabricating its partner. Check downstream state hints and visibility.
-   Prevent identity swapping and perspective jumps. Reset incompatible temporal
-   history when the camera or logical geometry changes; never blend two layouts
-   into false stability. Preserve the existing 4-pixel publication tolerance,
-   real evidence age, invalidation and latest-frame processing policy.
-   Profile representative cold and steady-state frames from both arrangements
-   before optimizing. Separate geometry, left/right analysis, OCR, annotations
-   and acquisition/transport cost. Initial two-frame profiling found 11 OCR calls
-   and about 0.90–0.97 s in OCR within 1.14–1.18 s total analysis, much of it in
-   left train-title checks; this is a lead to investigate, not a full benchmark.
-   Prefer small image-evidence checks that avoid unnecessary title/OCR retries
-   while retaining recognition of genuine train-workflow titles and transitions.
-   Reuse unchanged title work only with bounded refresh and explicit invalidation
-   on source/session/layout/size changes, changed title evidence, loss and recovery.
-   A stable title must not suppress detection of changed buttons, fields or occlusion.
-   Cached recognition and skipped work must not refresh direct evidence timestamps
-   or confirmation counts. Preserve fresh target checks and expire old support;
-   use the existing processing policy, without another scheduler or detector.
-   Keep original-pixel outputs and the current capture profile. Do not loosen OCR,
-   calibration or freshness limits for speed, or replace uncertain readings with
-   assumed values. Keep helpers small and dependencies unchanged unless profiling
-   demonstrates a need. Report the measured cost reduction and accuracy checks
-   with Step 4's stability results before requesting review.
-5. **Validate both arrangements end to end, including speed and coverage.** Run existing vision/integration
-   tests and representative separated-display regressions. Add focused cases
-   for connected/separated backgrounds, off-center monitor placement, perspective,
-   scale, modest exposure/blur, blue distractors, missing/occluded regions and
-   screen transitions. Use actual single-monitor evidence for supported states;
-   report states without representative footage as unverified. Retain regular
-   processing as the initial diagnostic path, then check selective mode, freshness,
-   target export and timing. Generate review outputs in a new directory, never
-   overwrite source recordings or approved evidence.
-   Maintain explicit per-arrangement coverage for Main, Driver ID, Level, Train
-   Running Number and all previously supported Train Data/validation workflows.
-   For connected states without footage, document the gap and identify the next
-   observation needed; continue independent offline work. Check localization,
-   identity, field values and control alignment separately. A recognized title
-   or an existing code branch alone does not establish complete screen support.
-   Compare pre/post optimization with the same clips, timing, settings, output
-   options and environment. Report mean/P95 analysis time, OCR calls/time, actual
-   processed FPS, skipped frames, capture-to-result age where measurable, preview
-   update rate and output volume. Separate reduced cost per detection from fewer
-   detection calls; neither MP4 playback FPS nor a configured rate cap is throughput.
-   Recheck exact separated-display regressions, title-shift/control geometry,
-   direct versus stabilized numeric accuracy and unknown rate. Exercise same-title
-   field/button changes, brief transitions, missing regions, occlusion, source
-   failure and camera/session switches. Cached results must invalidate correctly;
-   no stale label, value or center may masquerade as fresh evidence.
-   Measure transition/confirmation delay under regular and selective policies.
-   Tune existing rate/refresh settings from measured delay without silently changing
-   confirmation thresholds or extending freshness limits. Keep full debug encoding
-   optional, and show observation age on reused previews. Document remaining missed
-   events and hardware limits; do not promise 30-FPS detection. Report results and
-   tradeoffs before approval, with no robot motion in offline performance checks.
-
-### Acceptance and scope
-
-- Both arrangements produce correctly aligned logical regions, screen titles,
-  fields, buttons, centers and left boxes on representative visible frames.
-  Assess center/border errors and missed detections against reviewed examples;
-  valid JSON, nonempty boxes or screen recognition alone do not prove alignment.
-- Existing separated-display detections remain equivalent unless a specific
-  reviewed correction justifies a difference. Report detection rate, jitter,
-  transition delay, processing time and any false positives on the new view.
-- Log concise optional failure reasons (no surface, ambiguous division, invalid
-  region, title/field not found). Avoid repeating identical warnings each frame.
-  Do not replace established robot-facing schemas just to add diagnostics.
-- Preserve calibration/source matching, raw-evidence checks and motion limits.
-  Do not loosen calibration tolerances to accommodate an uncertain split. Review
-  or refit calibration when localization changes; each installed camera/view needs
-  its own validated context. Pixel detection success does not authorize motion.
-- Camera focus/exposure/framing can improve evidence but must not substitute for
-  connected-monitor support. Report clipped boundaries and poor image quality.
-  Do not claim support for arbitrary layouts or physically validate robot presses
-  from recorded-image results.
-- Update the owning vision specifications when behavior changes, plus root
-  `STATE.md` for the integration handoff. Keep the accepted V2 history distinct
-  from this follow-up. Report each step, request review, and obtain explicit
-  approval before commit/push, following the workflow below.
-
-Step 2 localization on captures 01–04 was accepted on 2026-10-16, with explicit
-authorization to commit/push the monitor-support work. Sample03's small dark-corner
-limitation is accepted with qualitatively lower confidence; do not discard the
-otherwise supported regions solely for this reviewed limitation. This does not
-introduce a numerical confidence schema or relax calibration/motion limits.
-Further detector changes require the next implementation request. Do not mark
-complete monitor support from localization alone or superseded-sample checks.
-
-## Development from home
-
-The original six numbered phases plus Phase 3A were implemented from home before
-the hardware trial. Keep their numbers and accepted history unchanged. The active
-monitor-support follow-up uses saved live evidence and new observation-only trials.
-Use existing recordings through the live processing path, synthetic calibration
-points and fake robot/transport objects for development. Hardware availability
-must not block implementation or require physical validation between phases.
-
-Keep real camera and robot settings configurable. Ask only for hardware facts
-needed to choose an implementation; leave deployment-only settings unresolved
-and documented when they are not yet available. Do not guess the final setup.
-
-Distinguish **implemented and tested offline** from **validated on hardware**.
-Recorded-video calibration is a development example: it cannot be reused as the
-physical robot calibration. Fit and validate a new calibration on the installed
-robot camera before enabling movement. Mark offline artifacts as simulation;
-hardware execution must reject them.
-
-## Read before working
-
-- Read this file and the files involved in the current phase.
-- Read the root `STATE.md` when present to resume integration work from the
-  latest handoff. Create it when Phase 1 implementation begins.
-- For vision changes, also follow `dmi_computer_vision/AGENTS.md` when present and
-  read its `docs/STATE.md`, relevant workflow and output requirements when available.
-  Accepted V2 behavior remains the baseline. These vision guidance/review files
-  may be locally removed; do not restore them or require them as runtime inputs.
-- Read `dmi_computer_vision/review.md` when present for known detector limitations;
-  use root `STATE.md` and current code/evidence for the latest findings.
-- The root README is a GitLab template, not a description of working behavior.
-- Check the current code before acting: files and imports may have changed since
-  the review. Do not overwrite unrelated user changes.
-
-## Existing responsibilities
-
-- `dmi_computer_vision/`: detection, temporal processing, annotations and logs.
-  Reuse `FrameProcessor`, `process_live` and `LatestState` where appropriate.
-- `dmi_robot_master/`: PC command handling, GUI, XML scripts and
-  `DmiPositions.json` with known robot XY positions in millimeters.
-- `dmi_robot_rasp/`: Raspberry Pi GPIO, motors, sensors and command execution.
-- `dmi_robot_common/`: configuration loading, logging and existing UDP transport.
-- `dmi_robot_config/`: shared PC and Raspberry Pi YAML configuration.
-
-Keep image processing separate from camera acquisition and motor commands.
-The intended flow is:
-
-```text
-robot camera -> recent frame -> existing detector -> annotated preview
-                                           |
-                                           v
-                              labeled centers in pixels
-                                           |
-                                           v
-                              validated calibration -> centers in mm
-                                           |
-                                           v
-                              fresh target selected by label
-                                           |
-                                           v
-                              existing robot transport -> move and press
-                                           |
-                                           v
-                              new camera observation verifies the result
-```
-
-## Code standards
-
-- Reuse working code. Add only the functions needed for the current phase.
-- Use clear names, normal formatting, explicit units and type hints at interfaces.
-- Prefer straightforward functions and small classes with one responsibility.
-- Keep entry points short. Keep calibration math, output conversion and robot
-  execution separate, without creating a framework or many tiny wrapper files.
-- Add integration helpers under a small `dmi_robot_master/integration/` package
-  when needed. Camera-specific hardware code belongs beside its source adapter.
-- Avoid duplicated detectors, large controller files, wildcard imports, dynamic
-  method dispatch where a simple mapping works, and compressed one-line logic.
-- Do not add arbitrary file-length limits or split files merely to meet a number.
-  Split when responsibilities become difficult to understand.
-- Use one consistent import strategy. Resolve config/assets relative to their
-  owning files or explicit configuration, not the current working directory.
-- Make device ownership and cleanup explicit. Release cameras, sockets and GPIO.
-- Log useful progress and failures. Do not swallow errors or claim success after
-  a failed command. Avoid expensive logging inside individual motor steps.
-- Keep dependencies minimal and document the exact commands that actually work.
-- Do not commit or push without the user's instruction.
-
-## Phase 1 — Make the existing robot interface consistent
-
-Preserve the base robot implementation. This phase prepares its existing
-interfaces for CV integration; it is not a general cleanup or rewrite. Prefer
-small integration adapters that call the existing controller and robot methods.
-Small direct changes are allowed when they fix a demonstrated integration
-blocker more simply than an adapter, such as an incorrect import, config path or
-method call. Explain why each base-code change is necessary and verify that the
-existing command behavior is preserved.
-
-Do not change motor timing, movement algorithms, homing, GPIO assignments, the
-wire protocol or GUI behavior merely to simplify integration. Report unrelated
-problems separately. If a hardware defect prevents a reliable test, identify it
-explicitly and propose a focused fix rather than folding it into a broad refactor.
-
-1. Inspect master, slave, robot methods, imports, config paths and dependencies.
-2. Fix only the blockers needed for integration. At the initial review:
-   - GUI imports reference common modules as local files.
-   - Controllers expect YAML files beside themselves, but files are in
-     `dmi_robot_config/`.
-   - The slave calls `move` and `move_and_click`; the robot implements
-     `live_movement` and `click`. Confirm absolute XY semantics and millisecond
-     press duration before adapting these calls.
-   - Picture capture has no initialized camera; do not assume it is operational.
-3. Confirm the intended shared message protocol. Keep the older standalone
-   protocol in `DmiRobot.py` out of the integration path.
-4. Check command payloads, bounds and failure responses without moving hardware.
-   Use a fake robot and fake transport for these checks.
-5. Make the smallest import/config corrections needed to start both components.
-   Add missing dependency/setup guidance without installing Pi packages on a PC.
-
-Complete when imports/configuration resolve and simulated commands call the
-correct robot operations with the correct units. Report remaining hardware
-limitations. Do not silently refactor the accepted detector.
-
-## Phase 2 — Implement the robot-camera processing path
-
-1. Identify the actual camera: USB webcam, Picamera2 camera or an existing stream.
-   Establish its intended host and interface when known. Keep resolution,
-   orientation and connection configurable; confirm actual values during the
-   later hardware trial. Ask only when a missing fact affects adapter design.
-2. Choose one intended processing host. If the camera and detector are
-   on different hosts, use one simple frame transport with bounded buffering.
-   Do not assume the current integer-index webcam adapter accepts stream URLs.
-3. Reuse the existing camera adapter when compatible. Otherwise implement one
-   thin adapter supplying BGR `uint8` frames, increasing capture indices and
-   local monotonic receipt times to the existing processing path.
-4. Give the camera one owner. Share frames if still images are also needed;
-   do not let the robot and detector independently open the same device.
-5. At home, replay existing videos through the same live processing interface,
-   with local receipt timestamps and a bounded latest-frame buffer. Keep the
-   original video time separately for evaluation. Run observation only and show
-   or save annotations for every processed frame and the compact detection log.
-6. Process the most recent frame when the detector cannot keep up with capture.
-   Report capture rate, processed rate, skipped frames and latency. Do not claim
-   every camera frame is processed or that every possible screen is supported.
-7. Check Driver ID and representative supported screens using existing recordings.
-   Unknown screens remain explicitly unknown; report missing recognition.
-
-Complete offline when replay through the live path produces correct annotations,
-valid output and bounded buffering, and the intended camera adapter is ready.
-Document untested device behavior and proceed to Phase 3. Confirm actual camera
-input and image quality after all implementation phases, including Phase 3A.
-
-## Phase 3 — Calibrate pixels to robot millimeters
-
-Use `dmi_robot_master/DmiPositions.json` as the reference for
-`DMI_SENSE_TOUCHSCREEN.screens.DRIVER_ID_WINDOW.buttons`.
-Only this model currently has mapped keys. Verify the coordinates against the
-actual installed DMI during the final hardware trial; a JSON entry is a reference,
-not proof of physical accuracy.
-
-1. At home, implement and test fitting with synthetic known correspondences and
-   stable Driver ID recordings. Treat recorded-coordinate fits as simulation.
-   On hardware later, fix the camera, DMI and robot mounting, home the robot and
-   establish which robot origin and axis directions the stored coordinates use.
-2. Observe a stable, visible Driver ID keypad without robot movement or occlusion.
-   Match detector `digit_0` through `digit_9` to database `KEY_0` through `KEY_9`.
-   Match by identity, never dictionary order or screen position alone.
-3. Use centers in the original input image coordinate system. Do not mix them
-   with resized preview, cropped or rectified image coordinates.
-4. Collect several consistent observations of each matched center. Reject
-   missing, ambiguous or unstable matches; summarize accepted centers robustly.
-5. Fit a planar pixel-to-robot-XY homography using OpenCV and the matched points.
-   This accounts for perspective; a single pixels-per-mm ratio generally does
-   not. Use at least four non-collinear matches and preferably all ten keys.
-   Reject degenerate fits and insufficient inliers; do not select a complicated
-   calibration model unless measured error justifies it.
-6. Validate with held-out keys or leave-one-out fits. Report per-key, mean and
-   maximum XY error in mm. Training residual alone is not independent validation.
-   Set an acceptance tolerance from physical button size and robot positioning
-   accuracy before enabling movement; do not invent a universal tolerance.
-7. Save a small calibration file containing the transform, model, frame size,
-   camera identity/settings, reference coordinate-file hash, matched points,
-   origin/axis convention, validation errors and calibration identifier.
-8. Apply the transform to a detected center as homogeneous coordinates, divide
-   by the third component and reject nonfinite or unstable results.
-
-Calibration maps a point on the calibrated screen plane to absolute robot XY
-millimeters. It does not determine Z depth, contact force or press duration.
-Keypad-only calibration does not validate distant controls or the other display.
-Export their detected pixels, but mark mm coordinates unusable outside the
-validated area. Extend validation with measured points before enabling them.
-Separate planes need separate calibration.
-
-Invalidate calibration after camera/DMI/robot mount movement, changes to image
-size/crop/orientation, reference coordinates or robot origin. Resolution matching
-alone cannot detect camera movement. Recheck known key correspondences before
-each physical test and whenever a relevant change is suspected.
-
-Complete offline when fitting, conversion, held-out error reporting and invalid
-calibration rejection pass focused tests. Review recorded examples, then proceed.
-Physical accuracy and the final tolerance must be verified on the installed robot
-before any physical movement based on vision.
-
-## Phase 3A — Reduce processing and publish meaningful changes
-
-This phase's original scope preceded target export. It is now accepted offline;
-preserve its behavior and calibration evidence during the monitor-support update.
-
-Do not process or transmit every captured frame. Separate camera acquisition,
-expensive detection, and target publication: skipping a detection and suppressing
-an unchanged output are different optimizations. Keep the live camera buffer
-bounded to the most recent frame and keep robot actions independent of capture.
-
-1. Measure current detection/annotation time, processed frames and output volume
-   on representative stable sections and screen transitions. The existing
-   `CompactWriter` already uses change-based output and a 5-pixel geometry
-   tolerance; reuse its behavior where suitable instead of building another log
-   protocol. `process_live` still processes/annotates every consumed frame, and
-   Phase 4's simple target output has not been implemented yet.
-2. Add a small configurable processing policy: cap detection rate and use a cheap
-   image-change check to request detection when the scene changes. Also run full
-   detection at a bounded refresh interval even when the check sees no change.
-   Never rely on a title comparison alone: recognizing the title itself requires
-   detection, and buttons, fields or occlusion can change without a new title.
-3. Prefer prompt detection after change evidence, startup, capture/session reset,
-   resolution change and a completed robot action. Do not queue old images.
-   Choose rate/refresh settings from measured response delay, not an arbitrary
-   promise of real-time speed. Keep regular processing available for regression
-   comparison and calibration collection.
-4. Compare target centers against their last published centers in original-image
-   pixels. Default the configurable publication tolerance to **4 pixels per
-   coordinate**: publish geometry only when `max(abs(dx), abs(dy)) > 4`.
-   Ignore 3–4 pixel jitter, including exactly 4. Compare to the published baseline,
-   not the preceding frame, so repeated small steps eventually reveal real drift.
-   This is an output tolerance, not permission to change calibration limits or
-   conceal meaningful physical movement.
-5. Publish an initial complete target snapshot. Publish subsequent target data
-   when the confirmed screen/title, target identities/labels, target presence,
-   field values when exported, or centers beyond tolerance change. Visibility,
-   usability, calibration/session changes and target loss must also propagate.
-   Semantic changes and invalidation bypass the pixel tolerance. Reuse existing
-   detector confirmation; do not add delays that hide genuine UI transitions.
-6. Keep the latest internal observation current after every actual detection,
-   even when publication is suppressed. Preserve the actual receipt/evidence age;
-   skipped frames or an unchanged cheap image check do not refresh target evidence.
-   Send a small configurable status heartbeat with session/revision and the last
-   detection time for consumers, without resending all coordinates. Expire or
-   invalidate targets when evidence is too old or the source fails. Silence must
-   not be interpreted as proof that an old target is still safe to use.
-7. Avoid repeat mm conversion, calibration-file refitting, annotation encoding and
-   target serialization for unchanged content. Validate calibration on load and
-   context changes; cache validated state without bypassing per-action checks.
-   Keep full annotation/debug output optional for review and calibration. A reused
-   preview must show its observation age rather than look like a fresh detection.
-8. Verify the policy with offline replay and focused tests: 3/4 pixel jitter,
-   threshold crossing, cumulative drift, same-title button changes, screen
-   transitions, target removal, stale evidence, failure and post-action refresh.
-   Measure detection calls, output updates/bytes, processing time and maximum
-   recognition delay against the regular processing path.
-
-Existing temporal confirmation counts processed frames. Reducing processing rate
-can increase state/value response delay and trigger history resets across gaps.
-Measure both effects and preserve accurate timestamps; do not silently change
-confirmation thresholds or pretend skipped frames were processed. Brief events
-may still be missed; report this tradeoff and select settings for the test's needs.
-
-Complete offline when stable scenes require fewer detection calls and target
-updates, small jitter produces no geometry updates, and meaningful changes/loss
-are reported within documented timing limits. Report measured savings and
-transition behavior, update `STATE.md`, and request approval before Phase 4.
-
-## Phase 4 — Export a simple current target file
-
-Keep the existing rich vision logs. Add a small projection for robot consumers;
-do not replace the detector contract or make the robot parse annotation images.
-Use `LatestState` or an equally small current-state interface, not a historical
-JSONL record that may no longer describe the visible screen.
-
-Apply Phase 3A's change and freshness policy. Prefer an atomically replaced
-`targets.json` containing the latest published snapshot, written on meaningful
-changes rather than every frame. Keep current evidence/status available separately
-through a lightweight heartbeat and the in-memory state; suppressed target writes
-must not obscure freshness or postpone expiry.
-Optional JSONL history may use the same full snapshot format; keep it separate
-from the file used to select current targets. Minimal proposed format:
-
-```json
-{
-  "session_id": "camera-session-id",
-  "frame_index": 42,
-  "observed_at": "2026-10-07T13:00:00.000Z",
-  "screen": "Driver ID",
-  "calibration_id": "calibration-id",
-  "targets": [
-    {
-      "label": "KEY_1",
-      "kind": "button",
-      "display": "right",
-      "pixel": [640, 360],
-      "mm": [100.0, 300.0],
-      "usable": true
-    }
-  ]
-}
-```
-
-The example pixel position is illustrative, not a known detection. Specify:
-
-- `pixel`: original-image `[x, y]`; `mm`: absolute robot `[x, y]`, or `null` when
-  calibration is absent, invalid or outside its validated area.
-- `observed_at`: source-frame receipt time expressed in UTC, not export time.
-  Enforce receipt age with a monotonic clock in the live process. Across hosts,
-  account for clock synchronization and transport delay; a file's modification
-  time is not evidence of fresh camera input.
-- `label`: stable, unique within the snapshot. Map keypad digits to `KEY_n`;
-  qualify other detector labels by display/kind where needed to avoid ambiguity.
-- Export detected buttons, fields and boxes with their centers and labels.
-  Keep optional field values out of the first schema unless needed for the test.
-- `usable` means fresh enough and within validated calibration/geometry limits.
-  It does not mean every exported field or box is an approved pressing target.
-  Do not invent confidence scores or observation ages the detector does not supply.
-- Remove vanished targets on the next change snapshot. On loss/failure/stop publish an empty
-  target set where possible; consumer expiry must also handle abrupt process death.
-- Never act on a retained center unless its recent supporting evidence is checked.
-  A fresh frame alone does not establish that every tracked element was observed.
-
-Complete when the file follows live screen changes, is small and readable, and
-consumers reject missing, stale, duplicate and uncalibrated targets.
-At home, use live-path replay and simulation calibration. Simulation coordinates
-may be displayed and sent to a fake robot only; keep that distinction explicit.
-
-## Phase 5 — Test one button by label
-
-Provide one small interactive terminal program. Start it once; run acquisition
-and detection in the background while the terminal accepts one label at a time,
-for example `KEY_1`. The user does not need to start a second command or enter
-coordinates. Resolve the label from the latest in-memory snapshot when entered;
-continue exporting `targets.json` on meaningful changes for inspection and future
-external consumers. Consult current evidence/status, not only the file timestamp.
-
-Select an explicit session mode: dry run, simulated press, move-only or physical
-press. Default to dry run and display the active mode clearly. In press mode,
-entering a valid label requests exactly one press after validation. Do not trigger
-movement merely because an output file was written. Reject additional actions
-while one is outstanding; do not build a queue of labels.
-
-Support `quit`, end-of-input and Ctrl-C with coordinated shutdown. Keep the prompt
-readable by routing frequent progress logs away from terminal input. Prefer the
-smallest concurrency arrangement that keeps detection independent of blocking
-input and robot communication. If an annotated GUI preview requires the main
-thread, respect that requirement rather than moving it blindly into a worker.
-
-At home, implement all modes and test their command payloads using a fake robot
-and transport. Simulate DONE, ERROR, timeout and disconnect; do not open GPIO or
-send packets to the actual robot. The following physical sequence is deferred
-until all implementation phases, including Phase 3A, are finished.
-
-1. Read a fresh live target and require the expected screen, unique label,
-   validated calibration and stable visible geometry.
-2. Dry run prints the selected pixel center, converted mm center and rejection
-   reason if unusable. It sends no motor command.
-3. Before hardware tests, verify homing, actual XY travel limits, Z retraction,
-   contact sensing and the available physical stop mechanism. Use configured
-   nonnegative XY bounds and a conservative existing press routine.
-4. Test move-only with the pressing tool retracted. Inspect alignment before
-   authorizing a first physical press. Recheck the current target immediately
-   before sending a command; never queue old targets.
-5. Send one action through the existing master/slave protocol. Require DONE;
-   ERROR, timeout or disconnect ends the test and prevents further commands.
-   Do not automatically retry a timed-out press: it may already have executed.
-6. After pressing, observe a newer frame and verify the expected UI change or
-   field update. DONE establishes command completion, not successful UI input.
-   If recognition cannot establish the result, report it as unconfirmed.
-7. Record the label, source frame, calibration identifier, commanded mm position,
-   response and observed outcome in one small test log.
-
-The GUI stop flag currently stops future script iterations; it is not an immediate
-hardware stop during a blocking movement. Do not label it an emergency stop.
-Motor/network waits must not block live detection. Permit at most one outstanding
-physical action and require explicit operator control for this first test.
-
-Complete offline when a label can be selected from replay, converted, previewed
-and dispatched to the fake robot with correct units and failure handling.
-Later validate alignment and pressing with physical-camera evidence. Start with
-one known keypad button; do not automatically run multi-button XML sequences.
-
-## Phase 6 — Verify the complete integration offline
-
-Run the full path with recordings, simulation calibration and a fake robot.
-Repeat a few individually selected keypad tests and one supported screen change.
-Verify annotations, mm conversion, label selection and command results. Test
-post-action verification with controlled observations; prerecorded UI changes
-are not evidence that a robot action caused them.
-Exercise loss of camera, stale file, wrong screen, invalid calibration, target
-outside travel limits, robot ERROR and timeout without uncontrolled movement.
-Measure offline processing delay and report the environment and simulation limits.
-
-Leave a small documented interface that a future application/backend can call:
-get current targets, preview a label and request one validated action. Keep backend
-transport, autonomous navigation and broader DMI models outside this first scope.
-
-Complete when all six numbered phases and Phase 3A are implemented, offline checks pass and documented
-startup commands are ready for the later physical trial.
-
-## Physical validation — After all implementation phases
-
-1. Confirm the installed camera, network settings and hardware dependencies.
-   For the current trial, first complete/review support for both monitor
-   arrangements; camera streaming alone is not detection validation.
-2. Start observation only; inspect annotations on the real camera and supported
-   screens. Measure capture/processing rate, buffering and latency.
-3. Verify reference key positions, mounting, homing and robot coordinate axes.
-   Fit a new hardware calibration and validate its held-out error.
-4. Inspect the live target output. Run a dry run, then move-only alignment, then
-   one operator-controlled press as described in Phase 5.
-5. Confirm the expected UI response using newer camera observations. Repeat a few
-   selected keys and a screen transition, then check recovery and latency.
-
-Report hardware failures separately and fix them incrementally. Final acceptance
-requires this trial; completion of offline implementation does not establish
-physical calibration accuracy, camera compatibility or successful pressing.
-
-## Validation and phase handoff
-
-- Run relevant existing vision tests after import or detector-path changes.
-- Add focused tests for calibration identity matching/held-out error, target
-  expiry/removal and fake-transport command success/failure. No hardware in tests.
-- Preserve recorded-video regression behavior. Do not alter detection thresholds
-  or temporal behavior merely to make calibration examples pass.
-- Report what changed, offline verification evidence and deferred hardware checks
-  after each phase. Request implementation review before the next phase; do not
-  require physical-camera review while development is taking place at home.
-- Do not declare integration working from mocks, saved videos or valid JSON alone.
-  Final acceptance requires the real camera and a reviewed physical button test.
-
-## Integration state and model handoff
-
-Maintain one short root `STATE.md` for robot/CV integration. It is separate from
-`dmi_computer_vision/docs/STATE.md`, which records the accepted detector work.
-Update the integration file after each phase and at meaningful checkpoints during
-unfinished work so another model can resume without repeating completed steps.
-
-Include only useful handoff information:
-
-- Current phase and status: not started, in progress or completed offline.
-- A short summary of the implementation and the important files changed.
-- Tests/checks actually run, their results and useful reproduction commands.
-- Remaining issues, deferred physical checks and the next concrete step.
-- User decisions that affect implementation, plus approval and commit/push status.
-
-Keep a concise entry for each completed phase so progress remains visible.
-Mark a phase **Completed offline — awaiting approval** only when its implementation
-and required offline checks are finished. Record user acceptance separately when
-it arrives. Do not mark unfinished work completed, and do not imply that an offline
-phase has been validated on the robot. If work stops mid-phase, record what is done
-and what remains before handing off. This file is a technical handoff, not a diary
-of every tool call or a duplicate of detailed project specifications.
-
-## Phase report, approval, commit and push
-
-After completing each phase:
-
-1. Run the relevant checks and review the final changes.
-2. Update root `STATE.md` with the completed offline phase and pending approval.
-3. Give the user a short report explaining what was implemented, why any base
-   robot code changed, what passed verification and what remains untested.
-4. Ask the user to review and approve that phase for commit and push. Wait for
-   explicit approval; do not commit, push or start the next phase beforehand.
-5. After approval, record acceptance in `STATE.md`, review Git status and stage
-   only that phase's changes and handoff update. Preserve unrelated user changes;
-   do not accidentally include recordings, generated outputs or local settings.
-6. Commit with a clear phase-specific message and push to the intended remote
-   and branch. Verify the destination; do not force-push or rewrite history.
-   Ask only if the destination or scope is ambiguous.
-7. Report the commit identifier and push result. If either operation fails,
-   report it accurately and retain a useful handoff; never claim it succeeded.
-
-If the user requests corrections, make them, rerun affected checks, update
-`STATE.md` and present the revised report before committing. One phase approval
-authorizes its commit and push only; it is not blanket approval for later phases.
-Do not create extra commits merely to record the final commit identifier in the
-same handoff file. Report it in chat and include it at the next natural update.
+# SENSE DMI vision, calibration and robot integration
+
+## Objective and scope
+
+Improve the upper SENSE monitor detector, validate pixel-to-robot millimeter
+conversion, then integrate live vision and operator-controlled actions into the
+existing TapperWare Flet GUI. Keep implementation small, readable and measurable.
+
+This is the new roadmap, replacing the earlier numbered integration plan. Those
+phases remain historical accepted work; do not restart them. Read `STATE.md` for
+the actual baseline, approvals, limitations and next authorized step. This document
+is a plan, not authorization to implement every step in one session.
+
+- SENSE: upper connected monitor, camera 1, one physical screen with two logical regions.
+- TWIN/TWINS: lower separated displays, camera 0; retain existing detections as regressions.
+- Camera index selects acquisition only; image evidence determines geometry/state.
+- Work on one selected camera per session. SENSE calibration must never be applied
+  to TWIN; physical TWIN calibration is deferred.
+- Train workflow meanings/order match TWIN, but recognition must also work when
+  starting directly on any supported screen. Never require a preceding screen.
+- No new backend service, autonomous screen navigation, GUI redesign or motor rewrite.
+
+## Read and reuse
+
+Before edits, inspect Git status/diffs, this file, `STATE.md` and the owning code.
+Preserve unrelated edits. Do not assume that a historical report describes HEAD.
+Read local vision `docs/UI_SPEC.md`, `OUTPUT_SPEC.md` and relevant workflow guidance
+when available; they are references, not runtime dependencies. Do not restore
+removed guidance files or duplicate root handoff history into other documents.
+
+Responsibilities:
+
+- `dmi_computer_vision/src/dmi/`: localization, shared analyzers/OCR, tracking,
+  annotations and compact logs. Reuse `FrameProcessor`, `process_live`, `LatestState`.
+- `dmi_robot_master/integration/`: camera bridge/adapters, observation, calibration,
+  target publication and validated label actions. Reuse existing math/transport.
+- `TapperWare_Flet/`: intended GUI; `dmi_gui.py` owns controls, `dmi_runtime.py`
+  owns execution/worker lifecycle, settings/photos/activity modules own their features.
+- `TapperWare_Flet/DmiPositions.json`: intended SENSE reference for this roadmap.
+- `dmi_robot_common/`: shared UDP protocol/config/logging and command validation.
+- `dmi_robot_rasp/`: receiver, GPIO, motion and sensors; keep hardware imports off PC paths.
+- `dmi_robot_config/`: shared deployment configuration; local overrides/calibrations
+  belong in ignored `dmi_robot_config/local/` and must survive temporary-output cleanup.
+- `dmi_robot_master/` outside integration: existing controller, legacy GUI/XML assets
+  and the old keypad-only reference. Preserve compatibility until explicitly migrated.
+- `dmi_robot_general/`: local legacy reference copy, not a second integration backend.
+- `runs/`, vision data/outputs and test directories: local development/evidence,
+  not runtime dependencies or presentation material. Keep sources read-only.
+
+The root README is currently a GitLab template. Runtime truth comes from code,
+current evidence and the integration README, not that template.
+
+## Working rules and approval
+
+Implement only the requested step. If it is too large, split it into smaller
+reviewable changes before proceeding. A request to add or amend a future step is
+documentation-only unless runtime implementation is explicitly requested. At each step:
+
+1. Reproduce the specific failure and establish a small representative baseline.
+2. Make the smallest shared change; verify accuracy, failure handling and cost.
+3. Give a short report **in chat**: change, checks/results, remaining limits and
+   the next step. Show useful annotations when relevant, with source paths.
+4. Wait for the user's review/approval. Do not create a per-step REPORT/REVIEW
+   Markdown file or another handoff document. Until approval, the working diff
+   and chat are pending work; do not mark the step accepted in `STATE.md`.
+5. After explicit approval, update `STATE.md` with the accepted step and concise
+   results. Commit/push only if that approval also authorizes publication. Stage
+   only reviewed changes; report commit ID/destination and actual push result.
+   Never force-push, silently include local files or infer publication approval.
+
+Keep `STATE.md` short: one current status, baseline, evidence map, open issues,
+next step and compact accepted milestones. Preserve the difference between code
+implemented offline, recorded-camera validation and actual physical validation.
+This requested documentation rewrite may record the baseline now; it does not
+accept any future implementation step. Do not rewrite history to hide failures.
+
+## Detection and performance requirements
+
+Use the same core detector for SENSE/TWIN. Detect monitor boundaries and their
+logical division before interpreting screen controls. A keypad, menu, field or
+known title must not be mandatory for finding the same physical monitor. Reuse
+compatible measured geometry only with bounded rechecks and explicit invalidation
+on movement, perspective/size/source changes, ambiguity, occlusion and recovery.
+Retain independently validated regions; never fabricate their missing partner.
+
+Use layout proportions only to propose searches. Measure current borders/content;
+never copy sample coordinates, add screenshot matching, draw a synthetic separator,
+assign controls from fixed slot order or infer a missing border. Known vocabulary
+is allowed; unreadable/ambiguous/duplicate identities and unsupported cells are
+omitted. Do not use the robot coordinate database to invent image detections.
+
+Maintain current output identities/schema and original input-pixel centers, even
+when analyzing resized/rectified images. Preserve left/right workflow semantics:
+train summary/title/confirmation can replace the speedometer/22-box view. Refer
+to accepted separated results for expected fields/labels/annotations, not position
+truth. Distinguish visible, recognized, enabled, calibrated and actionable controls.
+
+Keep acquisition, detection, preview and actions separate. Consume the latest
+frame with bounded buffering. Profile geometry, analyzers, OCR and output before
+optimizing. Compare equal clips, timing, options and environment; report mean/P95
+analysis time, OCR calls/time, processed FPS, overwrites/skips and result age.
+Capture FPS, bridge publication FPS and MP4 playback FPS are not detection FPS.
+
+Avoid unnecessary OCR retries and encoding. Any reuse must have bounded refresh
+and invalidate on changed cell/title pixels, source/geometry/state changes,
+occlusion/loss/recovery. A stable title must not hide changed fields/buttons.
+Reused values/coordinates cannot renew direct-evidence age or confirmation counts.
+Keep regular mode for diagnosis; compare selective mode on real transitions.
+Preserve 4-pixel per-coordinate publication tolerance (publish only when >4 from
+last published baseline), semantic/loss invalidation, heartbeat and evidence expiry.
+Do not relax OCR, freshness, confirmation or calibration limits to improve metrics.
+Do not promise a detection FPS without measured evidence.
+
+## Evidence to use
+
+User-confirmed SENSE sources, reviewed 2026-10-22:
+
+- Level: `runs/level_raw_01/raw.mp4`, 53 frames at 2304x1728.
+- Train Data: `runs/observation_08/annotated.mp4`, 61 frames; Gamma/Lambda view.
+- Train Data (1/2): `runs/observation_09/annotated.mp4`, 86 frames; numeric entry.
+- Train Data (2/2): `runs/level_raw_02/raw.mp4`, 69 frames; loading-gauge selection.
+- Validate Train Data: `runs/level_raw_03/raw.mp4`, 25 frames; summary/Yes/No view.
+
+Names are not detector inputs: the two later `level_raw_*` clips are train screens.
+Observation 08/09 are the user's supplied camera recordings, but their saved files
+contain an upper-left HUD. Exclude overlay pixels from measurement; use unaffected
+monitor pixels and record any overlap. Continue with these inputs; obtain genuinely
+unannotated replacements only where overlays prevent trustworthy measurement.
+Read first/middle/last frames and sidecars. Use receipt times for replay evaluation;
+5-FPS encoding is not capture cadence. Test variants/held-out recordings separately
+from samples used for tuning. Never overwrite source or accepted output files.
+
+Keep `dmi_computer_vision/data/videos/dev/dmi_capture_quality_01` through `_04`
+(Main/Driver ID), original separated videos and existing frozen examples as
+regressions. Old output annotations are not ground truth. Local evidence absence
+is an explicit coverage gap, not permission to claim support or block unrelated work.
+
+## Small implementation steps
+
+### 1. Refine Level accuracy on SENSE
+
+Recheck the current measured-cell implementation on raw Level evidence. Inspect
+weak/disabled-looking text, TBL1+, individual outline gaps, Close/More and native
+centers. Omit uncertain controls. Measure center/border error and jitter against
+independent reviewed examples. Exercise direct startup, loss/recovery and changed
+values; obtain missing real variants when needed. Preserve TWIN corrections.
+User-confirmed SENSE Level view: Level 0/1/2, KVB, X (`close`) and ... (`more`)
+are active; Level 3, MEMOR, ATC-2 (`atc_2`, user wrote ACT-2), SCMT and TBL1+
+are inactive. Keep detected inactive controls visible/exported with their centers.
+Report `active: true/false/null` per Level button from current glyph appearance;
+null means uncertain. This list is validation evidence for this view, not a fixed
+label-to-activity rule or a rule for TWIN. Preserve center-only compact button
+entries and add a parallel `button_activity` map in JSONL; include `active` in
+rich results and robot target JSON. Activity changes bypass pixel jitter tolerance.
+Annotate active green, inactive gray, uncertain amber, with status text. Inactive
+or uncertain activity must not become actionable just because calibration is valid;
+active alone does not establish freshness, calibration, hardware readiness or
+successful contact. Do not add OCR work or retain activity after target loss.
+Done when remaining defects and supported conditions are explicit and reviewed;
+do not replace the already working correction without reproducing a defect.
+
+### 2. Reduce Level processing cost
+
+Profile the Step 1 baseline, then reduce redundant OCR/warps/searches with small
+shared changes. Preserve exact-label requirements and current-image border checks.
+Compare accuracy and age under regular/selective policies, including same-title
+changes and loss/recovery. Demonstrate cost reduction without stale results.
+Some existing Level results exceed the evidence lifetime: solve processing cost,
+not by extending expiry. Report any jitter/recognition tradeoff.
+
+### 3. Make SENSE localization independent of screen layout
+
+Review `display_geometry.py` using all five sources. Remove the dependency on
+Driver ID's field/keypad or Main's menu as mandatory split evidence. Fit persistent
+outer/internal structure with conservative image validation, not a fixed midpoint.
+Check left train titles/summaries and right controls after rectification. Address
+incompatible geometry-history reuse and re-anchoring generically; no hardcoded
+transition pairs. Preserve Main/Driver/Level and separated regression behavior.
+
+### 4. Support Train Data on SENSE
+
+Use observation_08 and separated Train Data examples. Recognize left title/summary
+and completion Yes, right train-type field and Gamma/Lambda, Close/Enter data and
+other controls only where actually visible. Preserve existing identities; navigation
+appearance alone does not prove enabled state. Validate positions, text, direct
+startup and cost separately; no screen-order shortcut.
+
+### 5. Support Train Data (1/2) on SENSE
+
+Use observation_09 and separated page-1 examples. Validate the left summary/Yes,
+right Max speed, Train category, Length and Brake percentage rows, selected-field
+value, keypad/Delete/decimal and visible navigation/action controls. Match actual
+row borders and labels; changing the selected field/value must update observations.
+Do not fabricate a whole keypad from one detected line.
+
+### 6. Support Train Data (2/2) on SENSE
+
+Use level_raw_02 and separated page-2 examples. Validate left summary/Yes; right
+Loading gauge, Axle load category, Airtight rows; observed selection cells G1, GA,
+GB, GC, Out of GC and visible navigation/actions. The current footage demonstrates
+loading-gauge selection only; other selectors/values need evidence before claiming
+coverage. Reuse page/navigation helpers without assuming every mode has that grid.
+
+### 7. Support Validate Train Data on SENSE
+
+Use level_raw_03 and separated validation examples. Recognize the left title and
+summary, right confirmation field and measured Yes/No/Close controls. Verify the
+left completion control is absent when not visible. Test direct startup and
+changed confirmation; do not assume the previous page or exported Yes is a press.
+
+### 8. Validate SENSE workflow and preserve TWIN
+
+Run representative cold/steady frames and real transitions across supported
+screens; separately measure geometry, identity, values, centers and delay. Turn
+fixed known failures into ordinary passing tests only when actually corrected.
+Check preview/compact logs/targets, occlusion, source failure and camera/session
+switches. Recheck TWIN states; classify intentional differences rather than claiming
+full equivalence from a few samples. Main/Driver ID remain required regressions;
+Train Running Number remains unverified on SENSE until representative evidence
+is checked. Approve detection coverage and latency before calibration work.
+
+### 9. Audit SENSE reference coordinates and identities
+
+Use only `TapperWare_Flet/DmiPositions.json -> DMI_SENSE_TOUCHSCREEN`. The old
+master database uses `DRIVER_ID_WINDOW`; this one uses `DRIVER_ID_SCREEN`, different
+positions, spacing, axis conventions and default press duration. Do not swap paths
+and assume compatibility. Match `(model, screen, detector label)` explicitly to
+reference buttons, starting with digit_n/KEY_n and unambiguous Level controls.
+Review confirmation/Yes/end-entry aliases with the user; never match by order or
+`leads_to` alone. The database is sparse: it lacks complete per-control mappings
+for the numbered train pages/validation. List missing/ambiguous points and verify
+units, origin, panel offsets and actual tool alignment before treating them as truth.
+Apply a panel/tool offset in one defined place; do not add the GUI Y offset again
+when the calibration already produces absolute coordinates in that convention.
+
+### 10. Fit and export SENSE pixel-to-mm calibration offline
+
+Reuse homography math/validation. Fit current original-image pixels to verified
+absolute robot XY; compare an affine fit if it achieves comparable independent
+error, keeping the simplest adequate model. Do not use a universal pixel/mm ratio.
+For a planar screen, use spatially distributed correspondences and held-out keys,
+entire controls/locations or screens, not repeated frames of the same point.
+At least four non-collinear matches are needed for a homography; use at least
+five for leave-one-out checks, preferably all reliable digits plus wider controls.
+Repeated references at the same physical location do not add independent coverage.
+Report per-point/mean/max mm error, outliers and validated coverage; reject
+collinear/contradictory points. Do not force a fit through inconsistent references.
+
+Extend the existing keypad-only model/projector/action validation deliberately;
+changing a reference path alone does not enable other screens or the left region.
+One SENSE transform can serve coplanar UI states only after coverage is validated.
+Convert other detected centers for inspection where mathematically valid, but mark
+out-of-coverage/uncertain mm unusable. Add measured spread-out references where
+needed; do not authorize the whole monitor from the keypad hull. Separate physical
+planes require separate fits. Save model/matrix, reference hash/label map, camera
+identity/settings/frame size/mount, origin/panel/tool convention, coverage, errors
+and verification status. Durable calibration belongs outside `/tmp`.
+
+### 11. Implement guided physical calibration and move-only checks
+
+The current calibration CLI is simulation-only; build a small explicit workflow
+using current HTTP frames and existing bounded UDP commands. First check ACK,
+homing/origin, measured travel and Z retraction with operator control. Capture
+fresh stable raw correspondences and save an unverified installed-camera fit.
+Simulation/old-recording transforms are not physical movement authorization.
+
+Provide a separate commissioning mode for an operator-reviewed, bounded XY move
+with the tool retracted and no press; it must not mark an initial fit verified or
+weaken normal action gates. Resolve only the selected current target, show predicted
+XY, require explicit confirmation per commissioning move, and log measured alignment.
+Use independent robot/tool measurements across the plane. Correct a consistent
+offset once at the defined coordinate boundary; refit for location-dependent errors.
+Keep fit points and independent physical validation points distinct. Validate on
+held-out locations before enabling normal actions. Never treat a typed true flag
+or low training residual as physical verification. Defer missing hardware facts
+explicitly; implement/test the workflow offline with fake objects first.
+
+### 12. Add observation to the TapperWare GUI
+
+Reuse Flet's `DmiControlPanel`/`Runner` lifecycle. Add a small live-view session
+adapter around existing acquisition/detection, not a subprocess running the terminal
+CLI or a duplicate detector. HTTP over TCP receives Pi `/frame.jpg`; detection and
+encoding run off the UI event loop, UI updates remain on its loop. Start/stop once,
+keep bounded buffering and observation age visible. Initialize/press/network waits
+must not freeze preview. Stop/clear targets on source loss, panel/camera change,
+window close or session reset. Reuse the bridge's latest image for photos; avoid
+a second camera owner/legacy TAKE_PICTURES conflict.
+
+### 13. Unify GUI and vision command ownership
+
+TapperWare currently loads flat local protocol/controller modules. Add the smallest
+adapter to share the common validated transport with GUI initialization and vision
+actions. Reconcile message IDs/payloads/units/timeouts with the installed slave;
+preserve the wire protocol. One UDP socket, one receiver and one serialized command
+owner per session; no simultaneous GUI and run_robot command clients.
+
+Verify ACK without motion before explicit INITIALIZE. Reset calibration context
+and targets when homing/origin changes. Report ACK, DONE, ERROR and timeout distinctly.
+Review local IP/ports on both ends; neither HTTP success nor demo initialization
+proves robot readiness. Provide explicit cleanup (the legacy GUI backend lacks
+complete socket cleanup). Keep existing XML/demo behavior testable through the same
+ownership boundary; never let a script bypass physical/vision-mode guards.
+
+### 14. Add GUI target selection and move-only action
+
+Expose current screen/label/pixel/mm/usability and one operator-selected Move
+request. Reuse the validated action interface; extend its current Driver ID/right
+keypad restrictions with screen-qualified identities and direct support checks for
+each accepted SENSE control. Fields/boxes are not automatically press targets.
+Resolve/revalidate immediately before dispatch; no queued stale target positions.
+Block concurrent XML/vision/manual actions. Use at most one outstanding command,
+keep detection running, latch uncertain failures and require operator review.
+Inspect move-only alignment on installed hardware before the pressing step.
+
+### 15. Enable one GUI press and verify its effect
+
+After physical calibration/alignment/readiness acceptance, expose one Press request
+through existing MOVE_AND_CLICK. Preserve signed-integer bounds/rounding checks,
+correct press-duration units and no automatic retries. Observe a newer source frame
+and verify the expected screen/value change where recognition supports it; otherwise
+report unconfirmed. DONE means controller completion, not successful DMI input.
+
+Review known contact/Z-accounting and homing/limit defects before pressing, using
+focused separately reviewed fixes if needed. GUI Stop stops future commands; it
+cannot interrupt a blocking motor routine and is not an emergency stop. Do not
+automatically park/home/move after a failed action. Keep legacy XML coordinate
+mode explicit; a future vision XML mode must resolve fresh labels per action,
+not compile detected coordinates once for an entire sequence. No autonomous
+multi-screen execution is included in this first GUI integration.
+
+### 16. Prepare a clean presentation and reproducible startup
+
+Replace the root GitLab-template README with concise purpose, package map,
+PC/Pi dependencies (including system OCR), host-specific commands, configuration
+and verified limitations. Keep one GUI startup and existing observation/terminal
+entry points; no duplicate top-level launcher scripts. Include GUI source/assets
+and the SENSE reference database in the approved delivery, with portable example
+configuration; keep operator/network/calibration data local. Test startup from
+outside the owning directory and clean shutdown without hardware in demo.
+
+Keep only purposeful runtime/source/config/docs directories visible in the delivery.
+Remove/reorganize genuinely obsolete files only with specific review and preserve
+legacy/local evidence. Gitignore does not remove local clutter or already tracked
+files. Do not use git rm/cached, destructive cleanup or mass moves as an implicit
+part of ignore maintenance. Confirm staged files exclude videos, logs, test outputs,
+operator settings and unverified calibration. Present a clear final live trial:
+observe -> fit/validate -> move-only -> one press -> newer UI observation.
+
+## Code, output and validation standards
+
+- Small explicit functions/classes; normal formatting, useful names, units and
+  interface type hints. Split by responsibility, never arbitrary file length.
+- No duplicate pipelines, broad refactors, wildcard imports, hidden fallback
+  coordinates or a framework/new dependency without measured need.
+- Keep acquisition, image analysis, calibration, target state and actions distinct.
+  Use one consistent import strategy and paths relative to owning files/config.
+- Give cameras, threads/workers, sockets and GPIO explicit owners and cleanup.
+  Avoid dynamic cross-package imports where an explicit adapter suffices.
+- Test meaningful behavior and failures with fake hardware. Keep tests locally
+  even though the user requests test folders excluded from new commits. Already
+  tracked tests remain tracked; do not untrack them without specific approval.
+  Report that ignored new tests/raw data are unavailable in a clean clone unless
+  separately supplied. Ship no runtime dependency on such development files.
+- Run relevant tests after runtime changes; full suites for shared detector,
+  calibration/transport or final integration changes. For docs/ignore-only edits,
+  check references, Git diff and ignore behavior rather than rerunning hardware.
+- Use one uniquely named session output directory, normally `/tmp/dmi_robot/NAME`.
+  No overwrites or per-step diagnostic-script/report sprawl. Full debug/video/history
+  is optional; compact machine action logs and required runtime outputs are allowed.
+  Do not add new Markdown reports. Copy selected useful evidence to durable local
+  storage before `/tmp` cleanup; never store the only calibration there.
+- HTTP frames and UDP commands share Ethernet; they remain separate protocols.
+  Keep real network/device settings configurable, never infer final values.
+- Claim only what measured evidence supports. Offline success is not physical
+  pressing validation, and one supported state is not all-screen robustness.

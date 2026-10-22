@@ -152,7 +152,8 @@ class TargetProjector:
                         observed['right/field/input'] = _point(evidence['right_field'])
                     for label, raw_pixel in observed.items():
                         target = snapshot['targets'].get(label)
-                        if target is not None and target['mm'] is not None and close_coordinates(
+                        if target is not None and target['mm'] is not None and (
+                                'active' not in target or target['active'] is True) and close_coordinates(
                                 target['pixel'], raw_pixel, self.geometry_tolerance):
                             target['usable'] = True
                             support[label] = raw_pixel
@@ -188,8 +189,12 @@ def atomic_json(path: str | Path, document: dict) -> None:
 
 
 def target_snapshot(event: dict, simulation: bool) -> dict:
-    targets = [{key: target[key] for key in ('label', 'kind', 'display', 'pixel', 'mm', 'usable')}
-               for _, target in sorted(event['targets'].items())]
+    targets = []
+    for _, target in sorted(event['targets'].items()):
+        item = {key: target[key] for key in ('label', 'kind', 'display', 'pixel', 'mm', 'usable')}
+        if 'active' in target:
+            item['active'] = target['active']
+        targets.append(item)
     return {'session_id': event['session_id'], 'revision': event['revision'],
             'frame_index': event.get('frame_index'), 'observed_at': event.get('observed_at'),
             'screen': event.get('screen', 'unknown'), 'calibration_id': event.get('calibration_id'),
@@ -324,6 +329,8 @@ def validate_current(snapshot: dict, status: dict, *, max_age_seconds: float = 1
             _point(target['mm'])
         if type(target['usable']) is not bool:
             raise ValueError('Target usability must be boolean')
+        if 'active' in target and target['active'] is not None and type(target['active']) is not bool:
+            raise ValueError('Target active must be boolean or null')
 
 
 def select_target(snapshot: dict, status: dict, label: str, *, max_age_seconds: float = 1.5,
@@ -334,6 +341,8 @@ def select_target(snapshot: dict, status: dict, label: str, *, max_age_seconds: 
         if len(matches) != 1:
             raise ValueError('Requested label is missing or ambiguous')
         target = matches[0]
+        if 'active' in target and target['active'] is not True:
+            raise ValueError('Target is inactive or its activity is unknown')
         width, height = snapshot['frame_size']
         x, y = target['pixel']
         if not (0 <= x < width and 0 <= y < height):

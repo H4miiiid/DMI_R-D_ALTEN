@@ -22,6 +22,8 @@ def project_pixels(result: dict, *, frame_size: tuple[int, int], calibration_id=
                      else f'{display}/button/{name}')
             targets[label] = {'label': label, 'kind': 'button', 'display': display,
                               'pixel': list(button['center']), 'usable': False}
+            if 'active' in button:
+                targets[label]['active'] = button['active']
     field = right.get('data_field')
     if field is not None:
         label = 'right/field/input'

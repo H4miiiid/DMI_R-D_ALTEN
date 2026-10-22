@@ -54,6 +54,15 @@ class MemoryState:
 
 
 class LabelActionTests(unittest.TestCase):
+    def test_inactive_and_unknown_targets_cannot_send_commands(self):
+        for active in (False,None):
+            with self.subTest(active=active):
+                self.targets.observation['targets']['KEY_5']['active'] = active
+                action,transport = self.action(mode='simulated-press')
+                result = action.request('KEY_5')
+                self.assertFalse(result['accepted'])
+                self.assertEqual(transport.sent,[])
+
     def setUp(self):
         self.temporary=tempfile.TemporaryDirectory()
         self.directory=Path(self.temporary.name)

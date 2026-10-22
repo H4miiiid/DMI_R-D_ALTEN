@@ -47,6 +47,19 @@ class CompactWriterTest(unittest.TestCase):
         self.assertEqual(delta['right_display'], {'buttons': {'digit_1': [36, 30]}})
         self.assertNotIn('left_display', delta)
 
+    def test_activity_change_is_semantic_with_unchanged_center(self):
+        item = frame()
+        button = item['right_display']['buttons']['digit_1']
+        button['active'] = True
+        first = self.emit(item)
+        self.assertEqual(first['right_display']['buttons'], {'digit_1':[30,30]})
+        self.assertEqual(first['right_display']['button_activity'], {'digit_1':True})
+        button['active'] = False
+        delta = self.emit(item)
+        self.assertEqual(delta['right_display'], {'button_activity':{'digit_1':False}})
+        button['active'] = None
+        self.assertEqual(self.emit(item)['right_display']['button_activity'], {'digit_1':None})
+
     def test_values_nulls_titles_icons_and_disappearing_buttons(self):
         item = frame(); self.emit(item)
         item['right_display']['data_field']['value'] = None

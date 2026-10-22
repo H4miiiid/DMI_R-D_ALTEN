@@ -137,6 +137,9 @@ def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
         for name, region in right['buttons'].items():
             _require(isinstance(name, str) and bool(name), path, 'button identity must be nonempty text')
             _region(region, path + '.buttons.' + name)
+            if 'active' in region:
+                _require(region['active'] is None or type(region['active']) is bool,
+                         path, 'button active must be boolean or null')
             counts['right_regions'] += 1
         for name, region in left['boxes'].items():
             _require(name in {f'box_{i}' for i in range(1, 23)}, path, 'invalid left box identity')

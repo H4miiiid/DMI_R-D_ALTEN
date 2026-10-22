@@ -1,11 +1,45 @@
+# OS, Python caches and local environments
 .DS_Store
 __pycache__/
 *.py[cod]
-.pytest_cache/
 .venv/
-dmi_robot_common/log/
-dmi_detection_check_03/
-TapperWare_Flet/
-runs/
+venv/
+.env
+.env.local
+
+# Local test folders/results (existing tracked tests remain tracked)
 tests/
-dmi_robot_general/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+.coverage.*
+htmlcov/
+test-results/
+
+# Generated recordings, results, logs and packaging artifacts
+/runs/
+/outputs/
+log/
+logs/
+*.log
+build/
+dist/
+*.egg-info/
+
+# Deployment-specific calibration/config; keep portable templates in source
+/dmi_robot_config/local/
+*.local.json
+*.local.yaml
+*.local.yml
+
+# TapperWare source and DmiPositions.json are part of the planned delivery.
+# Keep machine/operator settings and duplicate/personal launchers local.
+/TapperWare_Flet/TapperWare.settings.json
+/TapperWare_Flet/pc_cfg.yaml
+/TapperWare_Flet/test_sense - Copia.xml
+/TapperWare_Flet/run.bat
+
+# Historical local reference copies; do not delete them during cleanup
+/dmi_detection_check_03/
+/dmi_robot_general/

@@ -107,10 +107,12 @@ def analyze_right_display(
     buttons = {}
     detected_buttons = (detect_button_quads(rectified, state, border_lines)
                         if state != "unknown" or title_text is not None else {})
-    if state == "Level":
-        detected_buttons = _recognize_level_buttons(rectified, detected_buttons)
-    for name, quad in detected_buttons.items():
+    controls = (_recognize_level_buttons(rectified, detected_buttons) if state == "Level"
+                else {name: (quad, None) for name, quad in detected_buttons.items()})
+    for name, (quad, active) in controls.items():
         buttons[name] = _region_result(quad, geometry, frame.shape[:2])
+        if state == "Level":
+            buttons[name]["active"] = active
     return {
         "visibility": "clear",
         "state": state,
@@ -120,7 +122,9 @@ def analyze_right_display(
     }
 
 
-def _recognize_level_buttons(frame: Frame, cells: dict[str, NDArray]) -> dict[str, NDArray]:
+def _recognize_level_buttons(
+    frame: Frame, cells: dict[str, NDArray],
+) -> dict[str, tuple[NDArray, bool | None]]:
     """Read identities inside measured cells; omit blank/uncertain/duplicate labels."""
     identities = {**{f"LEVEL {i}": f"level_{i}" for i in range(4)},
                   **{name.upper(): name for name in ("pzb", "kvb", "scmt", "lzb", "memor")},
@@ -168,8 +172,26 @@ def _recognize_level_buttons(frame: Frame, cells: dict[str, NDArray]) -> dict[st
         if name is not None:
             if name in result:
                 duplicates.add(name)
-            result[name] = quad
+            result[name] = (quad, _level_button_active(interior, foreground))
     return {name: q for name, q in result.items() if name not in duplicates}
+
+
+def _level_button_active(interior: Frame, foreground: NDArray) -> bool | None:
+    """Separate light enabled glyphs from muted blue glyphs in the current cell.
+
+    Use color proportions rather than brightness so exposure does not assign
+    activity. The uncertain band avoids forcing ambiguous styles into a class.
+    Identity and position never determine availability.
+    """
+    pixels = interior[foreground > 0].astype(np.float32)
+    if len(pixels) < 20:
+        return None
+    red_to_blue = float(np.median(pixels[:, 2] / np.maximum(pixels[:, 0], 1)))
+    if red_to_blue >= .5:
+        return True
+    if red_to_blue <= .4:
+        return False
+    return None
 
 
 def _level_action_icon(mask: Frame) -> str | None:

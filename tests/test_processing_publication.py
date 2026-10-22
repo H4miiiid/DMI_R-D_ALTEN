@@ -139,6 +139,16 @@ class ObservationFailureTests(unittest.TestCase):
 
 
 class PublicationTests(unittest.TestCase):
+    def test_activity_changes_bypass_pixel_publication_tolerance(self):
+        result=detected_frame()
+        result['right_display']['buttons']['digit_1']['active']=True
+        before=project_pixels(result,frame_size=(160,120))
+        self.assertIs(before['targets']['KEY_1']['active'],True)
+        result['right_display']['buttons']['digit_1']['active']=False
+        after=project_pixels(result,frame_size=(160,120))
+        self.assertTrue(meaningful_change(before,after))
+        self.assertEqual(before['targets']['KEY_1']['pixel'],after['targets']['KEY_1']['pixel'])
+
     def test_three_four_pixel_jitter_and_cumulative_drift(self):
         events = []
         publisher = ChangePublisher(events.append)
