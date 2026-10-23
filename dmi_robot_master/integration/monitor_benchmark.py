@@ -278,7 +278,7 @@ class Measurements:
     def __enter__(self):
         self.stack = ExitStack()
         process = frame_processor.FrameProcessor.process
-        recognize = title_ocr._recognize
+        recognize = title_ocr._recognize_words
         show, idle = AnnotationSink.show, AnnotationSink.idle
         def measured_stage(name, function):
             def measured(*args, **kwargs):
@@ -321,7 +321,7 @@ class Measurements:
                 self.preview_kind = 'reused'
                 self.preview_receipt = sink.last_received
             return idle(sink)
-        self.stack.enter_context(patch.object(title_ocr, '_recognize', side_effect=timed_ocr))
+        self.stack.enter_context(patch.object(title_ocr, '_recognize_words', side_effect=timed_ocr))
         for name in ('detect_displays', 'analyze_train_left_display', 'analyze_left_display',
                      'analyze_right_display', 'rectify_display'):
             self.stack.enter_context(patch.object(frame_processor, name,

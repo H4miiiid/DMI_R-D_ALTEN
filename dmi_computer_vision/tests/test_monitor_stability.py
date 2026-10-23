@@ -32,6 +32,48 @@ def content(value: str) -> dict:
             'buttons': {}, 'data_field': {**field, 'value': value}}
 
 
+class LocalizationBasisTest(unittest.TestCase):
+    def test_compatible_connected_measurements_keep_normal_smoothing(self):
+        tracker = GeometryStabilizer()
+        first = {"left": None, "right": geometry()}
+        tracker.update(first, (650, 900), layout="connected:spanning_borders")
+        shifted = {"left": None, "right": geometry(1)}
+        actual = tracker.update(shifted, (650, 900), layout="connected:field_grid")
+        self.assertIsNone(tracker.last_reset_reason)
+        self.assertNotIn("right", tracker.reset_regions)
+        self.assertLess(actual["right"].corners[0, 0], shifted["right"].corners[0, 0])
+        self.assertGreater(actual["right"].corners[0, 0], first["right"].corners[0, 0])
+
+    def test_changed_border_basis_discards_crop_and_content_history(self):
+        processor = FrameProcessor(collect_target_evidence=True)
+        frame = np.zeros((650, 900, 3), np.uint8)
+        detected = {"left": None, "right": geometry()}
+        basis = ["spanning_borders"]
+
+        def detect(_frame, *, diagnostics):
+            diagnostics.update(path="connected", division_basis=basis[0])
+            return detected
+
+        with patch(PIPELINE + "detect_displays", side_effect=detect), patch(
+                PIPELINE + "analyze_right_display", return_value=content("12")) as analyze:
+            processor.process(frame, 0.)
+            detected["right"] = geometry(10)
+            basis[0] = "field_grid"
+            analyze.return_value = content("47")
+            current = processor.process(frame, 0.3)
+            self.assertEqual(processor.last_reset_reason, "display_layout_changed")
+            self.assertEqual(current["right_display"]["geometry"], detected["right"].as_result())
+            self.assertEqual(current["right_display"]["data_field"]["value"], "47")
+            self.assertEqual(processor.target_evidence["right_field_value"], "47")
+            # Stable evidence keeps the existing debounce; this is not a way
+            # to bypass same-title value confirmation on ordinary frames.
+            analyze.return_value = content("51")
+            current = processor.process(frame, 0.6)
+            self.assertIsNone(processor.last_reset_reason)
+            self.assertEqual(current["right_display"]["data_field"]["value"], "47")
+            self.assertEqual(processor.target_evidence["right_field_value"], "51")
+
+
 class PartialMonitorTest(unittest.TestCase):
     def sample(self) -> np.ndarray:
         capture = cv2.VideoCapture(str(ROOT / 'data/videos/dev/driver_id_12.mp4'))
@@ -165,7 +207,7 @@ class MonitorHistoryTest(unittest.TestCase):
         with patch(PIPELINE + 'detect_displays', side_effect=detect), \
                 patch(PIPELINE + 'analyze_right_display', side_effect=[content('12'), content('23')]):
             processor.process(frame, 0.)
-            second = processor.process(frame, .1)
+            second = processor.process(frame, 0.1)
         return processor, second
 
     def test_geometry_jump_clears_field_confirmation_and_region_history(self):
@@ -211,7 +253,7 @@ class MonitorHistoryTest(unittest.TestCase):
                 patch(PIPELINE + 'analyze_train_left_display', return_value=('Train Data', left_content)), \
                 patch(PIPELINE + 'analyze_right_display', return_value=content('12')) as analyze:
             processor.process(frame, 0.)
-            processor.process(frame, .1)
+            processor.process(frame, 0.1)
         self.assertEqual(analyze.call_args_list[0].args[2], 'Train Data')
         self.assertIsNone(analyze.call_args_list[1].args[2])
 

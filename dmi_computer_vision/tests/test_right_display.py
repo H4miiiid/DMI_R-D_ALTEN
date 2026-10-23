@@ -17,6 +17,26 @@ from dmi_computer_vision.src.dmi.detection.right_layout import detect_button_qua
 from dmi_computer_vision.src.dmi.temporal.smoothing import RightDisplayStabilizer  # noqa: E402
 
 
+class TopologyFitTest(unittest.TestCase):
+    def test_translated_scaled_pattern_beats_unrelated_long_edges(self):
+        from dmi_computer_vision.src.dmi.detection.right_layout import _fit_topology_transform
+        expected = (100.0, 260.0, 430.0, 610.0, 800.0)
+        for scale, offset in ((1.0, 0.0), (1.12, -37.0), (0.85, 49.0)):
+            candidates = [(0.0, scale * x + offset, 500.0) for x in expected]
+            candidates += [(0.0, x, 350.0) for x in (23.7, 142.9, 390.2, 703.6)]
+            actual = _fit_topology_transform(candidates, expected, 400.0, 1000, 100.0)
+            np.testing.assert_allclose(actual, (scale, offset), atol=1e-12)
+
+    def test_empty_and_single_edge_keep_the_original_penalty_and_tie_rules(self):
+        from dmi_computer_vision.src.dmi.detection.right_layout import _fit_topology_transform
+        expected = (100.0, 300.0, 500.0)
+        self.assertEqual(_fit_topology_transform([], expected, 400.0, 1000, 100.0), (1.0, 0.0))
+        # The edge is equally far from two nominal lines; keep the first
+        # enumerated placement when matched count and penalty tie exactly.
+        self.assertEqual(_fit_topology_transform([(0.0, 400.0, 500.0)], expected,
+                                                400.0, 1000, 100.0), (1.0, 100.0))
+
+
 class RightDisplayTest(unittest.TestCase):
     def setUp(self) -> None:
         self.geometry = DisplayGeometry(
@@ -475,6 +495,31 @@ class RightDisplayTest(unittest.TestCase):
             "center": np.rint(corners.mean(axis=0)).astype(int).tolist(),
         }
 
+
+    def test_broad_outline_refinement_selects_current_cell_face_across_gap(self) -> None:
+        from dmi_computer_vision.src.dmi.detection.left_layout import BorderEvidence
+        from dmi_computer_vision.src.dmi.detection.right_layout import _level_inner_edge
+        image = np.full((100, 160, 3), (45, 15, 4), np.uint8)
+        for x in (80, 90):
+            cv2.line(image, (x, 10), (x, 90), (90, 25, 5), 3)
+        # Two separate thick outlines have flat local gradient maxima. Their
+        # correct faces must be measured even when the initial fit chose the
+        # neighboring outline. The references are the drawn line faces.
+        for axis in ('v', 'h'):
+            frame = image if axis == 'v' else image.transpose(1, 0, 2).copy()
+            for positive, initial, expected in ((False, 90, 77), (True, 80, 93)):
+                with self.subTest(axis=axis, positive=positive):
+                    reading_edges = []
+                    line = _level_inner_edge(
+                        BorderEvidence(frame), axis, (0., initial), 10, 90,
+                        radius=14, positive=positive, minimum=1.5,
+                        reading_edges=reading_edges,
+                    )
+                    self.assertAlmostEqual(line[0] * 50 + line[1], expected, delta=2)
+                    self.assertEqual(len(reading_edges), 1)
+                    self.assertAlmostEqual(
+                        reading_edges[0][0] * 50 + reading_edges[0][1], initial, delta=2,
+                    )
 
 if __name__ == "__main__":
     unittest.main()

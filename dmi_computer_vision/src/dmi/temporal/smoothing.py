@@ -34,9 +34,16 @@ class GeometryStabilizer:
         self.last_reset_reason = None
         if layout is not None:
             if self._layout is not None and layout != self._layout:
-                self._previous.clear()
-                self.reset_regions.update(("left", "right"))
-                self.last_reset_reason = "display_layout_changed"
+                # Two connected-border methods can measure the same crop.
+                # Keep ordinary jitter smoothing only when both current quads
+                # agree closely; a different crop basis must re-anchor now.
+                compatible = (layout.startswith("connected:")
+                              and self._layout.startswith("connected:")
+                              and self._compatible_connected_basis(displays))
+                if not compatible:
+                    self._previous.clear()
+                    self.reset_regions.update(("left", "right"))
+                    self.last_reset_reason = "display_layout_changed"
             self._layout = layout
         stabilized: dict[str, DisplayGeometry | None] = {}
         for name in ("left", "right"):
@@ -60,6 +67,23 @@ class GeometryStabilizer:
             self._previous[name] = result
             stabilized[name] = result
         return stabilized
+
+    def _compatible_connected_basis(
+        self, displays: dict[str, DisplayGeometry | None],
+    ) -> bool:
+        compared = False
+        for name, current in displays.items():
+            previous = self._previous.get(name)
+            if previous is None or current is None:
+                continue
+            compared = True
+            edges = np.linalg.norm(
+                np.roll(current.corners, -1, axis=0) - current.corners, axis=1,
+            )
+            tolerance = float(min(edges)) * 0.02
+            if np.max(np.linalg.norm(current.corners - previous.corners, axis=1)) > tolerance:
+                return False
+        return compared
 
 
 class RightDisplayStabilizer:

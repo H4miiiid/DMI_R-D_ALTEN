@@ -10,7 +10,7 @@ import numpy as np
 from numpy.typing import NDArray
 
 from dmi_computer_vision.src.dmi.detection.display_geometry import DisplayGeometry, Frame, rectify_display
-from dmi_computer_vision.src.dmi.detection.title_ocr import read_field, read_title, title_state
+from dmi_computer_vision.src.dmi.detection.title_ocr import read_field, read_title, read_titles, title_state
 from dmi_computer_vision.src.dmi.detection.visibility import right_display_obstructed
 from dmi_computer_vision.src.dmi.detection.right_layout import (
     detect_border_lines,
@@ -105,10 +105,16 @@ def analyze_right_display(
         data_field["value"] = value
 
     buttons = {}
-    detected_buttons = (detect_button_quads(rectified, state, border_lines)
-                        if state != "unknown" or title_text is not None else {})
-    controls = (_recognize_level_buttons(rectified, detected_buttons) if state == "Level"
-                else {name: (quad, None) for name, quad in detected_buttons.items()})
+    if state == "Level":
+        level_read_cells = {}
+        detected_buttons = detect_button_quads(
+            rectified, state, border_lines, level_read_cells=level_read_cells,
+        )
+        controls = _recognize_level_buttons(rectified, detected_buttons, read_cells=level_read_cells)
+    else:
+        detected_buttons = (detect_button_quads(rectified, state, border_lines)
+                            if state != "unknown" or title_text is not None else {})
+        controls = {name: (quad, None) for name, quad in detected_buttons.items()}
     for name, (quad, active) in controls.items():
         buttons[name] = _region_result(quad, geometry, frame.shape[:2])
         if state == "Level":
@@ -123,14 +129,18 @@ def analyze_right_display(
 
 
 def _recognize_level_buttons(
-    frame: Frame, cells: dict[str, NDArray],
+    frame: Frame, cells: dict[str, NDArray], *, read_cells: dict[str, NDArray] | None = None,
 ) -> dict[str, tuple[NDArray, bool | None]]:
     """Read identities inside measured cells; omit blank/uncertain/duplicate labels."""
     identities = {**{f"LEVEL {i}": f"level_{i}" for i in range(4)},
                   **{name.upper(): name for name in ("pzb", "kvb", "scmt", "lzb", "memor")},
                   "ATC-2": "atc_2", "TBL1+": "tbl1_plus"}
     result, duplicates = {}, set()
-    for quad in cells.values():
+    readings = []
+    for cell, measured_quad in cells.items():
+        # Both quads come from current validated borders. Keep the established
+        # reading crop while exporting this cell's more precise outline.
+        quad = read_cells[cell] if read_cells is not None else measured_quad
         span = np.linalg.norm(quad[1] - quad[0])
         step = np.linalg.norm(quad[3] - quad[0])
         size = (max(20, round(span)), max(20, round(step)))
@@ -144,6 +154,12 @@ def _recognize_level_buttons(
         if cv2.countNonZero(foreground) < 20:
             continue
         name = _level_action_icon(foreground)
+        readings.append((name, measured_quad, quad, interior, foreground))
+    texts = iter(read_titles([interior for name, _, _, interior, _ in readings if name is None]))
+    for name, measured_quad, quad, interior, foreground in readings:
+        if name is None:
+            text = next(texts)
+            name = identities.get(" ".join((text or "").upper().split()))
         if name is None:
             text = read_title(interior, (0, 0, interior.shape[1], interior.shape[0]))
             normalized = " ".join((text or "").upper().split())
@@ -172,7 +188,7 @@ def _recognize_level_buttons(
         if name is not None:
             if name in result:
                 duplicates.add(name)
-            result[name] = (quad, _level_button_active(interior, foreground))
+            result[name] = (measured_quad, _level_button_active(interior, foreground))
     return {name: q for name, q in result.items() if name not in duplicates}
 
 

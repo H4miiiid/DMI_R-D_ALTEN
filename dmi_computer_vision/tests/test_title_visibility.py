@@ -10,6 +10,7 @@ from dmi_computer_vision.src.dmi.detection.display_geometry import DisplayGeomet
 from dmi_computer_vision.src.dmi.detection.right_display import analyze_right_display
 from dmi_computer_vision.src.dmi.temporal.smoothing import RightDisplayStabilizer
 from dmi_computer_vision.src.dmi.detection.title_ocr import read_title, title_state
+from dmi_computer_vision.src.dmi.detection import title_ocr
 from dmi_computer_vision.src.dmi.detection.visibility import right_display_obstructed
 
 
@@ -84,6 +85,65 @@ class TitleVisibilityTest(unittest.TestCase):
         with patch('dmi.detection.title_ocr.shutil.which', return_value=None):
             with self.assertRaisesRegex(RuntimeError, 'Tesseract'):
                 read_title(self.image, (0, 70, 100, 140))
+
+
+class BatchTitleTest(unittest.TestCase):
+    @staticmethod
+    def word(text, top, *, confidence=90, line='1', height=10):
+        return {'text':text, 'top':str(top), 'left':'20', 'width':'40',
+                'height':str(height), 'conf':str(confidence),
+                'block_num':'1', 'par_num':'1', 'line_num':line}
+
+    def setUp(self):
+        self.crops = [np.zeros((40,100,3),np.uint8) for _ in range(2)]
+
+    def test_words_map_to_current_crop_bounds_independent_of_output_order(self):
+        words = [self.word('SCMT',120,line='2'), self.word('KVB',20)]
+        with patch.object(title_ocr,'_recognize_words',return_value=words) as ocr:
+            self.assertEqual(title_ocr.read_titles(self.crops),['KVB','SCMT'])
+        self.assertEqual(ocr.call_count,1)
+
+    def test_each_crop_requires_unchanged_confidence_for_every_word(self):
+        for confidence in (64.9,float('nan'),float('inf')):
+            with self.subTest(confidence=confidence), patch.object(
+                    title_ocr,'_recognize_words',return_value=[
+                        self.word('KVB',20), self.word('TBL1+',120,confidence=confidence,line='2')]):
+                self.assertEqual(title_ocr.read_titles(self.crops),['KVB',None])
+        with patch.object(title_ocr,'_recognize_words',return_value=[self.word('KVB',20,confidence=65)]):
+            self.assertEqual(title_ocr.read_titles(self.crops),['KVB',None])
+
+    def test_cross_crop_and_multiline_text_cannot_be_assigned_to_a_cell(self):
+        for words in ([self.word('KVB',20),self.word('SCMT',95,height=10)],
+                      [self.word('KVB',20),self.word('OTHER',40,line='2')]):
+            with self.subTest(words=words), patch.object(title_ocr,'_recognize_words',return_value=words):
+                self.assertEqual(title_ocr.read_titles(self.crops),[None,None])
+
+    def test_empty_crops_do_not_invoke_ocr_or_shift_other_results(self):
+        with patch.object(title_ocr,'_recognize_words',return_value=[self.word('KVB',20)]) as ocr:
+            self.assertEqual(title_ocr.read_titles([]),[])
+            self.assertEqual(title_ocr.read_titles([np.empty((0,0,3),np.uint8)]),[None])
+            ocr.assert_not_called()
+            self.assertEqual(title_ocr.read_titles([self.crops[0],np.empty((0,0,3),np.uint8)]),['KVB',None])
+            self.assertEqual(ocr.call_count,1)
+
+    def test_timeout_yields_unknown_and_dependency_failure_is_explicit(self):
+        import subprocess
+        with patch.object(title_ocr.subprocess,'run',side_effect=subprocess.TimeoutExpired('tesseract',5)):
+            self.assertEqual(title_ocr.read_titles(self.crops),[None,None])
+        with patch.object(title_ocr.shutil,'which',return_value=None):
+            with self.assertRaisesRegex(RuntimeError,'Tesseract'):
+                title_ocr.read_titles(self.crops)
+
+    def test_current_labels_are_read_after_change_loss_and_recovery(self):
+        def crop(text):
+            image = np.full((50,180,3),(45,15,4),np.uint8)
+            cv2.putText(image,text,(15,35),cv2.FONT_HERSHEY_DUPLEX,.8,
+                        (230,230,230),1,cv2.LINE_AA)
+            return image
+        initial = [crop('KVB'),crop('LZB')]
+        self.assertEqual(title_ocr.read_titles(initial),['KVB','LZB'])
+        self.assertEqual(title_ocr.read_titles([crop('SCMT'),crop('')]),['SCMT',None])
+        self.assertEqual(title_ocr.read_titles(initial),['KVB','LZB'])
 
 
 if __name__ == '__main__':

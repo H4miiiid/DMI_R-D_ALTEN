@@ -58,6 +58,31 @@ class ProjectionTests(unittest.TestCase):
                 self.assertIn('active',selected)
                 self.assertIs(selected['active'],active)
 
+    def test_level_activity_never_authorizes_the_driver_keypad_calibration(self):
+        for active in (True, False, None):
+            with self.subTest(active=active):
+                result = record(0)['result']
+                button = deepcopy(result['right_display']['buttons']['digit_5'])
+                button['active'] = active
+                result['right_display'].update(state='Level', buttons={'level_1':button})
+                snapshot, support = self.projector.project(result, {
+                    'right_state':'Level', 'right_visibility':'clear',
+                    'right_buttons':{'level_1':button['center']},
+                }, frame_size=SIZE)
+                self.assertTrue(snapshot['calibration_valid'])
+                self.assertFalse(support)
+                selected = snapshot['targets']['right/button/level_1']
+                self.assertEqual(selected['pixel'],button['center'])
+                self.assertIs(selected['active'],active)
+                self.assertIsNone(selected['mm'])
+                self.assertFalse(selected['usable'])
+                exported = target_snapshot({'session_id':'level','revision':1,**snapshot},True)
+                self.assertIs(next(t for t in exported['targets']
+                                   if t['label']=='right/button/level_1')['active'],active)
+                result['right_display']['buttons'] = {}
+                lost, _ = self.projector.project(result, {}, frame_size=SIZE)
+                self.assertNotIn('right/button/level_1',lost['targets'])
+
     def test_fresh_frame_missing_direct_key_evidence_does_not_bless_retained_target(self):
         observed = direct_evidence()
         del observed['right_buttons']['digit_1']

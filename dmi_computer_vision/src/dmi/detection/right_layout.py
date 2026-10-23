@@ -62,6 +62,7 @@ def detect_button_quads(
     frame: Frame,
     state: str,
     border_lines: BorderLines | None = None,
+    *, level_read_cells: dict[str, Quad] | None = None,
 ) -> dict[str, Quad]:
     """Fit visible grid borders and return named rectified-space cells."""
     height, width = frame.shape[:2]
@@ -253,16 +254,22 @@ def detect_button_quads(
         grid.update(_train_navigation(horizontal, vertical, width, height))
         return grid
     if state == "Level":
-        return _level_button_cells(frame)
+        return _level_button_cells(frame, read_cells=level_read_cells)
     return _detect_unknown_buttons(frame, horizontal, vertical)
 
 
-def _level_button_cells(frame: Frame) -> dict[str, Quad]:
+def _level_button_cells(
+    frame: Frame, *, read_cells: dict[str, Quad] | None = None,
+) -> dict[str, Quad]:
     """Propose cells from current gradients and validate every side locally.
 
     No nominal row/column placement, missing-edge extrapolation or semantic
     labels: Level identities are recognized from each supported cell's content.
+    Optional read_cells receives current narrow-fit cells for unchanged OCR;
+    returned cells include the extra supported-face refinement.
     """
+    if read_cells is not None:
+        read_cells.clear()
     height, width = frame.shape[:2]
     evidence = BorderEvidence(frame)
     pixels = frame.astype(np.float32)
@@ -344,28 +351,38 @@ def _level_button_cells(frame: Frame) -> dict[str, Quad]:
                 # Neighboring buttons can have separate outlines and a narrow
                 # gap. Fit the face towards this cell instead of sharing an
                 # arbitrary member of the measured divider cluster.
+                reading_edges = [] if read_cells is not None else None
                 sides = (
                     _level_inner_edge(evidence, "v", sides[0], top, bottom,
-                                      radius=span*.06, positive=True, minimum=column_floor),
+                                      radius=span*.06, positive=True, minimum=column_floor,
+                                      reading_edges=reading_edges),
                     _level_inner_edge(evidence, "v", sides[1], top, bottom,
-                                      radius=span*.06, positive=False, minimum=column_floor),
+                                      radius=span*.06, positive=False, minimum=column_floor,
+                                      reading_edges=reading_edges),
                     _level_inner_edge(evidence, "h", sides[2], left, right,
-                                      radius=step*.12, positive=True, minimum=row_floor),
+                                      radius=step*.12, positive=True, minimum=row_floor,
+                                      reading_edges=reading_edges),
                     _level_inner_edge(evidence, "h", sides[3], left, right,
-                                      radius=step*.12, positive=False, minimum=row_floor),
+                                      radius=step*.12, positive=False, minimum=row_floor,
+                                      reading_edges=reading_edges),
                 )
                 points = _quad(*sides)
-                if (valid_quad(points) and np.all(points >= 0)
-                        and np.all(points[:, 0] < width) and np.all(points[:, 1] < height)):
-                    cells.append(points)
-    cells.sort(key=lambda q: (float(q[:, 1].mean()), float(q[:, 0].mean())))
-    return {f"button_{i}": q for i, q in enumerate(cells, 1)}
+                reading = _quad(*reading_edges) if reading_edges is not None else points
+                if all(valid_quad(q) and np.all(q >= 0)
+                       and np.all(q[:, 0] < width) and np.all(q[:, 1] < height)
+                       for q in (points, reading)):
+                    cells.append((points, reading))
+    cells.sort(key=lambda pair: (float(pair[0][:, 1].mean()), float(pair[0][:, 0].mean())))
+    if read_cells is not None:
+        read_cells.update({f"button_{i}": reading for i, (_, reading) in enumerate(cells, 1)})
+    return {f"button_{i}": q for i, (q, _) in enumerate(cells, 1)}
 
 
 def _level_inner_edge(evidence: BorderEvidence, axis: str, line: Line,
                       start: float, end: float, *, radius: float,
-                      positive: bool, minimum: float) -> Line:
-    """Choose this cell's supported face inside a measured border cluster."""
+                      positive: bool, minimum: float,
+                      reading_edges: list[Line] | None = None) -> Line:
+    """Choose a supported face; optionally retain the narrow fit for current OCR."""
     response = evidence.horizontal if axis == "h" else evidence.vertical
     samples = np.linspace(start+(end-start)*.12, end-(end-start)*.12, 64, dtype=np.float32)
     offsets = np.arange(-round(radius), round(radius)+1, dtype=np.float32)
@@ -376,13 +393,24 @@ def _level_inner_edge(evidence: BorderEvidence, axis: str, line: Line,
     maxima = cv2.dilate(scores[None, :], np.ones((1, 3), np.uint8))[0]
     peaks = np.flatnonzero((scores >= maxima) & (scores >= max(minimum, float(scores.max())*.3)))
     cross = (start+end)/2
-    for index in (peaks[::-1] if positive else peaks):
-        fitted = evidence.fit(axis, line[0]*cross+line[1]+offsets[index], cross,
-                              start+(end-start)*.12, end-(end-start)*.12,
-                              radius=1, slope=line[0], slope_radius=.015)
-        if fitted is not None and _level_edge_supported(
-                evidence, axis, fitted, start, end, minimum=minimum):
-            return fitted
+    # Preserve every successful narrow fit before trying a wider search. A broad
+    # gradient peak can fill the narrow search and fail fit's contrast test;
+    # only then retry with background, keeping the same edge support checks.
+    for radius_px in (1, 3):
+        for index in (peaks[::-1] if positive else peaks):
+            fitted = evidence.fit(axis, line[0]*cross+line[1]+offsets[index], cross,
+                                  start+(end-start)*.12, end-(end-start)*.12,
+                                  radius=radius_px, slope=line[0], slope_radius=.015)
+            if fitted is not None and _level_edge_supported(
+                    evidence, axis, fitted, start, end, minimum=minimum):
+                if radius_px == 1 and reading_edges is not None:
+                    reading_edges.append(fitted)
+                return fitted
+        if radius_px == 1 and reading_edges is not None:
+            # These borders were already validated before refinement. Keeping
+            # this same-pass crop avoids changing OCR resampling/retry cost
+            # when only a broad outline's exported face needs correction.
+            reading_edges.append(line)
     return line  # The original edge already passed the same current-evidence check.
 
 
@@ -900,21 +928,33 @@ def _fit_topology_transform(
     tolerance = extent * 0.022
     best = (1.0, 0.0)
     best_score = (-1, float("-inf"))
-    for scale, offset in hypotheses:
-        residuals = [
-            min(abs(value - (scale * expected + offset)) for value in detected)
-            for expected in expected_positions
-        ]
-        matched = [value for value in residuals if value <= tolerance]
-        score = (
-            len(matched),
-            -sum(matched)
-            - abs(scale - 1.0) * extent * 0.01
-            - abs(offset) * 0.05,
-        )
+    observed = np.asarray(detected, dtype=np.float64)
+    expected = np.asarray(expected_positions, dtype=np.float64)
+    # Score exactly the same hypotheses in their original order. A sorted
+    # nearest-neighbor lookup replaces the Python scan over every detected
+    # line; chunks bound the temporary arrays on texture-heavy crops.
+    for start in range(0, len(hypotheses), 1024):
+        batch = np.asarray(hypotheses[start:start + 1024], dtype=np.float64)
+        scales, offsets = batch[:, 0], batch[:, 1]
+        predicted = scales[:, None] * expected + offsets[:, None]
+        indices = np.searchsorted(observed, predicted)
+        lower = observed[np.clip(indices - 1, 0, len(observed) - 1)]
+        upper = observed[np.clip(indices, 0, len(observed) - 1)]
+        residuals = np.minimum(np.abs(predicted - lower), np.abs(predicted - upper))
+        matched = residuals <= tolerance
+        counts = matched.sum(axis=1)
+        totals = np.zeros(len(batch))
+        # Accumulate in the original order, preserving rounding and tie rules.
+        for column in range(len(expected)):
+            totals += np.where(matched[:, column], residuals[:, column], 0.0)
+        scores = (-totals - np.abs(scales - 1.0) * extent * 0.01
+                  - np.abs(offsets) * 0.05)
+        eligible = np.flatnonzero(counts == counts.max())
+        selected = int(eligible[np.argmax(scores[eligible])])
+        score = (int(counts[selected]), float(scores[selected]))
         if score > best_score:
             best_score = score
-            best = (scale, offset)
+            best = tuple(batch[selected])
     return float(best[0]), float(best[1])
 
 

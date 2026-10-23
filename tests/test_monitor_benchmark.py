@@ -122,11 +122,9 @@ class RecordedMonitorChangeTests(unittest.TestCase):
         self.assertNotIn('cancel', processor.target_evidence['right_buttons'])
         self.assertEqual(processor.target_evidence['right_field_value'], '47')
 
-    @unittest.expectedFailure
     def test_confirmed_driver_transition_has_current_image_key_geometry(self):
-        """Known Step 5 finding: confirmation precedes geometry convergence.
+        """Changing localization evidence must discard incompatible crop history.
 
-        Keep this failure visible until the transition correction is reviewed.
         Three pixels is the existing diagnostic keypad recheck, not a changed
         runtime tolerance or a physical calibration claim.
         """

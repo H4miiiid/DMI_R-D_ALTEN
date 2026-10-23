@@ -6,14 +6,13 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
-The user requested a fresh plan: improve SENSE Level accuracy/speed, support four
-train-data screens separately, then implement SENSE calibration and TapperWare GUI
-integration. The roadmap/ignore rewrite is approved together with the Level
-activity update below. Next implementation: AGENTS Step 1 (focused Level
-accuracy review), then Step 2 (measured speed improvements), after the user's
-instruction. Give short reports in chat; no new report Markdown files. Record
-step completion here after approval; commit/push only with publication approval.
-The roadmap/Level update was published as `eb88729`. No other roadmap step is authorized.
+AGENTS Steps 1–3 are accepted offline/recorded-camera on 2026-10-23. The user
+also authorized committing/pushing these reviewed updates on that date. The user
+will report processing cost and detection speed after real hardware testing;
+installed-hardware performance remains unverified. Next proposed implementation:
+Step 4 (SENSE Train Data support), awaiting user instruction.
+Give short reports in chat; no new report Markdown files. Record completion only
+after approval; commit/push only with publication approval.
 
 Automatic two-reviewer workflow — approved for commit/push (2026-10-23): main
 agent implements one authorized step, code_review and step_checker independently
@@ -21,9 +20,67 @@ review, main fixes/rechecks, then both confirm the final version before one shor
 chat report and user approval. No per-step report files; STATE.md is updated only
 after approval. Acceptance, publication and starting the next named step remain
 separate permissions. Both reviewers returned PASS on the workflow instructions.
-Publish AGENTS.md with `.codex/config.toml` and both reviewer TOMLs; models and
-concurrency are unchanged. This approval does not start Step 1. No runtime change
-or hardware operation. Publication result will be reported in chat.
+The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
+included in `b071752`; models and concurrency are unchanged. Workflow approval
+itself did not authorize runtime work or hardware operations.
+
+Step 3 — accepted offline/recorded-camera; publication authorized (2026-10-23):
+localize from current sparse border segments without a mandatory keypad/menu;
+recheck dim top boundaries, exclude saturated non-blue marks, and reset only
+incompatible geometry bases. Optimize existing topology scoring with identical
+hypotheses/penalties/ties (48 generated cases and recorded 277-candidate fit match).
+Both regions found in 292/294 frames: Level 53/53, Train 61/61, page 1 84/86,
+page 2 69/69, validation 25/25. Annotated page-1 frames 9/15 fail closed; clean
+replacements are needed to assess those views. Forty-two cold regressions match
+exactly. Suites: 218 vision and 126 integration passes; former Main->Driver
+expected failure now passes normally. Both reviewers: PASS WITH WARNINGS.
+Level ten controls/value/activity remain stable; TBL1+ stays 51/53, but omissions
+move 17/23 -> 19/21. Mean center difference 0.61 px; jitter mean/P95 improves
+1.48/5.39 -> 1.45/5.10 px. Level geometry mean 0.056 -> 0.107 s; full analysis
+mean/P95 0.825/1.054 -> 0.909/1.127 s, OCR 242 -> 252 calls. Receipt replay
+regular/selective ~1.12/1.05 processed FPS; some ages exceed unchanged 1.5-s
+expiry, excluding upstream age. Targets remain unusable and clear on stop.
+Train semantics remain Steps 4–7; natural SENSE transitions/new framing, independent
+boundary truth and hardware performance remain unverified. Durable local evidence:
+`runs/step3_geometry_20261023_01/`; ignored evidence/tests need separate supply.
+
+Step 2 — accepted offline/recorded-camera; publication authorized (2026-10-23):
+batch current measured Level text crops into one OCR call, retaining individual
+retries, exact-label/current-border checks and unchanged freshness/confirmation
+gates. All 53 rich/direct results match Step 1 exactly; jitter and two TBL1+
+omissions persist. Matched analysis mean/P95: 1.281/1.514 -> 0.833/1.067 s;
+OCR 617 -> 242 calls, 42.21 -> 18.89 s. Receipt replay regular/selective:
+~0.76 -> ~1.15 processed FPS; P95 result age ~2.02 -> 1.29/1.27 s, excluding
+sensor/network age. Thirty cold regressions retain all previous identities;
+one visibly supported TWIN KVB is gained. Suites: 210 vision passes, 125
+integration passes plus the existing expected failure. Both reviewers: PASS
+WITH WARNINGS. Synthetic changes/loss/recovery pass, but direct recognition
+and confirmed values differ: one change is recognized at ~1.05 s and confirmed
+at ~7.88 s under unchanged 15-observation/capture-gap rules. Natural TWIN replay
+uses assumed timing; real SENSE transitions/new framing and physical performance
+remain unverified. Static selective replay shows no additional policy saving.
+User accepts these limits for now, pending their real hardware validation.
+Durable local evidence: `runs/step2_level_20261023_01/`; ignored evidence/tests
+remain unavailable in a clean clone unless separately supplied.
+
+Step 1 — accepted offline/recorded-camera; publication authorized (2026-10-23):
+fixed reproduced broad-outline/gap fitting failure with a wider retry only after
+all narrow fits fail; current border-support gates and fresh OCR/activity crops
+are preserved. All 53 Level frames retain identities/activity and OCR counts
+(617 total); ten controls 53/53, TBL1+ 51/53 (omitted at 17/23). Thirty paired
+cold regression samples preserve semantics. Cold startup and synthetic changed
+field/activity/loss/recovery pass. Suites: 204 vision passes; integration 125
+passes plus the existing expected transition failure. Both reviewers: PASS WITH
+WARNINGS, no blocking findings. Mean estimated center/border error improves
+5.94/4.53 -> 4.06/2.86 px against agent visual references (±4 px, not human ground
+truth); maxima remain ~9/~13 px. Jitter mean/P95 rises 1.08/5.00 -> 1.48/5.39 px.
+Sequential analysis mean/P95: 1.27/1.46 s. Regular receipt replay: 0.69 processed
+FPS; age mean/P95 1.59/2.14 s, sometimes exceeding unchanged 1.5-s expiry; targets
+clear correctly. Real SENSE variants/transitions and physical behavior remain
+unverified. Durable local evidence: `runs/step1_level_20261023_01/`, including
+before/after/live_regular outputs, comparison/reference JSON and suite logs.
+Extra ignored tests/evidence remain unavailable in a clean clone; critical
+regressions are in already tracked test files.
 
 Level activity update — accepted offline, commit/push authorized (2026-10-22): distinguish active
 Level 0/1/2, KVB, X/Close and .../More from inactive Level 3, MEMOR, ATC-2, SCMT
@@ -46,10 +103,10 @@ temporary review artifacts only. No additional OCR or physical action.
 
 ## Repository and hardware baseline
 
-- Last published baseline: `eb88729`, branch main; includes the earlier Level/
-  optional-controls/launcher/recorder work in `e95d707`. Local origin/main matches
-  this baseline before workflow publication. Do not repeat the old "uncommitted
-  Level implementation" status.
+- Implementation review base: `b071752`, branch main (dual-review workflow),
+  following roadmap/activity `eb88729` and earlier Level/optional-controls/
+  launcher/recorder work in `e95d707`. Accepted Steps 1–3 are included in the
+  commit carrying this handoff; publication is explicitly authorized.
 - Original integration Phases 1–6 plus 3A were accepted offline, ending `15dabbd`.
   Monitor localization/shared analysis/stability are `27b085e`, `99f9aea`,
   `6ecdcc2`; Step 5 validation is `cf10c81`. Preserve these foundations; they do
@@ -106,7 +163,8 @@ Directory names must not be used as screen identities.
 - `runs/observation_08/`: Train Data (Gamma/Lambda), annotated.mp4, 61 frames,
   7.181-s receipt span. Existing upper-left HUD; unaffected monitor pixels usable.
 - `runs/observation_09/`: Train Data (1/2), annotated.mp4, 86 frames,
-  11.887-s receipt span. Same HUD caveat; right numeric-entry/field rows visible.
+  11.887-s receipt span. HUD and occasional monitor-crossing annotations;
+  Step 3 rejects frames 9/15. Right numeric-entry/field rows are visible.
 - `runs/level_raw_02/`: Train Data (2/2), raw.mp4, 69 frames, 13.910-s receipt span;
   reviewed first/last images show loading-gauge G1/GA/GB/GC/Out of GC selection.
 - `runs/level_raw_03/`: Validate Train Data, raw.mp4, 25 frames, 4.850-s receipt span;
@@ -120,7 +178,7 @@ Directory names must not be used as screen identities.
   `train_numbers`, `train_data_gamma`, `validate_train_data` and existing frozen
   examples preserve prior workflows. Limited sampled equality is not full equivalence.
 
-Level independent review before this rewrite reproduced all 53 raw frames exactly:
+Pre-Step 1 Level review reproduced all 53 raw frames exactly:
 Level/field Level 1 correct 53/53; ten controls 53/53, TBL1+ 51/53, no unexpected
 identities. First/middle/last annotations inspected. Last-frame center mean/max
 error 3.87/6.19 native pixels against coarse manual references (~3-px uncertainty).
@@ -128,25 +186,22 @@ The current fitter measures each cell's borders and reads its content; it no
 longer assigns the old fixed Level label order. Current Level button geometry
 bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
-- Recorded live-path replay: regular/selective 0.72/0.77 processed FPS with full
+- Pre-Step 1 recorded live-path replay: regular/selective 0.72/0.77 processed FPS with full
   annotations/debug/export; some result ages exceed the unchanged 1.5-s expiry.
   OCR per control/retries is a measured cost lead. Source/network throughput is
   not measured by that replay. Improve cost before claiming responsive action use.
 - Static Level evidence is validated; changed values, natural transitions, new
   framing/occlusion and fresh deployment remain unverified. No physical mm proof.
-- Train states have existing TWIN analyzers, but SENSE localization/control alignment
-  is not accepted. Connected localization still depends on a field/keypad or menu
-  structure; sparse train layouts need a general image-supported geometry fix.
-  Fresh cold processing of each source's last image during this rewrite found
-  Level/11 controls, but unknown/zero controls on all four train sources. This is
-  a sampled failure baseline, not a full replay or an all-screen coverage assessment.
-- Existing Main->Driver transition geometry failure remains (integration expected
-  failure). Legacy unsupported-cell/numeric/Close alignment findings from Step 5
-  must be reproduced/classified where relevant; do not assume Level fixed them.
-- Last independently run suites before this documentation change: **196 vision
-  tests pass; 122 integration checks = 121 passes + one known expected failure**.
-  They were not rerun for this docs-only rewrite. New tests/evidence remain local
-  under the requested ignore policy; a clean clone cannot reproduce them unaided.
+- Step 3 accepts SENSE localization on the five recordings with the two page-1
+  failures above. Train control identities/values remain for Steps 4–7; geometry
+  success does not establish semantic coverage. Earlier cold checks finding
+  unknown/zero controls on all four train sources describe the pre-Step 3 baseline.
+- The reproduced Main->Driver geometry transition failure is corrected by generic
+  basis invalidation in Step 3 and is an ordinary passing regression. Legacy
+  unsupported-cell/numeric/Close findings still need reproduction where relevant.
+- Current suite results and durable evidence are recorded in the accepted
+  milestones above. New ignored tests/evidence remain local under the requested
+  policy; a clean clone cannot reproduce the full checks unaided.
 
 ## Calibration and hardware blockers
 
@@ -177,12 +232,10 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
 ## Next approvals and delivery rules
 
-All new roadmap Steps 1–16 are planned; none is claimed completed here. Work one
-requested step at a time: Level accuracy -> speed -> shared localization -> each
-train screen -> combined validation -> reference audit -> fit/export -> guided
-physical calibration -> GUI live view -> shared UDP -> move -> press -> presentation.
-After each approval, replace this paragraph's next-step status and add a short
-accepted milestone with checks/remaining limits. Do not accumulate old reports.
+Steps 1–3 are accepted with the limits above and approved for commit/push.
+Steps 4–16 remain planned; starting Step 4 requires explicit authorization.
+Continue one requested step at a time; do not infer next-step permission from
+acceptance or reviewer verdicts. Do not accumulate old reports.
 
 Ignore policy excludes local tests, media/results, caches/logs, operator settings,
 local deployment data and the legacy general copy. TapperWare source/reference/

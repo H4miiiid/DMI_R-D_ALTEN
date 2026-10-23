@@ -116,6 +116,8 @@ def process_frame(
         # connected-surface partition, even when their enclosures nearly agree.
         if layout not in {"connected", "separated", "partial"} or not any(displays.values()):
             layout = None
+        if layout == "connected":
+            layout = f"connected:{diagnostics.get('division_basis', 'unknown')}"
         displays = geometry_stabilizer.update(displays, frame.shape[:2], layout=layout)
         if "right" in geometry_stabilizer.reset_regions and right_display_stabilizer is not None:
             right_display_stabilizer.reset()
