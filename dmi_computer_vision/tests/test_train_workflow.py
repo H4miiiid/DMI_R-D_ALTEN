@@ -14,9 +14,18 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from dmi_computer_vision.src.dmi.pipeline.frame_processor import process_frame  # noqa: E402
 from dmi_computer_vision.src.dmi.detection.right_layout import detect_button_quads  # noqa: E402
+from dmi_computer_vision.src.dmi.detection.right_display import _recognize_train_buttons  # noqa: E402
+from dmi_computer_vision.src.dmi.detection.left_display import _read_train_completion, _read_train_summary  # noqa: E402
+from dmi_computer_vision.src.dmi.detection.display_geometry import detect_displays, rectify_display  # noqa: E402
 
 
 class TrainWorkflowTest(unittest.TestCase):
+    def test_completion_rejects_tall_or_collapsed_contours(self):
+        frame = np.zeros((1280, 800, 3), np.uint8)
+        for points in (np.float32([[0, 0], [20, 0], [20, 800], [0, 800]]),
+                       np.zeros((4, 2), np.float32)):
+            self.assertIsNone(_read_train_completion(frame, points))
+
     def test_shifted_train_grids_keep_complete_rows(self):
         frame = np.zeros((960, 600, 3), np.uint8)
         for state, rows, bottom_name in (
@@ -74,6 +83,8 @@ class TrainWorkflowTest(unittest.TestCase):
                          {"gamma", "lambda", "close", "enter_data"})
         self.assertEqual(selected["left_display"]["title"]["text"], "Train data")
         self.assertIn("yes", selected["left_display"]["buttons"])
+        slanted = self.sample("validate_train_data.mp4", 0)
+        self.assertIn("yes", slanted["left_display"]["buttons"])
 
         confirmed = self.sample("validate_train_data.mp4", 438)
         self.assertEqual(confirmed["right_display"]["state"], "Validate Train Data")
@@ -114,6 +125,84 @@ class TrainWorkflowTest(unittest.TestCase):
         self.assertEqual(result["data_field"]["value"], "128")
         self.assertEqual(len(result["buttons"]), 13)
         self.assertIn("close", result["buttons"])
+
+
+@unittest.skipUnless((ROOT.parent / "runs/observation_08/annotated.mp4").exists(),
+                     "Local SENSE recording is not shipped with the source")
+class SenseTrainEvidenceTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        capture = cv2.VideoCapture(str(ROOT.parent / "runs/observation_08/annotated.mp4"))
+        ok, cls.frame = capture.read()
+        capture.release()
+        if not ok:
+            raise RuntimeError("Cannot read the SENSE Train Data fixture")
+        geometry = detect_displays(cls.frame)["right"]
+        cls.right = rectify_display(cls.frame, geometry, (600, 960))
+        cls.left = rectify_display(cls.frame, detect_displays(cls.frame)["left"], (800, 1280))
+
+    def test_cold_start_reads_field_and_visible_navigation(self):
+        result = process_frame(self.frame, 0, 0.)
+        self.assertEqual(result["right_display"]["state"], "Train Data")
+        self.assertEqual(result["right_display"]["data_field"]["value"], "Gamma")
+        self.assertEqual(set(result["right_display"]["buttons"]),
+                         {"gamma", "lambda", "close", "enter_data", "left_arrow", "right_arrow"})
+        self.assertIn("yes", result["left_display"]["buttons"])
+        self.assertEqual(result["left_display"]["summary"]["train_type"]["value"], "Gamma")
+        # Visibility/recognition supplies no enabled-state assertion.
+        self.assertNotIn("active", result["right_display"]["buttons"]["left_arrow"])
+
+    def test_split_border_is_not_read_as_a_title_letter(self):
+        capture = cv2.VideoCapture(str(ROOT.parent / "runs/observation_08/annotated.mp4"))
+        capture.set(cv2.CAP_PROP_POS_FRAMES, 3)
+        ok, frame = capture.read()
+        capture.release()
+        self.assertTrue(ok)
+        result = process_frame(frame, 0, 0.)
+        self.assertEqual(result["right_display"]["state"], "Train Data")
+        self.assertEqual(result["left_display"]["title"]["text"], "Train data")
+
+    def test_summary_changes_independently_and_omits_missing_or_duplicates(self):
+        transform = np.eye(3, dtype=np.float64)
+        original = _read_train_summary(self.left, transform)
+        self.assertEqual(original["train_type"]["value"], "Gamma")
+        changed = self.left.copy()
+        changed[285:375, 480:735] = self.left[400, 500]
+        cv2.putText(changed, "Lambda", (490, 345), cv2.FONT_HERSHEY_SIMPLEX,
+                    1., (230, 230, 230), 2, cv2.LINE_AA)
+        self.assertEqual(_read_train_summary(changed, transform)["train_type"]["value"], "Lambda")
+        blank = self.left.copy()
+        blank[280:390, 250:750] = self.left[400, 500]
+        self.assertEqual(_read_train_summary(blank, transform), {})
+        duplicate = self.left.copy()
+        duplicate[480:590] = self.left[280:390]
+        self.assertEqual(_read_train_summary(duplicate, transform), {})
+
+    def test_choices_follow_glyphs_when_swapped(self):
+        changed = self.right.copy()
+        changed[450:515, 20:180] = self.right[450:515, 220:380]
+        changed[450:515, 220:380] = self.right[450:515, 20:180]
+        buttons = _recognize_train_buttons(changed)
+        self.assertGreater(buttons["gamma"][:, 0].mean(), buttons["lambda"][:, 0].mean())
+
+    def test_duplicate_or_blank_choices_are_omitted(self):
+        duplicate = self.right.copy()
+        duplicate[450:515, 220:380] = self.right[450:515, 20:180]
+        self.assertNotIn("gamma", _recognize_train_buttons(duplicate))
+        blank = self.right.copy()
+        blank[450:515, 20:380] = self.right[400, 100]
+        buttons = _recognize_train_buttons(blank)
+        self.assertNotIn("gamma", buttons)
+        self.assertNotIn("lambda", buttons)
+
+    def test_missing_choice_border_does_not_use_monitor_border(self):
+        changed = self.right.copy()
+        erased = np.zeros(changed.shape[:2], np.uint8)
+        erased[520:545, :420] = 255
+        changed = cv2.inpaint(changed, erased, 7, cv2.INPAINT_TELEA)
+        buttons = _recognize_train_buttons(changed)
+        self.assertNotIn("gamma", buttons)
+        self.assertNotIn("lambda", buttons)
 
 
 if __name__ == "__main__":

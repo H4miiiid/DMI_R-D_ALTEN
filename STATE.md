@@ -6,11 +6,12 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
-AGENTS Steps 1–3 are accepted offline/recorded-camera on 2026-10-23. The user
-also authorized committing/pushing these reviewed updates on that date. The user
-will report processing cost and detection speed after real hardware testing;
-installed-hardware performance remains unverified. Next proposed implementation:
-Step 4 (SENSE Train Data support), awaiting user instruction.
+AGENTS Steps 1–4 are accepted offline/recorded-camera on 2026-10-23. The user
+also authorized committing/pushing the reviewed updates through Step 4. Steps 1–3
+were published in `f14e46c`; Step 4 is included in the commit carrying this handoff.
+Installed-hardware performance remains unverified; the user will report cost and
+speed after real testing. Next proposed implementation: Step 5 (SENSE Train Data
+1/2 support), awaiting explicit user instruction.
 Give short reports in chat; no new report Markdown files. Record completion only
 after approval; commit/push only with publication approval.
 
@@ -23,6 +24,31 @@ separate permissions. Both reviewers returned PASS on the workflow instructions.
 The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
+
+Step 4 — accepted offline/recorded-camera; publication authorized (2026-10-23):
+measure Train Data controls from current borders/glyphs; recognize the two-tone
+train-type field, left title/summary and completion Yes independently. Add optional
+left summary geometry/value to rich/compact output and annotations, never targets.
+Both reviewers initially flagged missing summary recognition; corrected and both
+re-reviewed final version `f5b3cb819c63df0103fd3de91f6fd6c162ea050712c7c50747c20957319b8c6f`:
+PASS WITH WARNINGS, no unresolved blockers. All 61 SENSE frames retain left
+title/summary/Yes and six right controls; direct right Gamma is 58/61 (uncertain
+11/35/59). Cold startup, independent left/right Lambda changes, duplicates, blanks,
+missing borders and loss/recovery pass; existing confirmation/freshness gates stay.
+Suites: 227 vision and 126 integration passes; compact reconstruction has zero
+semantic mismatches at 4 px. Existing content is exact in 40/42 cold regressions
+(39/42 including new summary metadata); measured Train Data geometry differs and
+blurred/hand-occluded TWIN frame 286 omits four legacy nominal controls. Six clear
+TWIN views retain summary, Gamma and four controls. Coarse matched center error
+mean 29 -> 2.72 native px (agent references ±5 px, not human ground truth).
+Analysis mean/P95 0.755/1.196 -> 0.704/0.733 s; OCR 486/36.42 -> 421/32.05 s.
+Receipt replay regular/selective ~1.344/1.353 processed FPS; each consumes 11/61,
+with 50 overwrites and zero policy skips. P95 local result age 0.916/0.871 s,
+excluding upstream age; targets remain unusable and clear on stop. No selective
+saving established. Natural SENSE Lambda/transitions/new framing, independent
+human position truth and hardware performance/physical accuracy remain unverified.
+Durable local evidence: `runs/step4_train_20261023_01/review2/`; ignored media and
+evidence require separate supply in a clean clone. No hardware actions performed.
 
 Step 3 — accepted offline/recorded-camera; publication authorized (2026-10-23):
 localize from current sparse border segments without a mandatory keypad/menu;
@@ -103,10 +129,10 @@ temporary review artifacts only. No additional OCR or physical action.
 
 ## Repository and hardware baseline
 
-- Implementation review base: `b071752`, branch main (dual-review workflow),
-  following roadmap/activity `eb88729` and earlier Level/optional-controls/
-  launcher/recorder work in `e95d707`. Accepted Steps 1–3 are included in the
-  commit carrying this handoff; publication is explicitly authorized.
+- Current Step 4 implementation review base: `f14e46c`, branch main; Steps 1–3
+  were published there after workflow `b071752`, roadmap/activity `eb88729` and
+  Level/optional-controls/launcher/recorder `e95d707`. Accepted Step 4 publication
+  is explicitly authorized and included in the commit carrying this handoff.
 - Original integration Phases 1–6 plus 3A were accepted offline, ending `15dabbd`.
   Monitor localization/shared analysis/stability are `27b085e`, `99f9aea`,
   `6ecdcc2`; Step 5 validation is `cf10c81`. Preserve these foundations; they do
@@ -193,7 +219,8 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 - Static Level evidence is validated; changed values, natural transitions, new
   framing/occlusion and fresh deployment remain unverified. No physical mm proof.
 - Step 3 accepts SENSE localization on the five recordings with the two page-1
-  failures above. Train control identities/values remain for Steps 4–7; geometry
+  failures above. Step 4 now accepts the recorded Train Data view with the limits
+  in its milestone; numbered-page/validation semantics remain Steps 5–7. Geometry
   success does not establish semantic coverage. Earlier cold checks finding
   unknown/zero controls on all four train sources describe the pre-Step 3 baseline.
 - The reproduced Main->Driver geometry transition failure is corrected by generic
@@ -232,8 +259,8 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
 ## Next approvals and delivery rules
 
-Steps 1–3 are accepted with the limits above and approved for commit/push.
-Steps 4–16 remain planned; starting Step 4 requires explicit authorization.
+Steps 1–4 are accepted with the limits above and approved for commit/push.
+Steps 5–16 remain planned; starting Step 5 requires explicit authorization.
 Continue one requested step at a time; do not infer next-step permission from
 acceptance or reviewer verdicts. Do not accumulate old reports.
 

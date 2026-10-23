@@ -163,8 +163,12 @@ class PartialMonitorTest(unittest.TestCase):
                    return_value='Train data') as read:
             first = analyze_train_left_display(frame, geometry())
             cv2.rectangle(frame, (5, 1100), (795, 1200), (190, 190, 190), -1)
+            blank = analyze_train_left_display(frame, geometry())
+            cv2.putText(frame, 'Yes', (360, 1160), cv2.FONT_HERSHEY_SIMPLEX,
+                        1.2, (40, 40, 40), 2, cv2.LINE_AA)
             second = analyze_train_left_display(frame, geometry())
-        self.assertEqual(read.call_count, 2)
+        self.assertEqual(read.call_count, 3)
+        self.assertNotIn('yes', blank[1]['buttons'])
         self.assertEqual(first[0], 'Train Data')
         self.assertNotIn('yes', first[1]['buttons'])
         self.assertIn('yes', second[1]['buttons'])

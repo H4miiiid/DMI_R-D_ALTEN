@@ -102,7 +102,7 @@ def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
                 _region(result['geometry'], path + f'.{side}.geometry', display=True)
                 counts['display_geometries'] += 1
         if left['geometry'] is None:
-            _require(not left['boxes'] and left['speed_indicator'] is None,
+            _require(not left['boxes'] and left['speed_indicator'] is None and not left.get('summary'),
                      path, 'missing left display must not retain content')
         if 'title' in left:
             _require(left['geometry'] is not None, path,
@@ -116,6 +116,15 @@ def validate_results(frames: list[dict], fps: float | None) -> dict[str, int]:
                 _require(isinstance(name, str) and bool(name), path,
                          'left button identity must be nonempty text')
                 _region(region, path + '.left.buttons.' + name)
+                counts['left_regions'] += 1
+        if 'summary' in left:
+            _mapping(left['summary'], set(), path + '.left.summary')
+            for name, region in left['summary'].items():
+                _require(isinstance(name, str) and bool(name), path, 'summary identity must be nonempty text')
+                _require(left['geometry'] is not None, path, 'missing left display must not retain summary')
+                _mapping(region, {'value'}, path + '.left.summary.' + name)
+                _text(region['value'], path + '.left.summary.' + name + '.value')
+                _region(region, path + '.left.summary.' + name)
                 counts['left_regions'] += 1
         if right['geometry'] is None:
             _require(right['visibility'] == 'unknown', path, 'missing right geometry requires unknown visibility')

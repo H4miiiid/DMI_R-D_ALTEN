@@ -152,6 +152,8 @@ def _draw_left_content(frame: Frame, display: dict[str, Any]) -> None:
     title = display.get("title")
     if title is not None:
         _draw_region(frame, title, title["text"], (255, 0, 255), draw_center=False)
+    for name, region in display.get("summary", {}).items():
+        _draw_region(frame, region, f"{name}: {region['value']}", (0, 165, 255), draw_center=False)
     for name, button in display.get("buttons", {}).items():
         _draw_region(frame, button, name, (255, 128, 0), draw_center=True)
     for name, region in display["boxes"].items():

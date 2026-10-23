@@ -17,8 +17,9 @@ from dmi_computer_vision.src.dmi.detection.left_layout import (
     valid_quad,
 )
 from dmi_computer_vision.src.dmi.temporal.left_tracking import LeftDisplayStabilizer
+from dmi_computer_vision.src.dmi.detection.right_layout import field_quad_from_contour
 from dmi_computer_vision.src.dmi.detection.icons import recognize_icons
-from dmi_computer_vision.src.dmi.detection.title_ocr import read_light_title, read_title, title_state
+from dmi_computer_vision.src.dmi.detection.title_ocr import read_field, read_light_title, read_title, title_state
 
 RECTIFIED_SIZE = (800, 1280)
 
@@ -57,6 +58,17 @@ def analyze_train_left_display(
     else:
         title_box = (round(width * .25), round(height * .025),
                      width, round(height * .18))
+    if glyphs:
+        # A bright split border beside the last letter is not a title glyph.
+        # Bound the OCR margin by observed tall, narrow components.
+        separators = [item for item in stats[1:]
+                      if item[cv2.CC_STAT_HEIGHT] > height * .07
+                      and item[cv2.CC_STAT_WIDTH] < text_height * .4
+                      and item[cv2.CC_STAT_LEFT] + round(width*.25) >= x2]
+        if separators:
+            edge = min(int(item[cv2.CC_STAT_LEFT]) + round(width*.25)
+                       for item in separators)
+            title_box = (*title_box[:2], min(title_box[2], edge), title_box[3])
     text = read_title(rectified, title_box)
     state = title_state(text)
     if state == "unknown" and glyphs:
@@ -97,9 +109,96 @@ def analyze_train_left_display(
             ordered = box[np.argsort(box[:, 1])]
             top = ordered[:2][np.argsort(ordered[:2, 0])]
             bottom = ordered[2:][np.argsort(ordered[2:, 0])[::-1]]
-            buttons["yes"] = _region_result(np.vstack((top, bottom)), transform)
-    return state, {"boxes": {}, "speed_indicator": None,
-                   "title": title, "buttons": buttons}
+            points = np.vstack((top, bottom))
+            # Do not name a pale blank rectangle Yes. Other train pages retain
+            # their existing path until their separately authorized steps.
+            text = "Yes"
+            if state == "Train Data":
+                points = field_quad_from_contour(max(candidates, key=cv2.contourArea))
+                text = _read_train_completion(rectified, points)
+            if text == "Yes":
+                buttons["yes"] = _region_result(points, transform)
+    content = {"boxes": {}, "speed_indicator": None, "title": title, "buttons": buttons}
+    if state == "Train Data":
+        content["summary"] = _read_train_summary(rectified, transform)
+    return state, content
+
+
+def _read_train_summary(frame: Frame, transform: np.ndarray) -> dict[str, Any]:
+    """Measure current summary glyph rows, independently of the right field.
+
+    These are text observations, never button cells or robot targets. Unknown
+    or duplicate rows are omitted; no previous value or screen order is used.
+    """
+    height, width = frame.shape[:2]
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    mask = (gray > max(80, float(np.median(gray)) + 25)).astype(np.uint8)
+    mask[:round(height * .16)] = 0
+    mask[round(height * .7):] = 0
+    _, _, components, _ = cv2.connectedComponentsWithStats(mask)
+    glyphs = [item for item in components[1:]
+              if item[cv2.CC_STAT_AREA] >= 8
+              and 8 < item[cv2.CC_STAT_HEIGHT] < height * .065
+              and item[cv2.CC_STAT_WIDTH] < width * .6]
+    rows = []
+    for glyph in sorted(glyphs, key=lambda item: item[1] + item[3] / 2):
+        center = glyph[1] + glyph[3] / 2
+        if not rows or center - np.median([g[1] + g[3] / 2 for g in rows[-1]]) > glyph[3] * .5:
+            rows.append([])
+        rows[-1].append(glyph)
+    # More text rows are ambiguous for this single-summary screen. Bound OCR
+    # work and fail closed rather than searching an unsupported text page.
+    if len(rows) > 4:
+        return {}
+    result, duplicates = {}, set()
+    values = {"train type gamma": "Gamma", "train type lambda": "Lambda"}
+    for row in rows:
+        left = max(0, min(g[0] for g in row) - 8)
+        top = max(0, min(g[1] for g in row) - 8)
+        right = min(width, max(g[0] + g[2] for g in row) + 8)
+        bottom = min(height, max(g[1] + g[3] for g in row) + 8)
+        if right - left < width * .15:
+            continue
+        text = read_title(frame, (left, top, right, bottom))
+        value = values.get(" ".join((text or "").casefold().split()))
+        if value is None:
+            continue
+        name = "train_type"
+        if name in result:
+            duplicates.add(name)
+        points = np.float32([[left, top], [right, top], [right, bottom], [left, bottom]])
+        result[name] = {**_region_result(points, transform), "value": value}
+    return {name: region for name, region in result.items() if name not in duplicates}
+
+
+def _read_train_completion(frame: Frame, points: np.ndarray) -> str | None:
+    """Read current dark glyphs in a measured, wide pale completion cell."""
+    if not valid_quad(points):
+        return None
+    width = round(np.linalg.norm(points[1] - points[0]))
+    height = round(np.linalg.norm(points[3] - points[0]))
+    if width < frame.shape[1] * .65 or not frame.shape[0] * .035 < height < frame.shape[0] * .2:
+        return None
+    target = np.float32([[0, 0], [width - 1, 0],
+                         [width - 1, height - 1], [0, height - 1]])
+    cell = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(points, target), (width, height))
+    inset = max(2, round(height * .15))
+    if 2 * inset >= min(width, height) - 4:
+        return None
+    crop = cell[inset:-inset, inset:-inset]
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    ink = (gray < float(np.median(gray)) - 12).astype(np.uint8)
+    _, _, components, _ = cv2.connectedComponentsWithStats(ink)
+    letters = [item for item in components[1:]
+               if item[cv2.CC_STAT_AREA] >= 10
+               and crop.shape[0] * .15 < item[cv2.CC_STAT_HEIGHT] < crop.shape[0] * .9]
+    if not letters:
+        return None
+    left = max(0, min(item[0] for item in letters) - 6)
+    top = max(0, min(item[1] for item in letters) - 6)
+    right = min(crop.shape[1], max(item[0] + item[2] for item in letters) + 6)
+    bottom = min(crop.shape[0], max(item[1] + item[3] for item in letters) + 6)
+    return read_field(crop, (left, top, right, bottom))
 
 
 def analyze_left_display(

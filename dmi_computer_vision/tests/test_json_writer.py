@@ -34,6 +34,20 @@ class CompactWriterTest(unittest.TestCase):
         self.assertNotIn('oriented_box', record['right_display']['geometry'])
         self.assertEqual(item, before)
 
+    def test_summary_value_change_and_loss_propagate_without_button_targets(self):
+        item = frame()
+        region = deepcopy(item['right_display']['data_field'])
+        region['value'] = 'Gamma'
+        item['left_display']['summary'] = {'train_type': region}
+        first = self.emit(item)
+        self.assertEqual(first['left_display']['summary']['train_type']['value'], 'Gamma')
+        self.assertNotIn('train_type', first['right_display']['buttons'])
+        region['value'] = 'Lambda'
+        delta = self.emit(item)
+        self.assertEqual(delta['left_display']['summary']['train_type'], {'value': 'Lambda'})
+        item['left_display']['summary'] = {}
+        self.assertEqual(self.emit(item)['left_display']['summary'], {})
+
     def test_jitter_suppressed_but_cumulative_movement_emitted(self):
         item = frame()
         self.emit(item)

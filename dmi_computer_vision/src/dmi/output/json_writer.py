@@ -48,6 +48,11 @@ def compact_state(result):
         state["left_display"]["buttons"] = {
             name: button["center"] for name, button in left["buttons"].items()
         }
+    if "summary" in left:
+        state["left_display"]["summary"] = {
+            name: {"value": region["value"], **geometry(region)}
+            for name, region in left["summary"].items()
+        }
     activity = {name: button["active"] for name, button in right["buttons"].items()
                 if "active" in button}
     if activity:

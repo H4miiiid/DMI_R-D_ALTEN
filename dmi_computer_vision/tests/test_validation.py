@@ -37,6 +37,15 @@ class ValidationTest(unittest.TestCase):
         self.assertEqual(counts['right_regions'], 3)
         self.assertEqual(frames, original)
 
+    def test_summary_is_observed_text_and_requires_current_geometry(self):
+        result = frame()
+        result['left_display']['summary'] = {'train_type': {**region(), 'value': 'Gamma'}}
+        self.assertEqual(validate_results([result], 30)['left_regions'], 2)
+        result['left_display']['geometry'] = None
+        result['left_display']['boxes'] = {}
+        with self.assertRaises(ValueError):
+            validate_results([result], 30)
+
     def test_icon_identity_uses_available_assets(self):
         result = frame()
         result['left_display']['boxes']['box_1']['icon'] = 'power'

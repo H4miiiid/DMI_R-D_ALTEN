@@ -11,6 +11,7 @@ from numpy.typing import NDArray
 
 from dmi_computer_vision.src.dmi.detection.display_geometry import DisplayGeometry, Frame, rectify_display
 from dmi_computer_vision.src.dmi.detection.title_ocr import read_field, read_title, read_titles, title_state
+from dmi_computer_vision.src.dmi.detection.train_controls import train_button_cells
 from dmi_computer_vision.src.dmi.detection.visibility import right_display_obstructed
 from dmi_computer_vision.src.dmi.detection.right_layout import (
     detect_border_lines,
@@ -72,6 +73,9 @@ def analyze_right_display(
             title = None
 
     data_field = None
+    if state == "Train Data":
+        field_detection = _detect_train_field(rectified)
+        field_box = field_detection[0] if field_detection is not None else None
     if field_box is not None and state not in {"Train Data (1/2)", "Train Data (2/2)"}:
         field_image = _crop_box(rectified, field_box)
         value = None
@@ -91,7 +95,27 @@ def analyze_right_display(
                 divider = start + int(np.argmax(contrast))
                 value_box = (x1 + divider + inset, y1 + inset, x2 - inset, y2 - inset)
                 if contrast.max() >= 10:
-                    value = read_field(rectified, value_box)
+                    label = read_title(rectified, (x1+inset, y1+inset,
+                                                  x1+divider-inset, y2-inset))
+                    if label == "Train type":
+                        value_image = _crop_box(rectified, value_box)
+                        gray_value = cv2.cvtColor(value_image, cv2.COLOR_BGR2GRAY)
+                        ink = (gray_value < float(np.median(gray_value))-18).astype(np.uint8)
+                        _, _, parts, _ = cv2.connectedComponentsWithStats(ink)
+                        letters = [p for p in parts[1:] if p[4] >= 10
+                                   and gray_value.shape[0]*.15 < p[3] < gray_value.shape[0]*.9]
+                        if letters:
+                            lo = np.min([p[:2] for p in letters], axis=0)
+                            hi = np.max([p[:2]+p[2:4] for p in letters], axis=0)
+                            box = (max(0, int(lo[0])-5), max(0, int(lo[1])-5),
+                                   min(value_image.shape[1], int(hi[0])+5), min(value_image.shape[0], int(hi[1])+5))
+                            value = read_field(value_image, box)
+                        if value not in {"Gamma", "Lambda"}:
+                            # One bounded retry on the same current value area;
+                            # no supplied answer or retained value enters OCR.
+                            value = read_field(rectified, value_box)
+                        if value not in {"Gamma", "Lambda"}:
+                            value = None
             else:
                 x2 = x1 + round((x2 - x1) * .33)
                 value = read_field(rectified, (x1, y1 + inset, x2, y2 - inset))
@@ -111,6 +135,17 @@ def analyze_right_display(
             rectified, state, border_lines, level_read_cells=level_read_cells,
         )
         controls = _recognize_level_buttons(rectified, detected_buttons, read_cells=level_read_cells)
+    elif state == "Train Data":
+        # Include real source pixels just outside the geometry enclosure so a
+        # border clipped by rectification can still be independently measured.
+        width, height = RECTIFIED_SIZE
+        margin = 16
+        destination = np.float32([[margin, margin], [width-1+margin, margin],
+                                  [width-1+margin, height-1+margin], [margin, height-1+margin]])
+        expanded = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(geometry.corners, destination),
+                                       (width+2*margin, height+2*margin))
+        controls = {name: (quad-margin, None)
+                    for name, quad in _recognize_train_buttons(expanded).items()}
     else:
         detected_buttons = (detect_button_quads(rectified, state, border_lines)
                             if state != "unknown" or title_text is not None else {})
@@ -126,6 +161,90 @@ def analyze_right_display(
         "buttons": buttons,
         "data_field": data_field,
     }
+
+
+def _detect_train_field(
+    frame: Frame,
+) -> tuple[tuple[int, int, int, int], NDArray[np.int32]] | None:
+    """Measure the two-tone row near the top, including its darker label half."""
+    height, width = frame.shape[:2]
+    hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
+    mask = cv2.inRange(hsv, (0, 0, 90), (179, 240, 255))
+    mask[round(height*.3):] = 0
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    candidates = []
+    for contour in contours:
+        x, y, w, h = cv2.boundingRect(contour)
+        if w > width*.7 and height*.05 < h < height*.2 and cv2.contourArea(contour) > w*h*.8:
+            candidates.append(((x, y, x+w, y+h), contour))
+    return max(candidates, key=lambda item: cv2.contourArea(item[1])) if candidates else None
+
+
+def _recognize_train_buttons(frame: Frame) -> dict[str, NDArray]:
+    """Read each measured cell; blank/ambiguous/duplicate identities are omitted."""
+    result, duplicates, text_rows = {}, set(), []
+    identities = {"Gamma": "gamma", "Lambda": "lambda", "Enter data": "enter_data"}
+    for points in train_button_cells(frame).values():
+        size = tuple(max(20, round(np.linalg.norm(points[i]-points[0]))) for i in (1, 3))
+        target = np.float32([[0, 0], [size[0]-1, 0], [size[0]-1, size[1]-1], [0, size[1]-1]])
+        crop = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(points, target), size)
+        iy, ix = round(size[1]*.15), round(size[0]*.1)
+        interior = crop[iy:-iy, ix:-ix]
+        gray = cv2.cvtColor(interior, cv2.COLOR_BGR2GRAY)
+        ink = (gray > float(np.median(gray))+25).astype(np.uint8)*255
+        name = _level_action_icon(ink)
+        if name != "close":
+            name = _train_arrow(ink)
+        if name is not None:
+            if name in result:
+                duplicates.add(name)
+            result[name] = points
+            continue
+        # Keep the observed text lines separate for OCR, then join their words.
+        present = np.flatnonzero(np.count_nonzero(ink, axis=1) >= 2)
+        if not len(present):
+            continue
+        groups = np.split(present, np.flatnonzero(np.diff(present)>3)+1)
+        crops = []
+        for group in groups:
+            y1, y2 = max(0, int(group[0])-4), min(interior.shape[0], int(group[-1])+5)
+            xs = np.flatnonzero(np.any(ink[y1:y2], axis=0))
+            if len(xs):
+                crops.append(interior[y1:y2, max(0, int(xs[0])-4):min(interior.shape[1], int(xs[-1])+5)])
+        text_rows.append((points, crops))
+    texts = iter(read_titles([crop for _, crops in text_rows for crop in crops]))
+    for points, crops in text_rows:
+        words = [next(texts) for _ in crops]
+        name = identities.get(" ".join(words)) if words and all(words) else None
+        if name is not None:
+            if name in result:
+                duplicates.add(name)
+            result[name] = points
+    return {name: points for name, points in result.items() if name not in duplicates}
+
+
+def _train_arrow(mask: Frame) -> str | None:
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    contours = [c for c in contours if cv2.contourArea(c) > 15]
+    if len(contours) != 1:
+        return None
+    contour = contours[0]
+    hull = cv2.convexHull(contour)
+    polygon = cv2.approxPolyDP(hull, cv2.arcLength(hull, True)*.06, True).reshape(-1, 2)
+    if len(polygon) != 3 or cv2.contourArea(contour) < cv2.contourArea(hull)*.85:
+        return None
+    x, y, w, h = cv2.boundingRect(polygon)
+    if min(w, h) < 12 or not .6 < w/h < 1.5:
+        return None
+    normalized = (polygon-(x, y))/(w, h)
+    left = normalized[:, 0].argmin()
+    right = normalized[:, 0].argmax()
+    for index, name, base in ((left, "left_arrow", 1.), (right, "right_arrow", 0.)):
+        tip = normalized[index]
+        others = np.delete(normalized, index, axis=0)
+        if abs(tip[1]-.5) < .2 and np.all(abs(others[:, 0]-base) < .2) and np.ptp(others[:, 1]) > .7:
+            return name
+    return None
 
 
 def _recognize_level_buttons(
