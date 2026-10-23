@@ -58,8 +58,9 @@ documentation-only unless runtime implementation is explicitly requested. At eac
 
 1. Reproduce the specific failure and establish a small representative baseline.
 2. Make the smallest shared change; verify accuracy, failure handling and cost.
-3. Give a short report **in chat**: change, checks/results, remaining limits and
-   the next step. Show useful annotations when relevant, with source paths.
+3. Complete the automatic two-reviewer cycle below, then give a short report
+   **in chat**: change, checks/results, both reviewer verdicts, remaining limits
+   and the proposed next step. Show useful annotations with source paths.
 4. Wait for the user's review/approval. Do not create a per-step REPORT/REVIEW
    Markdown file or another handoff document. Until approval, the working diff
    and chat are pending work; do not mark the step accepted in `STATE.md`.
@@ -67,6 +68,58 @@ documentation-only unless runtime implementation is explicitly requested. At eac
    results. Commit/push only if that approval also authorizes publication. Stage
    only reviewed changes; report commit ID/destination and actual push result.
    Never force-push, silently include local files or infer publication approval.
+
+### Automatic implementation and review cycle
+
+For each user-authorized implementation step, the main agent owns implementation
+and corrections, and must automatically request both configured reviewers:
+
+- `code_review`: correctness, regressions, performance, maintainability and tests.
+- `step_checker`: authorized scope, acceptance criteria, evidence and plan compliance.
+
+Use `.codex/agents/code_review.toml` and `step_checker.toml` for their duties.
+The workflow delivery must include those two files and `.codex/config.toml`
+alongside this guidance; do not publish instructions that depend on omitted local
+agent definitions. Include only reviewed configuration, not unrelated local files.
+The user authorizes this delegation for requested steps; do not ask permission
+again for each reviewer invocation or ordinary in-scope correction. This workflow
+does not authorize starting an unrequested step or implementing a plan-only edit.
+
+1. Implement the current step and run its relevant checks. Define the exact
+   review scope: step/criteria, changed files, diff/base revision and evidence paths.
+2. Freeze edits while both agents independently review the same working version.
+   They may review in parallel; neither edits files, opens live hardware connections,
+   sends actions, creates report files, commits or pushes. Findings return in chat.
+3. The main agent examines each finding against evidence. Fix confirmed defects
+   and unmet in-scope requirements, rerun affected checks and request re-review.
+   Do not apply speculative suggestions blindly or expand into another step.
+   Resolve reviewer disagreements with evidence and disclose any unresolved issue.
+4. Repeat until both reviewers assess the final version with no unresolved
+   blocking defects or mandatory criteria missing/unverified. After corrections,
+   both reviewers must confirm the final version, not an earlier diff. A PASS WITH
+   WARNINGS can be ready only when its remaining warnings are nonblocking and
+   explicitly disclosed; a FAIL or NOT VERIFIED is not ready for acceptance.
+5. If required evidence, a decision or an unavailable reviewer prevents completion,
+   report the specific blocker to the user. Do not invent a second review, conceal
+   a failure, repeat fruitless loops, or weaken requirements to obtain a PASS.
+   Continue independent authorized work where possible; deferred hardware evidence
+   blocks only acceptance criteria that actually require it.
+6. Present one short consolidated report to the user. Include the final review
+   verdicts and checks, meaningful fixes, limits and an explicit approval request.
+   Subagent approval is advisory; only the user accepts work and authorizes publication.
+
+Keep three permissions distinct: accepting the current step, committing/pushing
+it, and starting the next named step. A single explicit user reply may authorize
+all three. If it does, update `STATE.md`, commit/push only the reviewed files,
+verify/report the push, then start the named next step and repeat this cycle.
+If publication fails, report it and resolve it before advancing. If the user
+requests changes or declines, stay on the current step. Never infer next-step
+authorization from a reviewer PASS or from approval limited to the current step.
+
+Use the current session's delegation tools; do not build a scheduler, background
+agent service, new protocol or extra report directory for this workflow. If an
+agent is unavailable, disclose it rather than silently replacing its independent
+review with a self-review. Do not launch another top-level Codex process.
 
 Keep `STATE.md` short: one current status, baseline, evidence map, open issues,
 next step and compact accepted milestones. Preserve the difference between code

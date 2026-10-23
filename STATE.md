@@ -1,6 +1,6 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-10-22. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-10-23. Read `AGENTS.md` for the new numbered roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
@@ -13,8 +13,17 @@ activity update below. Next implementation: AGENTS Step 1 (focused Level
 accuracy review), then Step 2 (measured speed improvements), after the user's
 instruction. Give short reports in chat; no new report Markdown files. Record
 step completion here after approval; commit/push only with publication approval.
-The user explicitly authorized commit/push on 2026-10-22 for these updates.
-Publication result will be reported in chat. No other roadmap step is authorized.
+The roadmap/Level update was published as `eb88729`. No other roadmap step is authorized.
+
+Automatic two-reviewer workflow — approved for commit/push (2026-10-23): main
+agent implements one authorized step, code_review and step_checker independently
+review, main fixes/rechecks, then both confirm the final version before one short
+chat report and user approval. No per-step report files; STATE.md is updated only
+after approval. Acceptance, publication and starting the next named step remain
+separate permissions. Both reviewers returned PASS on the workflow instructions.
+Publish AGENTS.md with `.codex/config.toml` and both reviewer TOMLs; models and
+concurrency are unchanged. This approval does not start Step 1. No runtime change
+or hardware operation. Publication result will be reported in chat.
 
 Level activity update — accepted offline, commit/push authorized (2026-10-22): distinguish active
 Level 0/1/2, KVB, X/Close and .../More from inactive Level 3, MEMOR, ATC-2, SCMT
@@ -37,10 +46,10 @@ temporary review artifacts only. No additional OCR or physical action.
 
 ## Repository and hardware baseline
 
-- Inspected HEAD: `e95d707` (Level screen detection for SENSE monitor), branch main.
-  Local origin/main points there too; no remote network check was performed.
-  The previously pending Level/optional-controls/launcher/recorder changes are now
-  in this commit. Do not repeat the old "uncommitted Level implementation" status.
+- Last published baseline: `eb88729`, branch main; includes the earlier Level/
+  optional-controls/launcher/recorder work in `e95d707`. Local origin/main matches
+  this baseline before workflow publication. Do not repeat the old "uncommitted
+  Level implementation" status.
 - Original integration Phases 1–6 plus 3A were accepted offline, ending `15dabbd`.
   Monitor localization/shared analysis/stability are `27b085e`, `99f9aea`,
   `6ecdcc2`; Step 5 validation is `cf10c81`. Preserve these foundations; they do
