@@ -17,6 +17,7 @@ from dmi_computer_vision.src.dmi.pipeline.frame_processor import FrameProcessor
 from dmi_computer_vision.src.dmi.output.annotation import annotate_frame
 from dmi_computer_vision.src.dmi.output.json_writer import CompactWriter, ProgressReporter, write_record
 from dmi_computer_vision.src.dmi.output.latest_state import LatestState
+from dmi_computer_vision.src.dmi.pipeline.preview_worker import PreviewWorker, PreviewClosed
 
 
 class ProcessingPolicy(Protocol):
@@ -45,6 +46,8 @@ class LiveRunSummary:
     annotation_seconds: float = 0.0
     consumed_frames: int = 0
     policy_skipped_frames: int = 0
+    preview_frames: int = 0
+    preview_render_seconds: float = 0.0
 
 
 def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dict | None = None,
@@ -58,7 +61,11 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                  on_skipped: Callable[[], bool] | None = None,
                  max_capture_frames: int | None = None,
                  on_detection_evidence: Callable[[dict, CapturedFrame, float, dict], None] | None = None,
-                 stop_event: Event | None = None) -> LiveRunSummary:
+                 stop_event: Event | None = None,
+                 live_preview: Callable[[Frame], bool] | None = None,
+                 optimize: bool = True,
+                 live_preview_age_seconds: float = 1.5,
+                 on_shutdown: Callable[[], None] | None = None) -> LiveRunSummary:
     """Consume received frames until a limit, preview stop, Ctrl-C or failure.
 
     Sources are opened/closed by the caller. Each emitted JSONL record is flushed;
@@ -74,8 +81,10 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     if (type(geometry_tolerance) not in (int, float)
             or not math.isfinite(geometry_tolerance) or geometry_tolerance < 0):
         raise ValueError("geometry_tolerance must be a finite nonnegative number")
-    processor = (FrameProcessor(max_gap_seconds=max_gap_seconds, collect_target_evidence=True)
-                 if on_detection_evidence is not None else FrameProcessor(max_gap_seconds=max_gap_seconds))
+    if live_preview is not None and not hasattr(source, "latest"):
+        raise ValueError("Independent preview requires a bounded frame dispatcher")
+    processor = FrameProcessor(max_gap_seconds=max_gap_seconds,
+                               collect_target_evidence=on_detection_evidence is not None, optimize=optimize)
     if processing_policy is not None:
         processing_policy.start_session()
     directory = Path(output_dir).expanduser().resolve()
@@ -99,6 +108,10 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     failure: str | None = None
     progress = ProgressReporter("Live")
     with ExitStack() as stack:
+        stack.callback(processor.close)
+        worker = (stack.enter_context(PreviewWorker(processor, source, live_preview, stop_event,
+                      max_hold_seconds=live_preview_age_seconds))
+                  if live_preview is not None else None)
         if latest_state is not None:
             stack.enter_context(latest_state)
         stream = stack.enter_context(jsonl_path.open("x", encoding="utf-8"))
@@ -112,7 +125,15 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                     reason = "stopped"
                     break
                 try:
-                    packet = source.read()
+                    if worker is None:
+                        packet = source.read()
+                    else:
+                        while True:
+                            try:
+                                packet = source.read(timeout=.03)
+                                break
+                            except TimeoutError:
+                                worker.idle()
                 except EOFError:
                     reason = "eof"
                     break
@@ -138,7 +159,12 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
                 timestamp = packet.received_at - first_received
                 started_processing = time.monotonic()
                 capture_age = started_processing - packet.received_at
-                result = processor.process(packet.image, timestamp)
+                try:
+                    result = (worker.process(packet, timestamp) if worker is not None
+                              else processor.process(packet.image, timestamp))
+                except PreviewClosed:
+                    reason = "stopped" if stop_event is not None and stop_event.is_set() else "preview_closed"
+                    break
                 finished_detection = time.monotonic()
                 annotated = annotate_frame(packet.image, result) if annotate else None
                 finished_processing = time.monotonic()
@@ -185,6 +211,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
             if (reason == "max_frames" and max_capture_frames is not None and consumed >= max_capture_frames
                     and (max_frames is None or count < max_frames)):
                 reason = "max_capture_frames"
+        except PreviewClosed:
+            reason = "stopped" if stop_event is not None and stop_event.is_set() else "preview_closed"
         except KeyboardInterrupt:
             reason = "interrupted"
         except Exception as exc:
@@ -198,6 +226,8 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
             # claim that an errored or forcibly killed session completed.
             elapsed = time.monotonic() - start
             try:
+                if on_shutdown is not None:
+                    on_shutdown()
                 if last_image is not None and not cv2.imwrite(str(preview_path), last_image):
                     raise RuntimeError(f"could not save preview: {preview_path}")
             except Exception as exc:
@@ -217,4 +247,6 @@ def process_live(source: LiveSource, output_dir: str | Path, *, source_info: dic
     return LiveRunSummary(jsonl_path, preview_path if last_image is not None else None,
                           count, skipped, elapsed, processing_seconds, reason, debug_path,
                           latency_total / count if count else 0.0, latency_max, capture_age_max,
-                          detection_seconds, annotation_seconds, consumed, policy_skipped)
+                          detection_seconds, annotation_seconds, consumed, policy_skipped,
+                          worker.frames if worker is not None else 0,
+                          worker.render_seconds if worker is not None else 0.)

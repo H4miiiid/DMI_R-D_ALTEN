@@ -97,6 +97,7 @@ def process_video(
                 if not writer.isOpened():
                     raise RuntimeError(f"could not create annotated video: {video_path}")
                 processor = FrameProcessor()
+                stack.callback(processor.close)
                 while max_frames is None or count < max_frames:
                     ok, frame = capture.read()
                     if not ok:

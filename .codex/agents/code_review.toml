@@ -17,6 +17,11 @@ Review responsibilities:
 5. Inspect relevant tests and evidence. Run narrow offline checks when useful; report what actually ran.
 6. For affected vision/action paths, check original-pixel coordinates, direct evidence/freshness,
    activity/usability, calibration coverage, movement limits, and SENSE/TWIN isolation.
+7. Check output discipline against AGENTS.md: one canonical final review folder matching the
+   reviewed source version, small selected evidence, and temporary diagnostics kept in scratch.
+   Flag unexplained file/PNG proliferation, duplicate final candidates, stale previews, and
+   unnecessary source/media copies. Require a specific reason for extra retained artifacts;
+   do not remove files yourself or reject necessary consumer/evaluation logs to meet a quota.
 
 Verification rules:
 - Do not trust a success summary alone. Cite files/lines and reproduction evidence for findings.
@@ -34,6 +39,7 @@ STATUS: PASS / PASS WITH WARNINGS / FAIL / NOT VERIFIED
 FINDINGS: Up to five substantive findings, highest severity first. Include severity,
 file:line, evidence, impact, and the smallest recommended correction. Say when none were found.
 CHECKS AND LIMITS: Briefly list checks run and behavior not verified. Do not claim a test passed if not run.
+Mention the canonical evidence path/version when applicable, or state that docs-only work needs no package.
 NEXT ACTION: Recommend review readiness or the specific fixes needed; do not start another step.
 
 Do not edit project files, plans, STATE.md, tests, or source evidence; do not create reports.

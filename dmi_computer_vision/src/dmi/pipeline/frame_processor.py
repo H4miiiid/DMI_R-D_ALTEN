@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 import math
+from contextlib import nullcontext
 
 from dmi_computer_vision.src.dmi.utils.image_ops import validate_frame
+from dmi_computer_vision.src.dmi.detection.analysis_session import AnalysisSession, select_connected
 
 from dmi_computer_vision.src.dmi.detection.display_geometry import Frame, detect_displays, rectify_display
 from dmi_computer_vision.src.dmi.detection.right_display import analyze_right_display
@@ -30,7 +32,8 @@ class FrameProcessor:
     monotonic receipt times and may bound the gap across which history is used.
     """
 
-    def __init__(self, *, max_gap_seconds: float | None = None, collect_target_evidence: bool = False) -> None:
+    def __init__(self, *, max_gap_seconds: float | None = None, collect_target_evidence: bool = False,
+                 optimize: bool = True) -> None:
         if max_gap_seconds is not None and (
             not math.isfinite(max_gap_seconds) or max_gap_seconds <= 0
         ):
@@ -38,16 +41,23 @@ class FrameProcessor:
         self.collect_target_evidence = collect_target_evidence
         self.target_evidence: dict = {}
         self.max_gap_seconds = max_gap_seconds
+        self._analysis = AnalysisSession() if optimize else None
         self.reset()
 
     def reset(self) -> None:
         """Begin a new source/session with no previous detections."""
+        self.close()
         self.target_evidence.clear()
         self._index = 0
         self._timestamp: float | None = None
         self._shape: tuple[int, ...] | None = None
         self.last_reset_reason: str | None = None
         self._reset_history()
+
+    def close(self) -> None:
+        """Release session-owned native OCR resources."""
+        if self._analysis is not None:
+            self._analysis.close()
 
     def _reset_history(self) -> None:
         self._geometry = GeometryStabilizer()
@@ -74,11 +84,13 @@ class FrameProcessor:
             self.target_evidence.clear()
             arguments = (frame, self._index, timestamp, self._geometry, self._right,
                          self._left, self._left_workflow)
-            result = (process_frame(*arguments, target_evidence=self.target_evidence)
-                      if self.collect_target_evidence else process_frame(*arguments))
+            with self._analysis.frame() if self._analysis is not None else nullcontext():
+                result = (process_frame(*arguments, target_evidence=self.target_evidence)
+                          if self.collect_target_evidence else process_frame(*arguments))
             if self.last_reset_reason is None:
                 self.last_reset_reason = self._geometry.last_reset_reason
         except Exception:
+            self.close()
             self._reset_history()
             raise
         self._index += 1
@@ -110,6 +122,7 @@ def process_frame(
 
     diagnostics: dict[str, str] = {}
     displays = detect_displays(frame, diagnostics=diagnostics)
+    select_connected(diagnostics.get("path") == "connected")
     if geometry_stabilizer is not None:
         layout = diagnostics.get("path")
         # An independently fitted orphan uses a different crop basis from a
@@ -130,11 +143,12 @@ def process_frame(
     right_geometry = displays["right"]
     left_rectified = (rectify_display(frame, left_geometry, LEFT_SIZE)
                       if left_geometry is not None else None)
-    train_left = (analyze_train_left_display(left_rectified, left_geometry)
+    connected = diagnostics.get("path") == "connected"
+    train_left = (analyze_train_left_display(left_rectified, left_geometry, connected=connected)
                   if left_geometry is not None else None)
     train_state = train_left[0] if train_left is not None else None
     right_content = (
-        analyze_right_display(frame, right_geometry, train_state)
+        analyze_right_display(frame, right_geometry, train_state, connected=connected)
         if right_geometry is not None
         else {
             "visibility": "unknown",
@@ -161,7 +175,8 @@ def process_frame(
             right_display_stabilizer.reset()
         else:
             right_content = right_display_stabilizer.update(
-                right_content, right_geometry
+                right_content, right_geometry,
+                measured_buttons=connected and train_state == "Train Data (1/2)",
             )
     if train_left is not None:
         left_content = train_left[1]

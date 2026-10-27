@@ -797,6 +797,28 @@ The camera index is selected on the Pi bridge; it is not inferred by this launch
 Preview is enabled by default; set `"preview": false` in the configuration to
 disable it. The original long command remains available for advanced options.
 
+For SENSE, the optional `"smooth_preview": true` setting (or `--smooth-preview`
+on `observe`/`press_label`) displays incoming frames independently of the detector.
+It uses the same source owner and a bounded latest-frame slot. Display overlays
+have a four-pixel center deadband with bounded shape changes and show their evidence
+age. They are hidden on an observed appearance change or at the configured evidence
+deadline, capped at the existing 1.5 seconds. This display-only hold does not
+change exported coordinates, confirmations, target age, calibration or action gates.
+Separated/TWIN recognition keeps its existing path; smooth-preview mode is for SENSE.
+Saved annotations/receipt sidecars still contain processed frames only, at the
+existing 5-FPS playback rate; preview cadence is reported separately.
+`observe --no-video` keeps preview, compact results and receipt metadata without
+encoding an MP4. It does not disable detection or change target publication.
+
+SENSE analysis can reuse the installed Tesseract shared-library engine within one
+processor session, reading current pixels on every call with the same English
+model, confidence threshold and five-second recognition deadline. Missing or
+incompatible libraries use the existing command-line reader. Repeated identical
+border calculations are reused only within the current image. No recognized text
+or position is carried into a new image by these optimizations. `observe
+--regular-analysis` disables acceleration for matched diagnosis; `--processing
+regular/selective` continues to select the acquisition-time scheduling policy.
+
 Start one program; acquisition/detection and target export run while the terminal
 accepts KEY_0..KEY_9. It never asks for coordinates or runs an XML sequence.
 Default mode is dry-run, default transport is fake; the banner names both.

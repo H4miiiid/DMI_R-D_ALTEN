@@ -25,14 +25,16 @@ RECTIFIED_SIZE = (600, 960)
 
 def analyze_right_display(
     frame: Frame, geometry: DisplayGeometry, state_hint: str | None = None,
+    *, connected: bool = False,
 ) -> dict[str, Any]:
     """Recognize the visible right-display structure and original-frame boxes."""
     rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
     if right_display_obstructed(rectified, train_workflow=state_hint is not None):
         return {"state": "unknown", "title": None, "buttons": {},
                 "data_field": None, "visibility": "occluded"}
-    border_lines = detect_border_lines(rectified)
-    field_detection = _detect_data_field(rectified)
+    page_one = connected and state_hint == "Train Data (1/2)"
+    border_lines = ([], []) if page_one else detect_border_lines(rectified)
+    field_detection = None if page_one else _detect_data_field(rectified)
     field_box = field_detection[0] if field_detection is not None else None
     # Train workflow titles belong to the left display. Pale summary rows on
     # the right can otherwise be mistaken for a right-hand title band.
@@ -135,17 +137,17 @@ def analyze_right_display(
             rectified, state, border_lines, level_read_cells=level_read_cells,
         )
         controls = _recognize_level_buttons(rectified, detected_buttons, read_cells=level_read_cells)
-    elif state == "Train Data":
+    elif state == "Train Data" or page_one:
         # Include real source pixels just outside the geometry enclosure so a
         # border clipped by rectification can still be independently measured.
         width, height = RECTIFIED_SIZE
-        margin = 16
+        margin = 32 if page_one else 16
         destination = np.float32([[margin, margin], [width-1+margin, margin],
                                   [width-1+margin, height-1+margin], [margin, height-1+margin]])
         expanded = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(geometry.corners, destination),
                                        (width+2*margin, height+2*margin))
         controls = {name: (quad-margin, None)
-                    for name, quad in _recognize_train_buttons(expanded).items()}
+                    for name, quad in _recognize_train_buttons(expanded, page_one=page_one).items()}
     else:
         detected_buttons = (detect_button_quads(rectified, state, border_lines)
                             if state != "unknown" or title_text is not None else {})
@@ -180,11 +182,14 @@ def _detect_train_field(
     return max(candidates, key=lambda item: cv2.contourArea(item[1])) if candidates else None
 
 
-def _recognize_train_buttons(frame: Frame) -> dict[str, NDArray]:
+def _recognize_train_buttons(frame: Frame, *, page_one: bool = False) -> dict[str, NDArray]:
     """Read each measured cell; blank/ambiguous/duplicate identities are omitted."""
     result, duplicates, text_rows = {}, set(), []
     identities = {"Gamma": "gamma", "Lambda": "lambda", "Enter data": "enter_data"}
-    for points in train_button_cells(frame).values():
+    if page_one:
+        identities = {**{str(i): f"digit_{i}" for i in range(10)},
+                      "Del": "delete", "Select type": "select_type"}
+    for points in train_button_cells(frame, page_one=page_one).values():
         size = tuple(max(20, round(np.linalg.norm(points[i]-points[0]))) for i in (1, 3))
         target = np.float32([[0, 0], [size[0]-1, 0], [size[0]-1, size[1]-1], [0, size[1]-1]])
         crop = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(points, target), size)
@@ -193,8 +198,10 @@ def _recognize_train_buttons(frame: Frame) -> dict[str, NDArray]:
         gray = cv2.cvtColor(interior, cv2.COLOR_BGR2GRAY)
         ink = (gray > float(np.median(gray))+25).astype(np.uint8)*255
         name = _level_action_icon(ink)
-        if name != "close":
-            name = _train_arrow(ink)
+        if page_one and _decimal_button(ink):
+            name = "decimal"
+        if name not in {"close", "decimal"}:
+            name = _train_arrow(ink, rounded_tip=page_one)
         if name is not None:
             if name in result:
                 duplicates.add(name)
@@ -215,6 +222,10 @@ def _recognize_train_buttons(frame: Frame) -> dict[str, NDArray]:
     texts = iter(read_titles([crop for _, crops in text_rows for crop in crops]))
     for points, crops in text_rows:
         words = [next(texts) for _ in crops]
+        if page_one:
+            words = [word if word in identities or word in {"Select", "type"}
+                     else read_title(crop, (0, 0, crop.shape[1], crop.shape[0]))
+                     for word, crop in zip(words, crops)]
         name = identities.get(" ".join(words)) if words and all(words) else None
         if name is not None:
             if name in result:
@@ -223,7 +234,18 @@ def _recognize_train_buttons(frame: Frame) -> dict[str, NDArray]:
     return {name: points for name, points in result.items() if name not in duplicates}
 
 
-def _train_arrow(mask: Frame) -> str | None:
+def _decimal_button(mask: Frame) -> bool:
+    """Require one small, solid, roughly circular current glyph."""
+    _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    parts = [s for s in stats[1:] if s[4] >= 4]
+    if len(parts) != 1:
+        return False
+    _, _, width, height, area = parts[0]
+    return bool(2 <= min(width, height) and max(width, height) < min(mask.shape) * .2
+                and .5 < width / height < 2 and area >= 8 and area > width * height * .5)
+
+
+def _train_arrow(mask: Frame, *, rounded_tip: bool = False) -> str | None:
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
     contours = [c for c in contours if cv2.contourArea(c) > 15]
     if len(contours) != 1:
@@ -231,6 +253,12 @@ def _train_arrow(mask: Frame) -> str | None:
     contour = contours[0]
     hull = cv2.convexHull(contour)
     polygon = cv2.approxPolyDP(hull, cv2.arcLength(hull, True)*.06, True).reshape(-1, 2)
+    if rounded_tip and len(polygon) == 4:
+        lengths = np.linalg.norm(polygon - np.roll(polygon, -1, axis=0), axis=1)
+        index = int(lengths.argmin())
+        if lengths[index] < np.median(lengths) * .4:
+            polygon = np.float32([(polygon[index] + polygon[(index+1) % 4]) / 2,
+                                  polygon[(index+2) % 4], polygon[(index+3) % 4]])
     if len(polygon) != 3 or cv2.contourArea(contour) < cv2.contourArea(hull)*.85:
         return None
     x, y, w, h = cv2.boundingRect(polygon)

@@ -25,7 +25,7 @@ RECTIFIED_SIZE = (800, 1280)
 
 
 def analyze_train_left_display(
-    rectified: Frame, geometry: DisplayGeometry,
+    rectified: Frame, geometry: DisplayGeometry, *, connected: bool = False,
 ) -> tuple[str, dict[str, Any]] | None:
     """Read the left title and bordered confirmation control in train workflows."""
     width, height = RECTIFIED_SIZE
@@ -37,7 +37,10 @@ def analyze_train_left_display(
     count, _, stats, _ = cv2.connectedComponentsWithStats(title_mask)
     glyphs = [stats[index] for index in range(1, count)
               if stats[index, cv2.CC_STAT_AREA] >= 20
-              and 10 <= stats[index, cv2.CC_STAT_HEIGHT] <= height * .07]
+              and 10 <= stats[index, cv2.CC_STAT_HEIGHT] <= height * .07
+              and not (connected and stats[index, cv2.CC_STAT_WIDTH] <= 3
+                       and stats[index, cv2.CC_STAT_LEFT] + stats[index, cv2.CC_STAT_WIDTH]
+                       == title_mask.shape[1])]
     if glyphs:
         # A title is a text row. Gauge ticks/numbers form an arc and used to
         # trigger every expensive OCR retry on the connected active-area crop.
@@ -79,6 +82,15 @@ def analyze_train_left_display(
                      width, round(height * .18))
         text = read_title(rectified, title_box)
         state = title_state(text)
+    if connected and state in {"unknown", "Train Data"}:
+        page_title = _read_page_one_title(rectified)
+        if page_title is not None:
+            title_box, text = page_title
+            if text is None:
+                # Extra current title glyphs cannot be discarded to classify
+                # a numbered page as the accepted unnumbered choice screen.
+                return None
+            state = "Train Data (1/2)"
     if state not in {"Train Data", "Validate Train Data",
                      "Train Data (1/2)", "Train Data (2/2)"}:
         return None
@@ -103,6 +115,8 @@ def analyze_train_left_display(
         candidates = [contour for contour in contours
                       if cv2.boundingRect(contour)[2] >= width * .7
                       and cv2.boundingRect(contour)[3] >= height * .04]
+        if connected and state == "Train Data (1/2)" and len(candidates) > 1:
+            candidates = []  # Ambiguous completion cells do not establish Yes.
         if candidates:
             box = cv2.boxPoints(cv2.minAreaRect(max(candidates,
                                                     key=cv2.contourArea)))
@@ -113,15 +127,42 @@ def analyze_train_left_display(
             # Do not name a pale blank rectangle Yes. Other train pages retain
             # their existing path until their separately authorized steps.
             text = "Yes"
-            if state == "Train Data":
+            if state == "Train Data" or (connected and state == "Train Data (1/2)"):
                 points = field_quad_from_contour(max(candidates, key=cv2.contourArea))
-                text = _read_train_completion(rectified, points)
+                text = _read_train_completion(
+                    rectified, points, local_background=connected and state == "Train Data (1/2)")
             if text == "Yes":
                 buttons["yes"] = _region_result(points, transform)
     content = {"boxes": {}, "speed_indicator": None, "title": title, "buttons": buttons}
     if state == "Train Data":
         content["summary"] = _read_train_summary(rectified, transform)
     return state, content
+
+
+def _read_page_one_title(frame: Frame) -> tuple[tuple[int, int, int, int], str | None] | None:
+    """Retry a complete measured text row when a dim page suffix was clipped.
+
+    Glyph count only proposes OCR. Only the exact current title selects page 1.
+    The accepted unnumbered Train Data path does not enter this OCR retry.
+    """
+    width, height = RECTIFIED_SIZE
+    gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+    mask = (gray[:round(height * .19), round(width * .25):] > 90).astype(np.uint8)
+    _, _, stats, _ = cv2.connectedComponentsWithStats(mask)
+    glyphs = [g for g in stats[1:] if g[4] >= 20 and 10 <= g[3] < height * .07
+              and not (g[0] + g[2] == mask.shape[1] and g[2] <= 3)]
+    if len(glyphs) < 12:
+        return None
+    centers = [g[1] + g[3] / 2 for g in glyphs]
+    if np.ptp(centers) > np.median([g[3] for g in glyphs]):
+        return None
+    low = np.min([g[:2] for g in glyphs], axis=0) + (round(width * .25), 0)
+    high = np.max([g[:2] + g[2:4] for g in glyphs], axis=0) + (round(width * .25), 0)
+    box = tuple(map(int, np.r_[np.maximum(low - 10, 0), np.minimum(high + 10, (width, height))]))
+    text = read_title(frame, box)
+    # A measured vertical separator may touch the OCR margin, not the letters.
+    text = text.strip(" |") if text else None
+    return box, text if title_state(text) == "Train Data (1/2)" else None
 
 
 def _read_train_summary(frame: Frame, transform: np.ndarray) -> dict[str, Any]:
@@ -171,7 +212,9 @@ def _read_train_summary(frame: Frame, transform: np.ndarray) -> dict[str, Any]:
     return {name: region for name, region in result.items() if name not in duplicates}
 
 
-def _read_train_completion(frame: Frame, points: np.ndarray) -> str | None:
+def _read_train_completion(
+    frame: Frame, points: np.ndarray, *, local_background: bool = False,
+) -> str | None:
     """Read current dark glyphs in a measured, wide pale completion cell."""
     if not valid_quad(points):
         return None
@@ -187,7 +230,8 @@ def _read_train_completion(frame: Frame, points: np.ndarray) -> str | None:
         return None
     crop = cell[inset:-inset, inset:-inset]
     gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
-    ink = (gray < float(np.median(gray)) - 12).astype(np.uint8)
+    background = np.median(gray, axis=0)[None] if local_background else float(np.median(gray))
+    ink = (gray < background - 12).astype(np.uint8)
     _, _, components, _ = cv2.connectedComponentsWithStats(ink)
     letters = [item for item in components[1:]
                if item[cv2.CC_STAT_AREA] >= 10

@@ -292,7 +292,7 @@ def _level_button_cells(
             if not height * .055 < step < height * .16:
                 continue
             start, end = top + step * .15, bottom - step * .15
-            profile = np.median(evidence.vertical[:, round(start):round(end)], axis=1)
+            profile = evidence.profile('v', round(start), round(end))
             peaks = _border_peaks(profile, separation=round(width * .025))
             if len(peaks) < 2:
                 continue
@@ -334,7 +334,7 @@ def _level_button_cells(
                     continue
                 # A nearer measured divider rules out a larger box spanning
                 # that divider (for example Close plus the monitor boundary).
-                inner = np.median(evidence.horizontal[:, round(left + span*.12):round(right - span*.12)], axis=1)
+                inner = evidence.profile('h', round(left + span*.12), round(right - span*.12))
                 intervening = _border_peaks(inner, separation=round(height * .015))
                 divider = False
                 for y in intervening:
@@ -417,6 +417,10 @@ def _level_inner_edge(evidence: BorderEvidence, axis: str, line: Line,
 def _level_edge_supported(evidence: BorderEvidence, axis: str, line: Line,
                           start: float, end: float, *, minimum: float = 1.5) -> bool:
     """A glyph stroke cannot stand in for a nearly complete control edge."""
+    cache = getattr(evidence, '_supports', None)
+    key = (axis, line, start, end, minimum)
+    if cache is not None and key in cache:
+        return cache[key]
     response = evidence.horizontal if axis == "h" else evidence.vertical
     samples = np.linspace(start + (end-start)*.04, end - (end-start)*.04, 64, dtype=np.float32)
     dependent = line[0]*samples + line[1]
@@ -428,7 +432,10 @@ def _level_edge_supported(evidence: BorderEvidence, axis: str, line: Line,
     background = np.median(np.r_[sampled[:6], sampled[11:]], axis=0)
     # Camera texture can have nonzero gradients along an arbitrary line. Each
     # edge must stand out from its parallel local background, not just be nonzero.
-    return bool(np.mean(values > np.maximum(minimum, background * 1.8)) >= .8)
+    supported = bool(np.mean(values > np.maximum(minimum, background * 1.8)) >= .8)
+    if cache is not None:
+        cache[key] = supported
+    return supported
 
 
 def _border_peaks(profile: NDArray, *, separation: int) -> list[int]:

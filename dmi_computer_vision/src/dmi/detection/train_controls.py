@@ -8,7 +8,7 @@ from dmi_computer_vision.src.dmi.detection.left_layout import BorderEvidence, qu
 from dmi_computer_vision.src.dmi.detection.right_layout import _border_peaks, _level_edge_supported
 
 
-def train_button_cells(frame: np.ndarray) -> dict[str, np.ndarray]:
+def train_button_cells(frame: np.ndarray, *, page_one: bool = False) -> dict[str, np.ndarray]:
     """Use glyph groups to propose searches, then require four measured borders.
 
     Text and icons seed independent cells, never a row of implied partners.
@@ -20,12 +20,18 @@ def train_button_cells(frame: np.ndarray) -> dict[str, np.ndarray]:
     foreground[:round(height * .3)] = 0
     grouped = cv2.morphologyEx(foreground, cv2.MORPH_CLOSE, np.ones((25, 15), np.uint8))
     _, _, stats, _ = cv2.connectedComponentsWithStats(grouped)
-    evidence = BorderEvidence(frame)
+    evidence = BorderEvidence(frame, preserve_wide_regions=page_one)
     cells = []
     for x, y, glyph_width, glyph_height, area in stats[1:]:
-        if area < 80 or not (8 < glyph_height < height * .09 and glyph_width > 8):
+        minimum = 1 if page_one else 8
+        if area < (5 if page_one else 80) or not (minimum < glyph_height < height * .09
+                                                 and glyph_width > minimum):
             continue
-        horizontal = np.median(evidence.horizontal[:, x:x + glyph_width], axis=1)
+        if page_one and glyph_width > width * .4:
+            continue
+        # A decimal glyph alone is too narrow for a robust border profile.
+        pad = max(0, round(width * .035 - glyph_width / 2)) if page_one else 0
+        horizontal = evidence.profile('h', max(0, x-pad), min(width, x+glyph_width+pad))
         peaks = _border_peaks(horizontal, separation=8)
         tops = [p for p in peaks if y-height*.13 < p < y-4]
         bottoms = [p for p in peaks if y+glyph_height+4 < p < y+glyph_height+height*.13]
@@ -35,7 +41,7 @@ def train_button_cells(frame: np.ndarray) -> dict[str, np.ndarray]:
                 step = bottom - top
                 if not height*.055 < step < height*.16:
                     continue
-                vertical = np.median(evidence.vertical[:, round(top+step*.15):round(bottom-step*.15)], axis=1)
+                vertical = evidence.profile('v', round(top+step*.15), round(bottom-step*.15))
                 columns = _border_peaks(vertical, separation=8)
                 lefts = [p for p in columns if x+glyph_width/2-width*.22 < p < x-4]
                 rights = [p for p in columns if x+glyph_width+4 < p < x+glyph_width/2+width*.22]
@@ -78,7 +84,7 @@ def train_button_cells(frame: np.ndarray) -> dict[str, np.ndarray]:
                             continue
                         # A measured internal divider rules out a cell spanning
                         # the real button and the monitor's lower border.
-                        local = np.median(evidence.horizontal[:, round(left+span*.12):round(right-span*.12)], axis=1)
+                        local = evidence.profile('h', round(left+span*.12), round(right-span*.12))
                         divided = False
                         for row in _border_peaks(local, separation=8):
                             if not top+step*.15 < row < bottom-step*.15:

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import cv2
 import numpy as np
+from dmi_computer_vision.src.dmi.detection.analysis_session import current_session
 
 Line = tuple[float, float]  # dependent = slope * independent + intercept
 
@@ -10,12 +11,24 @@ Line = tuple[float, float]  # dependent = slope * independent + intercept
 class BorderEvidence:
     """Blue-channel gradients, excluding bright glyphs and icons."""
 
-    def __init__(self, frame: np.ndarray) -> None:
+    def __init__(self, frame: np.ndarray, *, preserve_wide_regions: bool = False) -> None:
+        self._fits = {} if current_session() is not None else None
+        self._profiles = {} if self._fits is not None else None
+        self._supports = {} if self._fits is not None else None
         blue = cv2.GaussianBlur(frame[:, :, 0].astype(np.float32), (5, 5), 1)
         # Relative contrast preserves faint borders when exposure drops.
         blue = 80 * np.log1p(blue / 12)
         hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
         foreground = ((hsv[:, :, 1] < 85) & (hsv[:, :, 2] > 70)).astype(np.uint8)
+        if preserve_wide_regions:
+            # A pale information row may share a real edge with a button.
+            # Retain its gradients; continue excluding isolated glyphs/icons.
+            gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            foreground |= (gray > float(np.median(gray)) + 25).astype(np.uint8)
+            _, labels, stats, _ = cv2.connectedComponentsWithStats(foreground)
+            wide = stats[:, cv2.CC_STAT_WIDTH] >= frame.shape[1] * .5
+            wide[0] = False
+            foreground[wide[labels]] = 0
         foreground = cv2.dilate(foreground, np.ones((9, 9), np.uint8))
         self.horizontal = np.abs(cv2.Sobel(blue, cv2.CV_32F, 0, 1))
         self.vertical = np.abs(cv2.Sobel(blue, cv2.CV_32F, 1, 0)).T
@@ -23,6 +36,16 @@ class BorderEvidence:
         self.vertical[foreground.T > 0] = 0
         # OpenCV otherwise copies this full transposed response for every fit.
         self.vertical = np.ascontiguousarray(self.vertical)
+
+    def profile(self, axis: str, start: int, end: int) -> np.ndarray:
+        """Reuse identical median searches within this one current image only."""
+        key = (axis, start, end)
+        response = self.horizontal if axis == "h" else self.vertical
+        if self._profiles is None:
+            return np.median(response[:, start:end], axis=1)
+        if key not in self._profiles:
+            self._profiles[key] = np.median(response[:, start:end], axis=1)
+        return self._profiles[key]
 
     def fit(
         self,
@@ -36,6 +59,17 @@ class BorderEvidence:
         slope: float = 0,
         slope_radius: float = 0.025
     ) -> Line | None:
+        if self._fits is None:
+            return self._fit(axis, position, cross, start, end, radius=radius,
+                             slope=slope, slope_radius=slope_radius)
+        key = (axis, position, cross, start, end, radius, slope, slope_radius)
+        if key not in self._fits:
+            self._fits[key] = self._fit(axis, position, cross, start, end,
+                                       radius=radius, slope=slope, slope_radius=slope_radius)
+        return self._fits[key]
+
+    def _fit(self, axis: str, position: float, cross: float, start: float, end: float,
+             *, radius: float, slope: float, slope_radius: float) -> Line | None:
         """Search line position/orientation, then robustly fit local edge maxima.
 
         A majority of samples must support a border. No predicted line is

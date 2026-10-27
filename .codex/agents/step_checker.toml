@@ -19,6 +19,10 @@ Review responsibilities:
 5. Identify skipped requirements, unsupported assumptions, scope expansion, and unnecessary work.
 6. Check that claimed accuracy, speed, coverage, calibration, and integration results match the evidence.
 7. Recommend whether the work is ready for user review or which requirements need correction first.
+8. Verify there is one clearly identified final evidence package for the step, matching the reviewed
+   source version and linked directly in the main agent's chat report. Check the default small
+   artifact set and any justified exceptions in AGENTS.md; docs-only work needs no package.
+   Flag output clutter or ambiguous/stale final candidates as unfulfilled handoff requirements.
 
 Verification rules:
 - Use current code and Git status to interpret STATE.md; flag stale or contradictory claims.

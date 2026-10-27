@@ -14,7 +14,7 @@ VALUE_OPTIONS = PATH_OPTIONS | {
     'bridge_url', 'processing', 'rotation', 'transport', 'mode',
     'evidence_tolerance_px', 'max_x_mm', 'max_y_mm',
 }
-FLAG_OPTIONS = {'preview'}
+FLAG_OPTIONS = {'preview', 'smooth_preview'}
 
 
 def session_arguments(config_path: Path, name: str) -> list[str]:
@@ -56,6 +56,11 @@ def session_arguments(config_path: Path, name: str) -> list[str]:
         raise ValueError('preview must be true or false')
     if preview:
         arguments.append('--preview')
+    smooth_preview = config.get('smooth_preview', False)
+    if type(smooth_preview) is not bool:
+        raise ValueError('smooth_preview must be true or false')
+    if smooth_preview:
+        arguments.append('--smooth-preview')
     return arguments
 
 

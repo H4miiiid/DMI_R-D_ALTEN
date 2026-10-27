@@ -130,6 +130,7 @@ class RightDisplayStabilizer:
         self,
         content: dict[str, Any],
         geometry: DisplayGeometry | None = None,
+        *, measured_buttons: bool = False,
     ) -> dict[str, Any]:
         if content.get("visibility") == "occluded":
             self.reset()
@@ -198,7 +199,7 @@ class RightDisplayStabilizer:
             self._value = None
             self._candidate = None
             self._candidate_count = 0
-            result = self._stabilize_regions(content, geometry)
+            result = self._stabilize_regions(content, geometry, measured_buttons=measured_buttons)
             return result
 
         current = field["value"]
@@ -230,13 +231,14 @@ class RightDisplayStabilizer:
 
         stabilized = dict(content)
         stabilized["data_field"] = {**field, "value": self._value}
-        result = self._stabilize_regions(stabilized, geometry)
+        result = self._stabilize_regions(stabilized, geometry, measured_buttons=measured_buttons)
         return result
 
     def _stabilize_regions(
         self,
         content: dict[str, Any],
         geometry: DisplayGeometry | None,
+        *, measured_buttons: bool = False,
     ) -> dict[str, Any]:
         if geometry is not None and self._state in {"Train Data (1/2)", "Train Data (2/2)"}:
             # Perspective fits on these pale screens can fluctuate while the
@@ -254,7 +256,7 @@ class RightDisplayStabilizer:
             "Driver ID", "Level", "Train Running Number",
             "Train Data (1/2)", "Train Data (2/2)",
         }:
-            if self._state != "Level":
+            if self._state != "Level" and not measured_buttons:
                 layout_transform = self._update_layout_transform(content, geometry)
             header_transform = self._update_header_transform(content, geometry)
         stabilized = dict(content)
@@ -268,7 +270,7 @@ class RightDisplayStabilizer:
             # Level cells have current local border/content validation. Publish
             # their measured geometry, so an initial bad anchor cannot veto a
             # later correction or drag a valid box away from its visible edges.
-            name: (deepcopy(region) if self._state == "Level" else self._stabilize_region(
+            name: (deepcopy(region) if self._state == "Level" or measured_buttons else self._stabilize_region(
                 f"button:{name}", region, geometry, layout_transform
             ))
             for name, region in content["buttons"].items()

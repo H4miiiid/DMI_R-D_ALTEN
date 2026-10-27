@@ -12,13 +12,23 @@ the actual baseline, approvals, limitations and next authorized step. This docum
 is a plan, not authorization to implement every step in one session.
 
 - SENSE: upper connected monitor, camera 1, one physical screen with two logical regions.
-- TWIN/TWINS: lower separated displays, camera 0; retain existing detections as regressions.
+- TWIN/TWINS: lower separated displays, camera 0; existing detections are accepted
+  by the user and are a frozen regression baseline. Detection updates target SENSE
+  only. Do not modify TWIN detection code, tuning, pipeline behavior or outputs.
 - Camera index selects acquisition only; image evidence determines geometry/state.
 - Work on one selected camera per session. SENSE calibration must never be applied
   to TWIN; physical TWIN calibration is deferred.
 - Train workflow meanings/order match TWIN, but recognition must also work when
   starting directly on any supported screen. Never require a preceding screen.
 - No new backend service, autonomous screen navigation, GUI redesign or motor rewrite.
+
+Reuse the accepted TWIN implementation as-is. Shared files may receive SENSE-only
+changes, but common behavior used by TWIN must remain unchanged; use existing
+image-evidenced geometry/state handling, not camera-index rules or a second pipeline.
+TWIN recordings are reference/regression evidence only, not a new tuning task.
+If a proposed SENSE fix requires changing TWIN behavior, report the conflict before
+proceeding. Acceptance of TWIN detection does not imply physical calibration or
+pressing validation; existing documented limitations remain historical facts.
 
 ## Read and reuse
 
@@ -57,7 +67,8 @@ reviewable changes before proceeding. A request to add or amend a future step is
 documentation-only unless runtime implementation is explicitly requested. At each step:
 
 1. Reproduce the specific failure and establish a small representative baseline.
-2. Make the smallest shared change; verify accuracy, failure handling and cost.
+2. Make the smallest SENSE-scoped change; verify accuracy, failure handling and cost
+   while leaving the accepted TWIN path unchanged.
 3. Complete the automatic two-reviewer cycle below, then give a short report
    **in chat**: change, checks/results, both reviewer verdicts, remaining limits
    and the proposed next step. Show useful annotations with source paths.
@@ -87,6 +98,8 @@ does not authorize starting an unrequested step or implementing a plan-only edit
 
 1. Implement the current step and run its relevant checks. Define the exact
    review scope: step/criteria, changed files, diff/base revision and evidence paths.
+   Prepare the single review package described below; do not ask the user to
+   choose between intermediate attempts or several folders named final.
 2. Freeze edits while both agents independently review the same working version.
    They may review in parallel; neither edits files, opens live hardware connections,
    sends actions, creates report files, commits or pushes. Findings return in chat.
@@ -106,6 +119,9 @@ does not authorize starting an unrequested step or implementing a plan-only edit
    blocks only acceptance criteria that actually require it.
 6. Present one short consolidated report to the user. Include the final review
    verdicts and checks, meaningful fixes, limits and an explicit approval request.
+   Link the one review folder and the exact preview/video to inspect, and identify
+   the source version it demonstrates. Both reviewers must check output discipline
+   and package/version consistency before declaring the step ready.
    Subagent approval is advisory; only the user accepts work and authorizes publication.
 
 Keep three permissions distinct: accepting the current step, committing/pushing
@@ -120,6 +136,53 @@ Use the current session's delegation tools; do not build a scheduler, background
 agent service, new protocol or extra report directory for this workflow. If an
 agent is unavailable, disclose it rather than silently replacing its independent
 review with a self-review. Do not launch another top-level Codex process.
+
+### Output discipline and one clear review package
+
+Temporary debugging can require many artifacts; the user-facing handoff must stay
+small and unambiguous. This policy applies to future work, not retroactive removal
+or rejection of previously accepted evidence.
+
+- Keep original recordings, receipt sidecars, reference measurements and accepted
+  evidence immutable in their existing locations. Reference them by path/hash;
+  do not duplicate raw videos or production source trees in every experiment.
+- Use one task-owned scratch root, normally `/tmp/dmi_robot/stepNN_NAME/`, for
+  profiling dumps, retries, before/after exports, debug crops, temporary scripts
+  and candidate outputs. Generate only what answers a specific open question.
+  Do not automatically save a PNG per frame/control/test or encode every replay.
+- Reuse the same evidence in both reviews. Reviewers inspect existing outputs
+  first; additional checks write only to task-owned temporary scratch space.
+  They do not create separate review/review2/final_verified output collections.
+- Before requesting approval, select one canonical review folder, for example
+  `runs/step05_train_data_1_2/`. Keep intermediate attempts outside that folder.
+  It contains only the final candidate's useful machine evidence, normally:
+  compact results JSONL; one existing session/summary JSON containing the source
+  paths, reviewed source version/hash, checks and measurements; optionally one
+  annotated video; and at most three representative PNGs. A contact sheet may
+  replace multiple screenshots. A docs-only change needs no generated package.
+- These are defaults, not a reason to discard required evidence. Retain necessary
+  receipt/status/calibration/action logs or additional failure examples when a
+  specific acceptance criterion requires them. Explain the exception and file
+  purpose in chat; avoid redundant summaries/manifests and duplicate debug logs.
+  Preserve runtime consumer contracts; do not change output schemas to meet a count.
+- Freeze the candidate and its review package together. If a fix changes outputs,
+  regenerate the affected evidence in scratch and refresh only this task's
+  unapproved generated review package before both final reviews. Never replace
+  source files or an approved package. Identify the new version in chat, and do
+  not leave obsolete candidates beside it with ambiguous final/latest names.
+- The main agent owns curation. Both reviewers must flag unexplained artifact
+  proliferation, duplicate final candidates, stale previews or missing version
+  links as readiness issues. Neither a long test run nor a PASS excuses a handoff
+  that leaves the user guessing which output to approve. Resolve these issues
+  within the current step before presenting it for acceptance.
+- Reports stay in chat; create no README/REPORT/REVIEW Markdown file in the
+  output folder. After approval, STATE.md points to the one accepted evidence
+  package, with concise results. No per-attempt handoff/report files.
+- Disposable scratch created by the current task may be discarded once needed
+  evidence is safely retained. This is not permission to delete existing runs,
+  another task's scratch, approved evidence or the only copy of any source,
+  reference, calibration or reproduction data. Existing-folder cleanup needs a
+  separately reviewed retention/deletion list and explicit user authorization.
 
 Keep `STATE.md` short: one current status, baseline, evidence map, open issues,
 next step and compact accepted milestones. Preserve the difference between code
@@ -240,37 +303,62 @@ startup and cost separately; no screen-order shortcut.
 
 ### 5. Support Train Data (1/2) on SENSE
 
-Use observation_09 and separated page-1 examples. Validate the left summary/Yes,
-right Max speed, Train category, Length and Brake percentage rows, selected-field
-value, keypad/Delete/decimal and visible navigation/action controls. Match actual
-row borders and labels; changing the selected field/value must update observations.
-Do not fabricate a whole keypad from one detected line.
+Scope for Steps 5–7: detect and annotate only visible screen titles and buttons
+in both logical regions, with existing identities and original-pixel centers.
+Keep monitor/region localization; omit left summaries and noninteractive right
+information text, row labels, field values and confirmation text from OCR,
+annotations and optional exports for these three SENSE states. Clear omitted
+optional information instead of retaining cached text; preserve output schemas.
+Button labels, including numbers and selector choices, still require current image
+evidence. Preserve accepted Step 4 and TWIN behavior; this is not a global removal
+of summary/field support. Profile the reduced work on equal clips and measure
+accuracy, OCR cost, latency and freshness; do not assume a speed gain in advance.
+
+Use observation_09 and separated page-1 examples. Recognize the visible Train
+Data (1/2) title, left completion Yes where present, and measured right keypad,
+Delete/decimal and navigation/action buttons. Max speed, Train category, Length,
+Brake percentage and the selected-field value are outside this step's scope.
+Do not fabricate a whole keypad from one detected line. Check exact button labels,
+centers, direct startup, same-title button/layout changes and loss/recovery;
+recognition must not depend on reading the summary or selected value.
 
 ### 6. Support Train Data (2/2) on SENSE
 
-Use level_raw_02 and separated page-2 examples. Validate left summary/Yes; right
-Loading gauge, Axle load category, Airtight rows; observed selection cells G1, GA,
-GB, GC, Out of GC and visible navigation/actions. The current footage demonstrates
-loading-gauge selection only; other selectors/values need evidence before claiming
-coverage. Reuse page/navigation helpers without assuming every mode has that grid.
+Apply the titles/buttons-only scope above. Use level_raw_02 and separated page-2
+examples. Recognize the visible Train Data (2/2) title, left completion Yes where
+present, and measured right selector buttons G1, GA, GB, GC, Out of GC plus visible
+navigation/actions. Exclude Loading gauge, Axle load category and Airtight
+information rows/values; these are distinct from the selectable buttons.
+The footage demonstrates loading-gauge selection only; other button layouts need
+evidence before claiming coverage. Reuse page/navigation helpers without assuming
+every mode has that grid. Test direct startup, changed button layouts, exact labels,
+centers and loss/recovery without summary/value OCR or screen-order assumptions.
 
 ### 7. Support Validate Train Data on SENSE
 
-Use level_raw_03 and separated validation examples. Recognize the left title and
-summary, right confirmation field and measured Yes/No/Close controls. Verify the
-left completion control is absent when not visible. Test direct startup and
-changed confirmation; do not assume the previous page or exported Yes is a press.
+Apply the titles/buttons-only scope above. Use level_raw_03 and separated validation
+examples. Recognize the visible Validate Train Data title and measured Yes/No/Close
+buttons, retaining their existing region-qualified identities. Exclude the left
+summary and right confirmation field/text. Verify the left completion button is
+absent when not visible; never invent a second Yes. Test direct startup, changed
+button appearance/layout and loss/recovery without reading confirmation content
+or requiring the previous page. Recognition or an exported Yes is not a press,
+proof of enabled state or confirmation that the robot changed the DMI.
 
 ### 8. Validate SENSE workflow and preserve TWIN
 
 Run representative cold/steady frames and real transitions across supported
-screens; separately measure geometry, identity, values, centers and delay. Turn
+screens; separately measure geometry, identity, in-scope values, centers and delay.
+For Steps 5–7, validate titles/buttons only under the scope above. Turn
 fixed known failures into ordinary passing tests only when actually corrected.
 Check preview/compact logs/targets, occlusion, source failure and camera/session
-switches. Recheck TWIN states; classify intentional differences rather than claiming
-full equivalence from a few samples. Main/Driver ID remain required regressions;
-Train Running Number remains unverified on SENSE until representative evidence
-is checked. Approve detection coverage and latency before calibration work.
+switches. Recheck accepted TWIN states for regressions only; do not modify or retune
+their detector. Any new TWIN difference from the baseline must be resolved in the
+SENSE change, not accepted as an intentional TWIN improvement. Existing documented
+TWIN limitations do not become new implementation work. Main/Driver ID remain
+required regressions; Train Running Number remains unverified on SENSE until
+representative evidence is checked. Approve detection coverage and latency before
+calibration work.
 
 ### 9. Audit SENSE reference coordinates and identities
 
@@ -417,9 +505,10 @@ observe -> fit/validate -> move-only -> one press -> newer UI observation.
 - Run relevant tests after runtime changes; full suites for shared detector,
   calibration/transport or final integration changes. For docs/ignore-only edits,
   check references, Git diff and ignore behavior rather than rerunning hardware.
-- Use one uniquely named session output directory, normally `/tmp/dmi_robot/NAME`.
-  No overwrites or per-step diagnostic-script/report sprawl. Full debug/video/history
-  is optional; compact machine action logs and required runtime outputs are allowed.
+- Use one task-owned scratch root and one canonical review package as specified
+  above. Never overwrite sources or approved evidence; refresh only task-owned,
+  unapproved generated review artifacts after a candidate change. Full debug/video/
+  history is optional; compact machine action logs and required runtime outputs are allowed.
   Do not add new Markdown reports. Copy selected useful evidence to durable local
   storage before `/tmp` cleanup; never store the only calibration there.
 - HTTP frames and UDP commands share Ethernet; they remain separate protocols.

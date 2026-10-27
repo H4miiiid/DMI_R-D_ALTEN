@@ -15,6 +15,7 @@ import cv2
 import numpy as np
 
 from dmi_computer_vision.src.dmi.detection.display_geometry import Frame
+from dmi_computer_vision.src.dmi.detection.analysis_session import current_session
 
 
 def read_title(frame: Frame, box: tuple[int, int, int, int] | None) -> str | None:
@@ -171,6 +172,14 @@ def _confident_text(words: list[dict[str, str]]) -> str | None:
 def _recognize_words(
     executable: str, prepared: Frame, *, page_segmentation: int = 7,
 ) -> list[dict[str, str]]:
+    session = current_session()
+    if session is not None:
+        tsv = session.recognize(prepared, page_segmentation)
+        if tsv is not None:
+            fields = ("level", "page_num", "block_num", "par_num", "line_num", "word_num",
+                      "left", "top", "width", "height", "conf", "text")
+            return [row for row in csv.DictReader(io.StringIO(tsv), delimiter="\t", fieldnames=fields)
+                    if row.get("level") == "5" and row.get("text", "").strip()]
     ok, encoded = cv2.imencode(".png", prepared)
     if not ok:
         return []

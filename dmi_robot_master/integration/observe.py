@@ -13,6 +13,7 @@ from threading import Event
 import cv2
 
 from dmi_computer_vision.src.dmi.io.preview import LivePreview
+from dmi_computer_vision.src.dmi.io.latest_frames import LatestFrames
 from dmi_computer_vision.src.dmi.output.latest_state import LatestState
 from dmi_computer_vision.src.dmi.pipeline.live import process_live
 from dmi_robot_master.integration.camera import ReplayCamera, RobotCamera, RemoteCamera
@@ -25,7 +26,7 @@ from dmi_computer_vision.src.dmi.output.json_writer import write_record
 
 class AnnotationSink:
     """Stream one annotated video frame and receipt metadata per processed frame."""
-    def __init__(self, directory: Path, source, preview=None) -> None:
+    def __init__(self, directory: Path, source, preview=None, *, save_video: bool = True) -> None:
         self.directory, self.source, self.preview = directory, source, preview
         self.writer = None
         self.shape = None
@@ -33,6 +34,7 @@ class AnnotationSink:
         self.stream = None
         self.last_image = None
         self.last_received = None
+        self.save_video = save_video
 
     def __enter__(self):
         self.stream = (self.directory / 'processed_frames.jsonl').open('x', encoding='utf-8')
@@ -41,15 +43,17 @@ class AnnotationSink:
     def show(self, image) -> bool:
         packet = self.source.last_packet
         self.last_image, self.last_received = image, packet.received_at
-        if self.writer is None:
+        if self.shape is None:
             self.shape = image.shape
+        if self.writer is None and self.save_video:
             self.writer = cv2.VideoWriter(str(self.directory / 'annotated.mp4'),
                 cv2.VideoWriter_fourcc(*'mp4v'), 5.0, (image.shape[1], image.shape[0]))
             if not self.writer.isOpened():
                 raise RuntimeError('Cannot open annotation video writer')
         if image.shape != self.shape:
             raise RuntimeError('Frame size changed; start a new observation session')
-        self.writer.write(image)
+        if self.writer is not None:
+            self.writer.write(image)
         record = {'processed_frame_index': self.count, 'capture_index': packet.capture_index,
                   'received_at_monotonic': packet.received_at,
                   'received_at_utc': packet.received_at_utc,
@@ -110,10 +114,13 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
             max_capture_frames: int | None = None, export_targets: bool = False,
             calibration_path: str | Path | None = None, calibration_context: dict | None = None,
             evidence_tolerance_px: float | None = None, target_history: bool = False,
-            current_targets: CurrentTargets | None = None, stop_event: Event | None = None) -> dict:
+            current_targets: CurrentTargets | None = None, stop_event: Event | None = None,
+            smooth_preview: bool = False, optimize: bool = True, save_video: bool = True) -> dict:
     """Observe and annotate. Source is the sole owner; no motor transport exists."""
     if export_targets:
         check_target_source(source, source_info)
+    if smooth_preview and (preview is None or not annotations):
+        raise ValueError('Smooth preview requires an annotated preview consumer')
     directory = Path(directory).expanduser().resolve()
     # Require a new output directory so partial artifacts cannot be overwritten.
     directory.mkdir(parents=True, exist_ok=False)
@@ -124,10 +131,14 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
     target_files = None
     projector = TargetProjector(source_info=source_info, calibration_path=calibration_path,
                                 context=calibration_context, geometry_tolerance_px=evidence_tolerance_px) if export_targets else None
+    dispatcher = None
     try:
         with ExitStack() as stack:
             stack.enter_context(source)
-            sink = stack.enter_context(AnnotationSink(directory, source, preview)) if annotations else None
+            dispatcher = stack.enter_context(LatestFrames(source)) if smooth_preview else None
+            processing_source = dispatcher or source
+            sink = stack.enter_context(AnnotationSink(directory, processing_source,
+                None if smooth_preview else preview, save_video=save_video)) if annotations else None
             if preview is not None and sink is None:
                 raise ValueError('Preview requires annotations')
             callback = evidence_callback = None
@@ -173,12 +184,15 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
                             support_centers=support, support_tolerance_px=evidence_tolerance_px,
                             direct_driver_value=(evidence.get("right_field_value")
                                 if evidence.get("right_state") == "Driver ID" and evidence.get("right_visibility") == "clear" else None))
-            run = process_live(source, directory, source_info=source_info,
+            run = process_live(processing_source, directory, source_info=source_info,
                 max_frames=max_frames, preview=sink.show if sink else None, debug=debug,
                 latest_state=latest_state or LatestState(), processing_policy=processing_policy,
                 annotate=annotations, on_detection=callback,
                 on_skipped=sink.idle if sink else None, max_capture_frames=max_capture_frames,
-                on_detection_evidence=evidence_callback, stop_event=stop_event)
+                on_detection_evidence=evidence_callback, stop_event=stop_event,
+                live_preview=preview.show if smooth_preview else None, optimize=optimize,
+                live_preview_age_seconds=min(1.5, max_evidence_age_seconds),
+                on_shutdown=publisher.close if smooth_preview and publisher is not None else None)
     except BaseException as exc:
         failure = f'{type(exc).__name__}: {exc}'
         raise
@@ -190,16 +204,23 @@ def observe(source: ReplayCamera | RobotCamera | RemoteCamera, directory: str | 
                   'capture_fps': (None if isinstance(source, RemoteCamera) else
                                   counters['captured_frames'] / max(elapsed, 1e-9)),
                   'capture_counters': counters, 'error': failure,
-                  'annotation_playback_fps': 5.0,
+                  'annotation_playback_fps': 5.0 if save_video else None,
                   'limits': 'Local receipt excludes upstream capture age; only recording/fake-source runs are simulation.'}
         report['policy'] = processing_policy.stats() if processing_policy else None
         report['publication'] = ({'target_updates': publisher.updates, 'heartbeats': publisher.heartbeats,
                                   'pixel_tolerance': publisher.tolerance} if publisher else None)
         report['annotations_enabled'] = annotations
+        if dispatcher is not None:
+            report['frame_dispatch'] = dispatcher.stats()
+            report['preview_mode'] = 'fresh frames with age-limited SENSE display overlays'
         report['targets'] = ({'target_writes': target_files.target_writes, 'status_writes': target_files.status_writes,
                              'calibration_error': projector.error} if target_files is not None else None)
         if run is not None:
-            report.update({'run': asdict(run),
+            run_values = asdict(run)
+            if not smooth_preview:
+                run_values.pop('preview_frames')
+                run_values.pop('preview_render_seconds')
+            report.update({'run': run_values,
                            'processed_fps': run.processed_frames / max(elapsed, 1e-9)})
         (directory / 'session.json').write_text(json.dumps(report, default=str, indent=2) + '\n')
     return report
@@ -237,12 +258,15 @@ def main(argv=None) -> int:
     parser.add_argument('--target-history', action='store_true')
     parser.add_argument('--publish-changes', action='store_true')
     parser.add_argument('--save-annotations', action='store_true')
+    parser.add_argument('--smooth-preview', action='store_true', help='Fresh-frame SENSE preview independent of analysis')
+    parser.add_argument('--regular-analysis', action='store_true', help='Disable optional SENSE acceleration for comparison')
+    parser.add_argument('--no-video', action='store_true', help='Keep preview/results/receipts without encoding an MP4')
     parser.add_argument('--max-captures', type=int)
     parser.add_argument('--max-frames', type=int)
     parser.add_argument('--preview', action='store_true', help='Main-thread OpenCV preview')
     parser.add_argument('--debug', action='store_true')
     args = parser.parse_args(argv)
-    preview = LivePreview() if args.preview else None
+    preview = LivePreview() if args.preview or args.smooth_preview else None
     try:
         if args.calibration and (args.calibration_context is None or args.evidence_tolerance_px is None):
             raise ValueError('Calibration export requires current context and explicit evidence tolerance')
@@ -261,7 +285,8 @@ def main(argv=None) -> int:
         elif args.bridge_url:
             if args.width is not None or args.height is not None or args.replay_fps is not None or args.start_seconds:
                 raise ValueError('Configure dimensions on the bridge; replay options require --replay')
-            request_fps = args.frame_request_fps if args.frame_request_fps is not None else (10.0 if args.processing == "selective" else None)
+            request_fps = args.frame_request_fps if args.frame_request_fps is not None else (
+                10.0 if args.processing == "selective" or args.smooth_preview else None)
             source = RemoteCamera(args.bridge_url, timeout=args.timeout,
                 max_age_seconds=args.max_source_age, rotation=args.rotation, mirror=args.mirror,
                 request_fps=request_fps)
@@ -283,7 +308,8 @@ def main(argv=None) -> int:
         report = observe(source, args.output_dir, source_info=info,
             max_frames=args.max_frames, preview=preview, debug=args.debug,
             processing_policy=policy,
-            annotations=args.processing == 'regular' or args.save_annotations or args.preview,
+            annotations=args.processing == 'regular' or args.save_annotations or preview is not None,
+            smooth_preview=args.smooth_preview, optimize=not args.regular_analysis, save_video=not args.no_video,
             publication=args.publish_changes or args.processing == 'selective',
             tolerance_px=args.publication_tolerance_px, heartbeat_seconds=args.heartbeat_seconds,
             max_evidence_age_seconds=args.max_evidence_age, max_capture_frames=args.max_captures,

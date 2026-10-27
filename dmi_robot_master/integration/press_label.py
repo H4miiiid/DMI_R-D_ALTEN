@@ -76,7 +76,7 @@ def run_terminal(source, directory: str | Path, *, source_info: dict, link: Robo
                  policy: DetectionPolicy | None = None, preview=None,
                  press_duration_ms: int = 200, verification_timeout_seconds: float = 5.0,
                  hardware_checks: dict | None = None, input_stream=None, output_stream=None,
-                 debug: bool = False) -> dict:
+                 debug: bool = False, smooth_preview: bool = False) -> dict:
     """Main thread owns detection/optional GUI; action and input use separate workers."""
     directory = Path(directory).expanduser().resolve()
     if directory.exists():
@@ -121,7 +121,7 @@ def run_terminal(source, directory: str | Path, *, source_info: dict, link: Robo
                 current_targets=targets,processing_policy=policy,annotations=preview is not None,
                 preview=preview,debug=debug,export_targets=True,calibration_path=calibration_path,
                 calibration_context=read_json(context_path),evidence_tolerance_px=evidence_tolerance_px,
-                stop_event=stop)
+                stop_event=stop, smooth_preview=smooth_preview)
         finally:
             stop.set()
         if isinstance(terminal.error,KeyboardInterrupt):
@@ -161,9 +161,10 @@ def main(argv=None) -> int:
     parser.add_argument('--mirror',action='store_true')
     parser.add_argument('--processing',choices=['regular','selective'],default='selective')
     parser.add_argument('--preview',action='store_true')
+    parser.add_argument('--smooth-preview',action='store_true')
     parser.add_argument('--debug',action='store_true')
     args = parser.parse_args(argv)
-    preview = LivePreview() if args.preview else None
+    preview = LivePreview() if args.preview or args.smooth_preview else None
     link = transport = None
     try:
         mode = SessionMode(args.mode)
@@ -188,7 +189,7 @@ def main(argv=None) -> int:
             info = {'kind':'recorded_replay','path':str(source.path),'simulation':True}
         elif args.bridge_url:
             source = RemoteCamera(args.bridge_url,rotation=args.rotation,mirror=args.mirror,
-                                  request_fps=10 if args.processing=='selective' else None)
+                                  request_fps=10 if args.processing=='selective' or args.smooth_preview else None)
             info = {'kind':'remote_bridge','url':args.bridge_url,'simulation':False}
         else:
             source = RobotCamera(args.camera,width=args.width,height=args.height,
@@ -208,7 +209,8 @@ def main(argv=None) -> int:
         report = run_terminal(source,args.output_dir,source_info=info,link=link,calibration_path=args.calibration,
             context_path=args.calibration_context,evidence_tolerance_px=args.evidence_tolerance_px,
             mode=mode,policy=policy,preview=preview,press_duration_ms=args.press_ms,
-            verification_timeout_seconds=args.verification_timeout,hardware_checks=checks,debug=args.debug)
+            verification_timeout_seconds=args.verification_timeout,hardware_checks=checks,debug=args.debug,
+            smooth_preview=args.smooth_preview)
         return 130 if report['observation']['run']['stop_reason']=='interrupted' else 0
     except (ValueError,OSError,RuntimeError) as exc:
         print(f'error: {exc}',file=sys.stderr)
