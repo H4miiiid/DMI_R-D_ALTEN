@@ -6,11 +6,13 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
-AGENTS Steps 1–5 and the reusable SENSE optimization are accepted
-offline/recorded-camera (latest approval 2026-10-27). The user authorized
-committing/pushing these reviewed updates before starting Step 6. Steps 1–3
-were published in `f14e46c`; Step 4 in `0d26bd9`. Step 6 (SENSE Train Data 2/2,
-titles/buttons only) is authorized after the current publication succeeds.
+AGENTS Steps 1–6 and the reusable SENSE optimization are accepted
+offline/recorded-camera (latest approval 2026-10-27). Step 6 is accepted for now
+with detection speed still an open concern; this is not acceptance of general
+real-time performance. The user authorized committing/pushing Step 6 and this
+handoff. Steps 1–3 were published in `f14e46c`, Step 4 in `0d26bd9`, and Step 5
+plus the shared optimization in `0360b7b`. Next proposed implementation: Step 7
+(SENSE Validate Train Data, titles/buttons only), awaiting explicit authorization.
 Installed-camera speed, natural transitions and physical performance remain
 unverified. Keep reports in chat; accept later steps only after user approval.
 
@@ -48,6 +50,40 @@ separate permissions. Both reviewers returned PASS on the workflow instructions.
 The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
+
+Step 6 — accepted for now offline/recorded-camera; commit/push authorized
+(2026-10-27). Detection processing remains too slow for the user's desired
+experience; further performance work remains open and is not authorized here.
+Recognize SENSE page-2 title/current left Yes and measured selector/navigation
+buttons; omit summary, information rows/values and confirmation text. Reuse
+current-border/glyph helpers with bounded exact-label OCR retries; reject false
+half-cell fits instead of relocating boxes through legacy anchors. TWIN behavior
+and previously accepted SENSE results remain unchanged. Reviewed source
+`2569c74c4949c785879fc57ebeeda82274aa2a8b2eebbe1c9823719e78817b03`;
+both reviewers PASS WITH WARNINGS, no blockers. All 69 frames retain title/left
+Yes and eight right controls; G1 appears in 58/69 and is omitted when uncertain.
+Cold first/middle/last samples recognize all nine right buttons. Synthetic label/
+layout changes, missing edges, duplicates, information independence and loss/
+recovery pass. All 225 other SENSE frames and 51 cold regressions match exactly.
+Final suite: 385 passes plus 265 subtests; each reviewer independently passed the
+10 new tests. Current validation costs more than the former misplaced positional
+output: analysis mean/P95 0.172/0.176 -> 0.271/0.288 s; OCR 69/0.99 -> 451/3.68 s
+(calls/total time). Regular receipt replay: 3.25 detection FPS, 4.78 headless preview
+callbacks/s, P95 local result age 0.495 s; 47/69 processed, 22 overwrites, zero policy
+skips. Selective: 2.56 detection FPS, P95 age 0.470 s, 28 policy skips. Freshness/
+confirmation/4-px publication gates remain unchanged; targets clear on stop.
+Measured center jitter mean/P95/max 1.00/5/10.8 px; old anchored but misplaced
+coordinates were steadier. Coarse frame-0 center error mean/max 5.47/10.82 px
+against agent border readings with about +/-8 px uncertainty, not human/mm truth.
+Canonical accepted evidence: `runs/step06_train_data_2_2/` (compact results,
+summary, publication/expiry evidence, before/after video and two PNGs). The video
+shows all source frames at 5-FPS playback, not detection throughput or live GUI
+paint cadence. Only loading-gauge selectors are covered; other selector layouts,
+independent held-out footage, natural transitions and physical validation remain
+unverified. An earlier full run and standalone rerun hit a simulated-terminal
+completion timeout; baseline/candidate diagnostics and final suite passed. The
+intermittent issue remains unresolved/disclosed; no action/freshness gates changed.
+Local tests/evidence require separate supply in a clone. No hardware actions.
 
 Step 5 + reusable SENSE optimization — accepted offline/recorded-camera;
 commit/push and subsequent Step 6 authorized (2026-10-27). Rebuilt page 1 from
@@ -275,7 +311,8 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
   framing/occlusion and fresh deployment remain unverified. No physical mm proof.
 - Step 3 accepts SENSE localization on the five recordings with the two page-1
   failures above. Step 4 now accepts the recorded Train Data view with the limits
-  in its milestone; page-1 semantics are accepted above; page-2/validation remain Steps 6–7. Geometry
+  in its milestone; numbered-page semantics are accepted above with their limits;
+  validation remains Step 7. Geometry
   success does not establish semantic coverage. Earlier cold checks finding
   unknown/zero controls on all four train sources describe the pre-Step 3 baseline.
 - The reproduced Main->Driver geometry transition failure is corrected by generic
@@ -314,9 +351,9 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
 ## Next approvals and delivery rules
 
-Steps 1–5 plus SENSE optimization are accepted with the limits above and approved
-for commit/push. Step 6 is authorized after successful publication of this update;
-Steps 7–16 remain planned and need separate implementation authorization.
+Steps 1–6 plus SENSE optimization are accepted with the limits above and approved
+for commit/push. Detection speed remains an open limitation despite acceptance
+for now. Steps 7–16 and further performance work need separate authorization.
 Continue one requested step at a time; do not infer next-step permission from
 acceptance or reviewer verdicts. Do not accumulate old reports.
 

@@ -83,14 +83,14 @@ def analyze_train_left_display(
         text = read_title(rectified, title_box)
         state = title_state(text)
     if connected and state in {"unknown", "Train Data"}:
-        page_title = _read_page_one_title(rectified)
+        page_title = _read_numbered_train_title(rectified)
         if page_title is not None:
             title_box, text = page_title
             if text is None:
                 # Extra current title glyphs cannot be discarded to classify
                 # a numbered page as the accepted unnumbered choice screen.
                 return None
-            state = "Train Data (1/2)"
+            state = title_state(text)
     if state not in {"Train Data", "Validate Train Data",
                      "Train Data (1/2)", "Train Data (2/2)"}:
         return None
@@ -106,6 +106,7 @@ def analyze_train_left_display(
                                [x2, y2], [x1, y2]], np.float32)
     title = {**_region_result(title_quad, transform), "text": text}
     buttons = {}
+    numbered_page = connected and state in {"Train Data (1/2)", "Train Data (2/2)"}
     if state != "Validate Train Data":
         hsv = cv2.cvtColor(rectified, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, (0, 0, 100), (179, 130, 255))
@@ -115,7 +116,7 @@ def analyze_train_left_display(
         candidates = [contour for contour in contours
                       if cv2.boundingRect(contour)[2] >= width * .7
                       and cv2.boundingRect(contour)[3] >= height * .04]
-        if connected and state == "Train Data (1/2)" and len(candidates) > 1:
+        if numbered_page and len(candidates) > 1:
             candidates = []  # Ambiguous completion cells do not establish Yes.
         if candidates:
             box = cv2.boxPoints(cv2.minAreaRect(max(candidates,
@@ -127,10 +128,10 @@ def analyze_train_left_display(
             # Do not name a pale blank rectangle Yes. Other train pages retain
             # their existing path until their separately authorized steps.
             text = "Yes"
-            if state == "Train Data" or (connected and state == "Train Data (1/2)"):
+            if state == "Train Data" or numbered_page:
                 points = field_quad_from_contour(max(candidates, key=cv2.contourArea))
                 text = _read_train_completion(
-                    rectified, points, local_background=connected and state == "Train Data (1/2)")
+                    rectified, points, local_background=numbered_page)
             if text == "Yes":
                 buttons["yes"] = _region_result(points, transform)
     content = {"boxes": {}, "speed_indicator": None, "title": title, "buttons": buttons}
@@ -139,10 +140,10 @@ def analyze_train_left_display(
     return state, content
 
 
-def _read_page_one_title(frame: Frame) -> tuple[tuple[int, int, int, int], str | None] | None:
+def _read_numbered_train_title(frame: Frame) -> tuple[tuple[int, int, int, int], str | None] | None:
     """Retry a complete measured text row when a dim page suffix was clipped.
 
-    Glyph count only proposes OCR. Only the exact current title selects page 1.
+    Glyph count only proposes OCR. Only an exact current title selects a page.
     The accepted unnumbered Train Data path does not enter this OCR retry.
     """
     width, height = RECTIFIED_SIZE
@@ -162,7 +163,7 @@ def _read_page_one_title(frame: Frame) -> tuple[tuple[int, int, int, int], str |
     text = read_title(frame, box)
     # A measured vertical separator may touch the OCR margin, not the letters.
     text = text.strip(" |") if text else None
-    return box, text if title_state(text) == "Train Data (1/2)" else None
+    return box, text if title_state(text) in {"Train Data (1/2)", "Train Data (2/2)"} else None
 
 
 def _read_train_summary(frame: Frame, transform: np.ndarray) -> dict[str, Any]:

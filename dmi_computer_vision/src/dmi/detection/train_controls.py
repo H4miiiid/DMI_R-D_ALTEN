@@ -8,7 +8,9 @@ from dmi_computer_vision.src.dmi.detection.left_layout import BorderEvidence, qu
 from dmi_computer_vision.src.dmi.detection.right_layout import _border_peaks, _level_edge_supported
 
 
-def train_button_cells(frame: np.ndarray, *, page_one: bool = False) -> dict[str, np.ndarray]:
+def train_button_cells(
+    frame: np.ndarray, *, page_one: bool = False, page_two: bool = False,
+) -> dict[str, np.ndarray]:
     """Use glyph groups to propose searches, then require four measured borders.
 
     Text and icons seed independent cells, never a row of implied partners.
@@ -20,19 +22,27 @@ def train_button_cells(frame: np.ndarray, *, page_one: bool = False) -> dict[str
     foreground[:round(height * .3)] = 0
     grouped = cv2.morphologyEx(foreground, cv2.MORPH_CLOSE, np.ones((25, 15), np.uint8))
     _, _, stats, _ = cv2.connectedComponentsWithStats(grouped)
-    evidence = BorderEvidence(frame, preserve_wide_regions=page_one)
+    numbered_page = page_one or page_two
+    evidence = BorderEvidence(frame, preserve_wide_regions=numbered_page)
     cells = []
     for x, y, glyph_width, glyph_height, area in stats[1:]:
-        minimum = 1 if page_one else 8
-        if area < (5 if page_one else 80) or not (minimum < glyph_height < height * .09
+        minimum = 1 if numbered_page else 8
+        if area < (5 if numbered_page else 80) or not (minimum < glyph_height < height * .09
                                                  and glyph_width > minimum):
             continue
-        if page_one and glyph_width > width * .4:
+        if numbered_page and glyph_width > width * .4:
             continue
         # A decimal glyph alone is too narrow for a robust border profile.
-        pad = max(0, round(width * .035 - glyph_width / 2)) if page_one else 0
+        pad = max(0, round(width * .035 - glyph_width / 2)) if numbered_page else 0
         horizontal = evidence.profile('h', max(0, x-pad), min(width, x+glyph_width+pad))
-        peaks = _border_peaks(horizontal, separation=8)
+        if page_two:
+            # Compare dim control edges within the current glyph's bounded
+            # search, rather than against the much brighter outer bezel.
+            start = max(0, int(y-height*.13))
+            end = min(height, int(y+glyph_height+height*.13))
+            peaks = [start+p for p in _border_peaks(horizontal[start:end], separation=8)]
+        else:
+            peaks = _border_peaks(horizontal, separation=8)
         tops = [p for p in peaks if y-height*.13 < p < y-4]
         bottoms = [p for p in peaks if y+glyph_height+4 < p < y+glyph_height+height*.13]
         best = None
@@ -61,8 +71,9 @@ def train_button_cells(frame: np.ndarray, *, page_one: bool = False) -> dict[str
                         # The glyph group must occupy the middle of its cell;
                         # this rejects spanning boxes and nearby texture edges.
                         cx, cy = (left+right)/2, (top+bottom)/2
-                        if (abs(cx-(x+glyph_width/2)) > span*.2
-                                or abs(cy-(y+glyph_height/2)) > step*.2):
+                        center_tolerance = .1 if page_two else .2
+                        if (abs(cx-(x+glyph_width/2)) > span*center_tolerance
+                                or abs(cy-(y+glyph_height/2)) > step*center_tolerance):
                             continue
                         # Prefer the nearest fully supported enclosure, rather
                         # than a larger box reaching the monitor's outer edge.

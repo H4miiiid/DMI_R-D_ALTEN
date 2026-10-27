@@ -33,8 +33,10 @@ def analyze_right_display(
         return {"state": "unknown", "title": None, "buttons": {},
                 "data_field": None, "visibility": "occluded"}
     page_one = connected and state_hint == "Train Data (1/2)"
-    border_lines = ([], []) if page_one else detect_border_lines(rectified)
-    field_detection = None if page_one else _detect_data_field(rectified)
+    page_two = connected and state_hint == "Train Data (2/2)"
+    numbered_page = page_one or page_two
+    border_lines = ([], []) if numbered_page else detect_border_lines(rectified)
+    field_detection = None if numbered_page else _detect_data_field(rectified)
     field_box = field_detection[0] if field_detection is not None else None
     # Train workflow titles belong to the left display. Pale summary rows on
     # the right can otherwise be mistaken for a right-hand title band.
@@ -137,17 +139,18 @@ def analyze_right_display(
             rectified, state, border_lines, level_read_cells=level_read_cells,
         )
         controls = _recognize_level_buttons(rectified, detected_buttons, read_cells=level_read_cells)
-    elif state == "Train Data" or page_one:
+    elif state == "Train Data" or numbered_page:
         # Include real source pixels just outside the geometry enclosure so a
         # border clipped by rectification can still be independently measured.
         width, height = RECTIFIED_SIZE
-        margin = 32 if page_one else 16
+        margin = 32 if numbered_page else 16
         destination = np.float32([[margin, margin], [width-1+margin, margin],
                                   [width-1+margin, height-1+margin], [margin, height-1+margin]])
         expanded = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(geometry.corners, destination),
                                        (width+2*margin, height+2*margin))
         controls = {name: (quad-margin, None)
-                    for name, quad in _recognize_train_buttons(expanded, page_one=page_one).items()}
+                    for name, quad in _recognize_train_buttons(
+                        expanded, page_one=page_one, page_two=page_two).items()}
     else:
         detected_buttons = (detect_button_quads(rectified, state, border_lines)
                             if state != "unknown" or title_text is not None else {})
@@ -182,14 +185,22 @@ def _detect_train_field(
     return max(candidates, key=lambda item: cv2.contourArea(item[1])) if candidates else None
 
 
-def _recognize_train_buttons(frame: Frame, *, page_one: bool = False) -> dict[str, NDArray]:
+def _recognize_train_buttons(
+    frame: Frame, *, page_one: bool = False, page_two: bool = False,
+) -> dict[str, NDArray]:
     """Read each measured cell; blank/ambiguous/duplicate identities are omitted."""
     result, duplicates, text_rows = {}, set(), []
     identities = {"Gamma": "gamma", "Lambda": "lambda", "Enter data": "enter_data"}
     if page_one:
         identities = {**{str(i): f"digit_{i}" for i in range(10)},
                       "Del": "delete", "Select type": "select_type"}
-    for points in train_button_cells(frame, page_one=page_one).values():
+    elif page_two:
+        identities = {"G1": "g1", "GA": "ga", "GB": "gb", "GC": "gc",
+                      "Out of GC": "out_of_gc", "Select type": "select_type"}
+    words_allowed = set(identities) | {"Select", "type"}
+    if page_two:
+        words_allowed |= {"Out", "of"}
+    for points in train_button_cells(frame, page_one=page_one, page_two=page_two).values():
         size = tuple(max(20, round(np.linalg.norm(points[i]-points[0]))) for i in (1, 3))
         target = np.float32([[0, 0], [size[0]-1, 0], [size[0]-1, size[1]-1], [0, size[1]-1]])
         crop = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(points, target), size)
@@ -201,7 +212,7 @@ def _recognize_train_buttons(frame: Frame, *, page_one: bool = False) -> dict[st
         if page_one and _decimal_button(ink):
             name = "decimal"
         if name not in {"close", "decimal"}:
-            name = _train_arrow(ink, rounded_tip=page_one)
+            name = _train_arrow(ink, rounded_tip=page_one or page_two)
         if name is not None:
             if name in result:
                 duplicates.add(name)
@@ -222,10 +233,24 @@ def _recognize_train_buttons(frame: Frame, *, page_one: bool = False) -> dict[st
     texts = iter(read_titles([crop for _, crops in text_rows for crop in crops]))
     for points, crops in text_rows:
         words = [next(texts) for _ in crops]
-        if page_one:
-            words = [word if word in identities or word in {"Select", "type"}
+        if page_one or page_two:
+            words = [word if word in words_allowed
                      else read_title(crop, (0, 0, crop.shape[1], crop.shape[0]))
                      for word, crop in zip(words, crops)]
+        if page_two:
+            # Camera blur can make a digit look like a letter. Retry uncertain
+            # current glyphs with relative contrast; never alias OCR strings.
+            for index, (word, crop) in enumerate(zip(words, crops)):
+                if word in words_allowed:
+                    continue
+                gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+                mask = (gray > float(np.median(gray)) + 25).astype(np.uint8) * 255
+                binary = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                words[index] = read_title(binary, (0, 0, binary.shape[1], binary.shape[0]))
+                if words[index] not in words_allowed:
+                    enlarged = cv2.resize(binary, None, fx=1.5, fy=1.5,
+                                          interpolation=cv2.INTER_LINEAR)
+                    words[index] = read_title(enlarged, (0, 0, enlarged.shape[1], enlarged.shape[0]))
         name = identities.get(" ".join(words)) if words and all(words) else None
         if name is not None:
             if name in result:

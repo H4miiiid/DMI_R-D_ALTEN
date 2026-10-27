@@ -176,7 +176,7 @@ def process_frame(
         else:
             right_content = right_display_stabilizer.update(
                 right_content, right_geometry,
-                measured_buttons=connected and train_state == "Train Data (1/2)",
+                measured_buttons=connected and train_state in {"Train Data (1/2)", "Train Data (2/2)"},
             )
     if train_left is not None:
         left_content = train_left[1]
