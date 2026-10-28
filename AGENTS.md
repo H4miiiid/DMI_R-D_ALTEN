@@ -355,6 +355,16 @@ required regressions; Train Running Number remains unverified on SENSE until
 representative evidence is checked. Approve detection coverage and latency before
 calibration work.
 
+### 8.A. Prepare reusable vision and calibration library
+
+Expose the existing computer vision pipeline through a small, documented Python interface that is independent of any GUI or robot workflow application.
+
+Provide frame processing, structured detections, source-frame coordinates, detection freshness, and explicit session lifecycle management. Integrate calibrated pixel-to-mm target resolution through a separate interface once calibration is validated.
+
+Reuse existing implementations without duplicating detectors or changing accepted detection behavior. Keep annotation, calibration, observation and robot commands separate.
+
+Validate the library independently using recorded frames and fake hardware. The Flet GUI and final application must consume the same interfaces without implementing their own vision or calibration logic.
+
 ### 9. Audit SENSE reference coordinates and identities
 
 Use only `TapperWare_Flet/DmiPositions.json -> DMI_SENSE_TOUCHSCREEN`. The old

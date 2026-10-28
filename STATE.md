@@ -6,16 +6,17 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
-AGENTS Steps 1–7 and the reusable SENSE optimization are accepted
-offline/recorded-camera (latest approval 2026-10-28). The user accepted the
-corrected Step 7, including the gray confirmation button, and authorized this
-STATE update and commit/push. Detection speed remains an open concern; this is
-not acceptance of general real-time performance. Steps 1–3 were published in
-`f14e46c`, Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, and Step 6
-in `bc727bd`. Next proposed implementation: Step 8 (SENSE workflow validation
-and TWIN regression preservation), awaiting separate authorization. Installed-
-camera speed, natural transitions and physical performance remain unverified.
-Keep reports in chat; accept later steps only after user approval.
+AGENTS Steps 1–7, the reusable SENSE optimization and Step 8.A are accepted
+offline/recorded-camera (latest approval 2026-10-28). The user explicitly
+accepted Step 8.A and authorized this STATE update and commit/push; no later
+step is authorized. Steps 1–3 were published in `f14e46c`, Step 4 in `0d26bd9`,
+Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd` and Step 7 in `c07ecdc`.
+Step 8 remains unaccepted: its offline checks pass, but required raw transition/
+TRN footage and hardware are unavailable. The user deferred those checks while
+independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives;
+other steps need separate authorization. Detection speed, installed-camera
+performance and physical calibration/actions remain unverified. Keep reports
+in chat and preserve these limits in later work.
 
 Plan clarification (2026-10-26): Steps 5–7 on SENSE require visible titles and
 buttons only, including visible left Yes and right keypad/selector/navigation
@@ -54,6 +55,50 @@ separate permissions. Both reviewers returned PASS on the workflow instructions.
 The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
+
+Step 8.A — accepted offline/recorded-camera; commit/push authorized (2026-10-28).
+Expose `dmi_computer_vision.src.dmi.api.VisionSession` / `Observation` with a
+package README. Reuse FrameProcessor/LatestState and the exact process_live alias;
+no detector, TWIN, GUI, command or calibration behavior changes. Explicit source/
+session lifecycle, serialized processing owner, detached native-pixel results/
+direct evidence and bounded receipt/upstream freshness; invalid input or analysis
+failure closes/clears, with explicit restart and no automatic retry. Raw runner/
+LatestState aliases retain their documented original contracts. Calibration
+resolution stays separate until later reference/physical validation; no mm/action
+eligibility is enabled. Reviewed source
+`3e4cd74ede624edcb64c36fff3c471e273cb00a9eb68c99003542ff15705a815`;
+code_review PASS, step_checker PASS WITH WARNINGS, no blockers. Suite: 412 passes
+plus 309 subtests; focused 10 plus 23 subtests, independently rerun by reviewers.
+All 730 static native results/direct supports and 51 cold samples (39 TWIN) match
+existing output exactly. Wrapper overhead mean/P95 0.46/0.62 ms per frame over
+730 same-call measurements; no live-FPS improvement claim. Canonical accepted
+package: `runs/step08a_vision_library/` (summary, compact results, seven-case fake
+lifecycle log, native 25-frame 2304x1728/5-FPS video and one preview). Caller owns
+acquisition and serialized worker lifecycle; GUI wiring is deferred. Step 8's real
+transition/TRN and installed-camera limits remain open. Tracked icon assets and
+OCR-English are deployment dependencies; ignored tests/evidence need separate
+supply in a clone. No hardware actions. Await the next explicit instruction.
+
+Step 8 — offline checks completed; recording-dependent checks deferred by the
+user (2026-10-28), not accepted. Runtime remained unchanged at `c07ecdc`.
+Full 948-frame native validation: 730 static frames plus 218 stress frames;
+294 prior SENSE rich/direct results and 51 cold samples (39 TWIN) match exactly.
+402 tests plus 286 subtests pass, including four new workflow/lifecycle tests.
+Both reviewers returned NOT VERIFIED: real train-page transitions and trustworthy
+transition latency are missing. Observation 11 has 168/203 unknown, 35 Main and
+zero Driver detections amid source overlays, real hand occlusion and movement;
+overlays are not proven to be the sole cause. All 15 annotated TRN observations
+reject geometry; SENSE TRN remains unverified. Synthetic screen cuts and fake
+source-failure/session checks pass but do not replace natural-transition evidence.
+Regular Driver/page-1 replay: 3.35/3.04 processed FPS, P95 local age 0.496/0.430 s;
+headless replay is not installed-camera/GUI performance. Pending package:
+`runs/step08_workflow_validation/`, version
+`387ccba1c030cd9b3cae8951ef9ef706c3e0effae5b98463b64d88870883efdf`.
+The user has no unannotated originals or transition recordings and hardware is
+currently unavailable. Resume these checks when new raw footage is supplied.
+Independent Step 8.A was subsequently accepted (see above); Step 8 detection
+coverage/latency remain unapproved, and calibration, motion and GUI integration
+remain unauthorized.
 
 Step 7 — accepted offline/recorded-camera; commit/push authorized (2026-10-28).
 Recognize the SENSE validation title and independently measured right Yes/No/Close;
@@ -385,9 +430,11 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
 ## Next approvals and delivery rules
 
-Steps 1–7 plus SENSE optimization are accepted with the limits above and approved
-for commit/push. Detection speed remains an open limitation despite acceptance
-for now. Steps 8–16 and further performance work need separate authorization.
+Steps 1–7, SENSE optimization and Step 8.A are accepted with the limits above
+and approved for commit/push. Detection speed remains an open limitation despite
+acceptance for now. Step 8 remains pending new raw footage. Its acceptance, Steps 9–16 and
+further performance work need separate authorization; Step 8.A acceptance does
+not approve detection coverage/latency or authorize calibration/actions.
 Continue one requested step at a time; do not infer next-step permission from
 acceptance or reviewer verdicts. Do not accumulate old reports.
 
