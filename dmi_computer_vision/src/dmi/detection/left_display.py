@@ -107,7 +107,8 @@ def analyze_train_left_display(
     title = {**_region_result(title_quad, transform), "text": text}
     buttons = {}
     numbered_page = connected and state in {"Train Data (1/2)", "Train Data (2/2)"}
-    if state != "Validate Train Data":
+    measured_completion = numbered_page or (connected and state == "Validate Train Data")
+    if state != "Validate Train Data" or measured_completion:
         hsv = cv2.cvtColor(rectified, cv2.COLOR_BGR2HSV)
         mask = cv2.inRange(hsv, (0, 0, 100), (179, 130, 255))
         mask[:round(height * .75)] = 0
@@ -116,7 +117,7 @@ def analyze_train_left_display(
         candidates = [contour for contour in contours
                       if cv2.boundingRect(contour)[2] >= width * .7
                       and cv2.boundingRect(contour)[3] >= height * .04]
-        if numbered_page and len(candidates) > 1:
+        if measured_completion and len(candidates) > 1:
             candidates = []  # Ambiguous completion cells do not establish Yes.
         if candidates:
             box = cv2.boxPoints(cv2.minAreaRect(max(candidates,
@@ -128,10 +129,10 @@ def analyze_train_left_display(
             # Do not name a pale blank rectangle Yes. Other train pages retain
             # their existing path until their separately authorized steps.
             text = "Yes"
-            if state == "Train Data" or numbered_page:
+            if state == "Train Data" or measured_completion:
                 points = field_quad_from_contour(max(candidates, key=cv2.contourArea))
                 text = _read_train_completion(
-                    rectified, points, local_background=numbered_page)
+                    rectified, points, local_background=measured_completion)
             if text == "Yes":
                 buttons["yes"] = _region_result(points, transform)
     content = {"boxes": {}, "speed_indicator": None, "title": title, "buttons": buttons}

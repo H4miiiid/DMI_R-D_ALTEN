@@ -1,28 +1,32 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-10-27. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-10-28. Read `AGENTS.md` for the new numbered roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
-AGENTS Steps 1–6 and the reusable SENSE optimization are accepted
-offline/recorded-camera (latest approval 2026-10-27). Step 6 is accepted for now
-with detection speed still an open concern; this is not acceptance of general
-real-time performance. The user authorized committing/pushing Step 6 and this
-handoff. Steps 1–3 were published in `f14e46c`, Step 4 in `0d26bd9`, and Step 5
-plus the shared optimization in `0360b7b`. Next proposed implementation: Step 7
-(SENSE Validate Train Data, titles/buttons only), awaiting explicit authorization.
-Installed-camera speed, natural transitions and physical performance remain
-unverified. Keep reports in chat; accept later steps only after user approval.
+AGENTS Steps 1–7 and the reusable SENSE optimization are accepted
+offline/recorded-camera (latest approval 2026-10-28). The user accepted the
+corrected Step 7, including the gray confirmation button, and authorized this
+STATE update and commit/push. Detection speed remains an open concern; this is
+not acceptance of general real-time performance. Steps 1–3 were published in
+`f14e46c`, Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, and Step 6
+in `bc727bd`. Next proposed implementation: Step 8 (SENSE workflow validation
+and TWIN regression preservation), awaiting separate authorization. Installed-
+camera speed, natural transitions and physical performance remain unverified.
+Keep reports in chat; accept later steps only after user approval.
 
 Plan clarification (2026-10-26): Steps 5–7 on SENSE require visible titles and
 buttons only, including visible left Yes and right keypad/selector/navigation
 buttons. Left summaries and noninteractive right text/rows/field values/confirmation
 content are excluded from OCR, annotations and optional exports in those states.
+Step 7 now has a user-approved exception: measure the gray right confirmation
+button center and OCR its current Yes/No using the existing validation field output.
 Keep localization, button evidence/freshness and existing schemas; preserve Step 4
 and TWIN behavior. Measure accuracy and processing cost before claiming gains.
-This is a roadmap update only; it does not start or accept Steps 5–7.
+This dated plan clarification did not authorize implementation; later approvals
+are recorded in the accepted milestones below.
 
 TWIN scope clarification (2026-10-26): the user accepts the existing TWIN
 detections. Upcoming detection work targets SENSE only; leave TWIN code, tuning,
@@ -50,6 +54,36 @@ separate permissions. Both reviewers returned PASS on the workflow instructions.
 The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
+
+Step 7 — accepted offline/recorded-camera; commit/push authorized (2026-10-28).
+Recognize the SENSE validation title and independently measured right Yes/No/Close;
+omit the left summary and never invent a left Yes. The gray confirmation button
+has measured geometry/center and exact current Yes/No OCR in existing
+`data_field` / compact `fields.validation`, separate from lower button identities.
+Reviewed source `ebf660b33102a3456b181c156d1a3064dff194690589533b43d3cebf547ae7ef`;
+both reviewers PASS WITH WARNINGS, no blockers. Title, lower Yes/No and gray
+button/Yes succeed 25/25; Close 24/25 (sequential frame 12 conservatively omitted).
+Cold first/middle/last recognize all three lower controls. Synthetic No, blank/
+unknown/missing/ambiguous gray evidence, changed/moved/erased controls, information
+independence and loss/recovery pass. All 269 prior SENSE frames and 51 sampled
+cold regressions retain exact rich/direct results. Suite: 398 passes plus 268
+subtests; each reviewer independently passed the 13 focused tests.
+Native 25-frame analysis mean/P95 0.254/0.300 s; 75 OCR calls/0.648 s total,
+including one extra gray-value call/frame. Regular/selective receipt replay:
+3.08/2.64 processed FPS, P95 local result age 0.520/0.498 s; 16/13 of 25 frames
+processed, 9/6 overwrites and 0/6 policy skips. No speedup over positional labels
+is claimed. Existing confirmation, direct-evidence age, 4-px publication and
+expiry gates stay unchanged; targets clear on stop. Lower-button center jitter
+mean/P95/max 1.47/5.05/15 px remains an open limitation before coordinate use.
+Accepted evidence now lives at `runs/accepted/step07_validate_train_data/`;
+source/artifact hashes match the reviewed package formerly at
+`runs/step07_validate_train_data/`. Its six files include compact results, summary,
+publication evidence, video and two PNGs. The video retains all 25 source frames
+at 2304x1728 and original 5-FPS encoding; playback FPS is not detection throughput.
+Only one short static recording plus synthetic changes is validated; natural
+transitions, independent footage, human coordinate truth and installed-camera/
+physical accuracy remain unverified. Recognition is not enabled/actionable/press
+proof. Ignored tests/evidence need separate supply in a clone. No hardware actions.
 
 Step 6 — accepted for now offline/recorded-camera; commit/push authorized
 (2026-10-27). Detection processing remains too slow for the user's desired
@@ -312,7 +346,7 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 - Step 3 accepts SENSE localization on the five recordings with the two page-1
   failures above. Step 4 now accepts the recorded Train Data view with the limits
   in its milestone; numbered-page semantics are accepted above with their limits;
-  validation remains Step 7. Geometry
+  validation is accepted in Step 7 above. Geometry
   success does not establish semantic coverage. Earlier cold checks finding
   unknown/zero controls on all four train sources describe the pre-Step 3 baseline.
 - The reproduced Main->Driver geometry transition failure is corrected by generic
@@ -351,9 +385,9 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
 ## Next approvals and delivery rules
 
-Steps 1–6 plus SENSE optimization are accepted with the limits above and approved
+Steps 1–7 plus SENSE optimization are accepted with the limits above and approved
 for commit/push. Detection speed remains an open limitation despite acceptance
-for now. Steps 7–16 and further performance work need separate authorization.
+for now. Steps 8–16 and further performance work need separate authorization.
 Continue one requested step at a time; do not infer next-step permission from
 acceptance or reviewer verdicts. Do not accumulate old reports.
 

@@ -336,14 +336,9 @@ centers and loss/recovery without summary/value OCR or screen-order assumptions.
 
 ### 7. Support Validate Train Data on SENSE
 
-Apply the titles/buttons-only scope above. Use level_raw_03 and separated validation
-examples. Recognize the visible Validate Train Data title and measured Yes/No/Close
-buttons, retaining their existing region-qualified identities. Exclude the left
-summary and right confirmation field/text. Verify the left completion button is
-absent when not visible; never invent a second Yes. Test direct startup, changed
-button appearance/layout and loss/recovery without reading confirmation content
-or requiring the previous page. Recognition or an exported Yes is not a press,
-proof of enabled state or confirmation that the robot changed the DMI.
+Apply the titles/buttons-only scope above. Use level_raw_03 and separated validation examples. Recognize the visible Validate Train Data title and measured Yes/No/Close buttons, retaining their existing region-qualified identities. Exclude the left summary. The visible gray right confirmation rectangle is a button: measure its center and OCR its current Yes/No value using the existing validation field output. This is an exception to the Steps 5–7 confirmation-text exclusion above. Verify the left completion button is absent when not visible; never invent a second Yes. Test direct startup, changed button appearance/layout and loss/recovery without using confirmation content to infer the separate Yes/No/Close buttons or requiring the previous page. Recognition or an exported Yes is not a press, proof of enabled state or confirmation that the robot changed the DMI.
+
+Avoid unnecessary computation, but prioritize detection correctness. Preserve original video FPS and resolution for full-video validation; reduced-FPS clips may be used only for focused tests, not as evidence of real-time performance.
 
 ### 8. Validate SENSE workflow and preserve TWIN
 
