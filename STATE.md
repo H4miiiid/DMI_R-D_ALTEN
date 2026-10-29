@@ -1,22 +1,25 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-10-28. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-10-29. Read `AGENTS.md` for the new numbered roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
 AGENTS Steps 1–7, the reusable SENSE optimization and Step 8.A are accepted
-offline/recorded-camera (latest approval 2026-10-28). The user explicitly
-accepted Step 8.A and authorized this STATE update and commit/push; no later
-step is authorized. Steps 1–3 were published in `f14e46c`, Step 4 in `0d26bd9`,
-Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd` and Step 7 in `c07ecdc`.
+offline/recorded-camera. Step 9's reference audit is also accepted (2026-10-28);
+the user authorized this STATE update and commit/push, but no next step.
+Step 8.A was published in `d360176`. Steps 1–3 were published in `f14e46c`,
+Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd`
+and Step 7 in `c07ecdc`.
 Step 8 remains unaccepted: its offline checks pass, but required raw transition/
 TRN footage and hardware are unavailable. The user deferred those checks while
 independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives;
-other steps need separate authorization. Detection speed, installed-camera
-performance and physical calibration/actions remain unverified. Keep reports
-in chat and preserve these limits in later work.
+Step 10 and later work need separate authorization. The user reports prior testing
+of the upper SENSE reference coordinates, including panel/setup offsets; this does
+not validate camera-to-robot calibration. Detection speed, installed-camera
+performance and vision-guided physical actions remain unverified. Keep reports in
+chat and preserve these limits in later work.
 
 Plan clarification (2026-10-26): Steps 5–7 on SENSE require visible titles and
 buttons only, including visible left Yes and right keypad/selector/navigation
@@ -55,6 +58,29 @@ separate permissions. Both reviewers returned PASS on the workflow instructions.
 The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
+
+Step 9 — reference audit accepted; commit/push authorized (2026-10-28).
+Read-only audit of `TapperWare_Flet/DmiPositions.json -> DMI_SENSE_TOUCHSCREEN`;
+no runtime, detector, TWIN, database or action-gate changes. Canonical accepted
+package: `runs/step09_reference_audit/` (summary, mappings JSONL, one preview),
+reviewed version `59c913e91f09ef46168143db2d7bf9be5f821a48077d3a4c2a6a90a93e749ea4`.
+Both reviewers PASS WITH WARNINGS, no blockers. Of 24 reference entries, 20 have
+recorded SENSE semantic matches at 16 distinct stored XY locations; two further
+TRN candidates lack validated SENSE footage. Of 75 recorded control identities,
+22 map to references and 53 lack an unambiguous reference. User confirms gray
+Driver/Level/TRN confirmation controls use existing field outputs; KEY_YES_1 is
+the left completion Yes on Train Data/(1/2)/(2/2), and KEY_YES_2 is validation's
+upper-right gray Yes/No field, separate from lower Yes. END_OF_DATA_ENTRY remains
+explicitly unknown; ACK has no validated detector identity. Similar KEY_YES_1
+positions do not prove identical centers or add independent spatial points.
+User reports the reference set was physically tested on the same setup with
+panel/setup offsets included. Do not add that panel Y offset twice; separate tool
+datum, center correspondence and independent mm accuracy remain unverified.
+Checks: 72 pure XML compiler cases at 0/+7/-7 mm, field/native-center contracts,
+alias isolation, accepted source/package hashes and Git diff check pass. The old
+calibration loader rejects the new schema; no path swap, fit or hardware action
+was performed. Package and generator are local/ignored and need separate clone
+supply. Step 8 remains pending; Step 10 is not authorized.
 
 Step 8.A — accepted offline/recorded-camera; commit/push authorized (2026-10-28).
 Expose `dmi_computer_vision.src.dmi.api.VisionSession` / `Observation` with a
@@ -406,7 +432,8 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 - New intended reference: `TapperWare_Flet/DmiPositions.json`, model
   `DMI_SENSE_TOUCHSCREEN`. It contains Driver ID digits/Delete/confirmation, some
   Level/Main/Train Data/TRN/ACK controls, not full numbered-page/validation mappings.
-  Match semantics explicitly; review ambiguous Yes/confirmation aliases.
+  Step 9 records the user-reviewed confirmation/Yes aliases; END_OF_DATA_ENTRY
+  remains unknown and ACK unsupported. Keep actual screen/region/kind qualification.
 - New Driver ID reference is `DRIVER_ID_SCREEN`, e.g. KEY_1=[200,364], KEY_2=[165,364],
   KEY_3=[135,364], model default 100 ms. Old master reference is DRIVER_ID_WINDOW,
   KEY_1=[100,300], different spacing/axis direction, default 200 ms. Do not mix them.
@@ -430,11 +457,12 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
 ## Next approvals and delivery rules
 
-Steps 1–7, SENSE optimization and Step 8.A are accepted with the limits above
-and approved for commit/push. Detection speed remains an open limitation despite
-acceptance for now. Step 8 remains pending new raw footage. Its acceptance, Steps 9–16 and
-further performance work need separate authorization; Step 8.A acceptance does
-not approve detection coverage/latency or authorize calibration/actions.
+Steps 1–7, SENSE optimization, Step 8.A and the Step 9 reference audit are accepted
+with the limits above and approved for commit/push. Detection speed remains an
+open limitation despite acceptance for now. Step 8 remains pending new raw footage.
+Its acceptance, Steps 10–16 and further performance work need separate authorization;
+Step 8.A and Step 9 acceptance do not approve detection coverage/latency or
+authorize calibration/actions.
 Continue one requested step at a time; do not infer next-step permission from
 acceptance or reviewer verdicts. Do not accumulate old reports.
 
