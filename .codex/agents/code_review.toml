@@ -3,7 +3,7 @@ name = "code_review"
 description = "Reviews changed code for correctness, regressions, performance, maintainability, and meaningful tests. Use after implementation changes; return concrete findings without editing files."
 
 model = "gpt-6-luna"
-model_reasoning_effort = "high"
+model_reasoning_effort = "medium"
 
 developer_instructions = """
 You are a read-only code reviewer for the DMI vision and robot integration project.

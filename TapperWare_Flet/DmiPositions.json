@@ -1,0 +1,152 @@
+{
+  "DMI_SENSE_TOUCHSCREEN": {
+	"click_duration_ms": 100,
+    "screens": {
+      "DRIVER_ID_SCREEN": {
+        "parent": "DRIVER_MENU_SENSE",
+        "buttons": {
+          "KEY_1": {"x": 200, "y": 364, "leads_to": null},
+		  "KEY_2": {"x": 165, "y": 364, "leads_to": null},
+		  "KEY_3": {"x": 135, "y": 364, "leads_to": null},
+		  "KEY_4": {"x": 200, "y": 345, "leads_to": null},
+		  "KEY_5": {"x": 165, "y": 345, "leads_to": null},
+		  "KEY_6": {"x": 135, "y": 345, "leads_to": null},
+		  "KEY_7": {"x": 200, "y": 330, "leads_to": null},
+		  "KEY_8": {"x": 165, "y": 330, "leads_to": null},
+		  "KEY_9": {"x": 135, "y": 330, "leads_to": null},
+		  "KEY_0": {"x": 165, "y": 315, "leads_to": null},
+		  "KEY_DEL": {"x": 200, "y": 315, "leads_to": null},
+		  "KEY_CONF_DRIVER": {"x": 165, "y": 415, "leads_to": "LEVEL_MENU_SENSE"}
+        }
+      },
+	  "LEVEL_SCREEN": {
+		"parent": "LEVEL_MENU_SENSE",
+		"buttons": {
+			"LEVEL_1": {"x": 200, "y": 364, "leads_to": null},
+			"LEVEL_2": {"x": 165, "y": 364, "leads_to": null},
+			"LEVEL_0": {"x": 200, "y": 345, "leads_to": null},
+			"LEVEL_CONF": {"x": 165, "y": 415, "leads_to": "MAIN_MENU_SENSE"}
+		}
+	  },
+	 "MAIN_SCREEN": {
+		"parent": "MAIN_MENU_SENSE",
+        "buttons": {
+		  "TRAIN_DATA": {"x": 185, "y": 400, "leads_to": "TRAIN_DATA_MENU_SENSE"},
+		  "START": {"x": 185, "y": 415, "leads_to": null}
+        }
+	 },
+	 "TRAIN_DATA_SCREEN": {
+		"parent": "TRAIN_DATA_MENU_SENSE",
+        "buttons": {
+		  "KEY_YES_1": {"x": 280, "y": 300, "leads_to": null},
+		  "KEY_YES_2": {"x": 165, "y": 430, "leads_to": null},
+		  "END_OF_DATA_ENTRY": {"x": 152, "y": 347, "leads_to": "TRAIN_RUN_NBR_MENU_SENSE"}
+        }
+	 },
+	 "TRAIN_RUNNING_NUMBER_SCREEN": {
+		"parent": "TRAIN_RUN_NBR_MENU_SENSE",
+        "buttons": {
+		  "NBR_1": {"x": 200, "y": 364,  "leads_to": null},
+		  "KEY_CONF_TRAIN_NBR": {"x": 165, "y": 415, "leads_to": "ACK_MENU_SENSE"}
+        }
+	 },
+	 "ACK_SCREEN": {
+		"parent": "ACK_MENU_SENSE",
+        "buttons": {
+		  "ACK": {"x": 267, "y": 332, "click_duration_ms": 5000, "leads_to": null}
+        }
+	 }
+    }
+  },
+  
+  "DMI_STEN": {
+	"click_duration_ms": 150,
+    "screens": {
+      "DRIVER_ID_SCREEN": {
+        "parent": "DRIVER_MENU_STEN",
+        "buttons": {
+          "KEY_1": {"x": 192, "y": 364, "leads_to": null},
+		  "KEY_2": {"x": 165, "y": 364, "leads_to": null},
+		  "KEY_3": {"x": 135, "y": 364, "leads_to": null},
+		  "KEY_4": {"x": 200, "y": 345, "leads_to": null},
+		  "KEY_5": {"x": 165, "y": 345, "leads_to": null},
+		  "KEY_6": {"x": 135, "y": 345, "leads_to": null},
+		  "KEY_7": {"x": 200, "y": 330, "leads_to": null},
+		  "KEY_8": {"x": 165, "y": 330, "leads_to": null},
+		  "KEY_9": {"x": 135, "y": 330, "leads_to": null},
+		  "KEY_0": {"x": 165, "y": 315, "leads_to": null},
+		  "KEY_DEL": {"x": 192, "y": 315, "leads_to": null},
+		  "KEY_CONF_DRIVER": {"x": 165, "y": 415, "leads_to": "LEVEL_MENU"}
+        }
+      },
+	  "LEVEL_SCREEN": {
+		"parent": "LEVEL_MENU_STEN",
+		"buttons": {
+			"LEVEL_1": {"x": 192, "y": 364, "leads_to": null},
+			"LEVEL_2": {"x": 165, "y": 364, "leads_to": null},
+			"LEVEL_0": {"x": 200, "y": 345, "leads_to": null},
+			"LEVEL_CONF": {"x": 165, "y": 415, "leads_to": "MAIN_MENU_STEN"}
+		}
+	  },
+	 "MAIN_SCREEN": {
+		"parent": "MAIN_MENU_STEN",
+        "buttons": {
+		  "TRAIN_DATA": {"x": 185, "y": 396, "leads_to": "TRAIN_DATA_MENU_STEN"},
+		  "START": {"x": 185, "y": 415, "click_duration_ms": 50, "leads_to": "ACK_MENU_STEN"}
+        }
+	 },
+	 "TRAIN_DATA_SCREEN": {
+		"parent": "TRAIN_DATA_MENU_STEN",
+        "buttons": {
+		  "KEY_YES_1": {"x": 280, "y": 297, "leads_to": null},
+		  "KEY_YES_2": {"x": 165, "y": 427, "leads_to": null},
+		  "END_OF_DATA_ENTRY": {"x": 152, "y": 347, "leads_to": "DOPPIO_ACK_MENU"}
+        }
+	 },
+	 "DOPPIO_ACK_SCREEN": {
+		"parent": "DOPPIO_ACK_MENU",
+		"buttons": {
+			"ACK_1": {"x": 280, "y": 300, "leads_to": null},
+			"ACK_2": {"x": 280, "y": 300, "leads_to": "TRAIN_RUN_NBR_MENU_STEN"}
+		}
+	 },
+	 "TRAIN_RUNNING_NUMBER_SCREEN": {
+		"parent": "TRAIN_RUN_NBR_MENU_STEN",
+        "buttons": {
+		  "TR_RUN_NBR": {"x": 140, "y": 380,  "leads_to": null},
+		  "NBR_1": {"x": 192, "y": 364,  "leads_to": null},
+		  "KEY_CONF_TRAIN_NBR": {"x": 165, "y": 415, "leads_to": "MAIN_MENU_STEN"}
+        }
+	 },
+	 "ACK_SCREEN": {
+		"parent": "ACK_MENU_STEN",
+        "buttons": {
+		  "ACK": {"x": 255, "y": 332, "click_duration_ms": 5000, "leads_to": null}
+        }
+	 }
+    }
+  },
+
+  "DMI_TWINS": {
+	"click_duration_ms": 50,
+    "screens": {
+      "DRIVER_ID_SCREEN": {
+        "parent": "DRIVER_MENU_TWINS",
+        "buttons": {
+          "TWINS_1": {"x": 185, "y": 92, "leads_to": null},
+		  "TWINS_2": {"x": 150, "y": 92, "leads_to": null},
+		  "TWINS_3": {"x": 115, "y": 92, "leads_to": null},
+		  "TWINS_4": {"x": 185, "y": 70, "leads_to": null},
+		  "TWINS_5": {"x": 150, "y": 70, "leads_to": null},
+		  "TWINS_6": {"x": 135, "y": 70, "leads_to": null},
+		  "TWINS_7": {"x": 185, "y": 55, "leads_to": null},
+		  "TWINS_8": {"x": 150, "y": 55, "leads_to": null},
+		  "TWINS_9": {"x": 135, "y": 55, "leads_to": null},
+		  "TWINS_0": {"x": 150, "y": 40, "leads_to": null},
+		  "TWINS_DEL": {"x": 185, "y": 70, "leads_to": null},
+		  "TWINS_CONF_DRIVER": {"x": 160, "y": 150, "leads_to": null}
+        }
+	  }
+	}
+  }
+}

@@ -1,6 +1,6 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-10-29. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-10-30. Read `AGENTS.md` for the new numbered roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
@@ -8,15 +8,21 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 AGENTS Steps 1–7, the reusable SENSE optimization and Step 8.A are accepted
 offline/recorded-camera. Step 9's reference audit is also accepted (2026-10-28);
-the user authorized this STATE update and commit/push, but no next step.
+it was published in `da7eddb`. Step 10 is accepted only as an offline proof of
+concept (2026-10-29), with calibration accuracy and physical validation pending.
+Step 11 is accepted offline/recorded-camera (2026-10-30), and the user authorizes
+commit/push of the accepted implementation and its reviewed dependencies, including
+the Step 10 inspection code and existing Flet source/reference/assets. No fit meets
+the unchanged 3 mm limit; rejected candidates remain unusable for robot actions.
 Step 8.A was published in `d360176`. Steps 1–3 were published in `f14e46c`,
 Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd`
 and Step 7 in `c07ecdc`.
 Step 8 remains unaccepted: its offline checks pass, but required raw transition/
 TRN footage and hardware are unavailable. The user deferred those checks while
-independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives;
-Step 10 and later work need separate authorization. The user reports prior testing
-of the upper SENSE reference coordinates, including panel/setup offsets; this does
+independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives.
+Further accuracy/performance work and Step 12 onward need separate authorization. The user
+reports prior testing of the upper SENSE reference coordinates, including
+panel/setup offsets; this does
 not validate camera-to-robot calibration. Detection speed, installed-camera
 performance and vision-guided physical actions remain unverified. Keep reports in
 chat and preserve these limits in later work.
@@ -59,6 +65,56 @@ The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
 
+Step 11 — accepted offline/recorded-camera; commit/push authorized (2026-10-30).
+Integrate observation into the existing Flet GUI through VisionSession and the
+shared calibration inspector: independent acquisition/detection/render workers,
+bounded in-memory latest state, matching annotations, native pixel centers,
+inspection-only predicted XY, freshness clearing and optional diagnostic JSONL.
+Opt-in SENSE mode pairs/history distinguish blink-off and verify the same blinking
+identity replacing power; stale lineage, intervening modes and cumulative geometry
+drift invalidate that association. No movement, pressing or hold is enabled.
+Both reviewers PASS WITH WARNINGS on final source
+`eda706300adf18867cf1481020f24ae1808a145409a38dfb6fb1b5f91c463cd8`.
+Accepted package: `runs/step11_flet_observation/` (summary, compact results, one
+native 25-frame 2304x1728/5-FPS replay and three previews). Full suite: 450 passes
+plus 330 subtests; focused: 31 passes. All 51 frozen samples match, including 39
+TWIN. GUI: 59 passes and three unchanged baseline failures against current reference
+data. Receipt-paced Level/page-1/validation: 1.66/3.19/3.46 processed FPS; P95 age
+including recorded upstream age 0.894/0.553/0.572 s; EOF clears targets. These are
+local replay measurements, not camera/GUI paint rates. Native GUI layout, natural
+blinking footage, installed-camera performance and physical operation remain
+unverified. Rejected calibration remains inspection-only. Evidence/tests/local
+models need separate clone supply. Step 12 is not authorized.
+
+Step 10 — accepted as an offline proof of concept only (2026-10-29).
+User explicitly accepts the implementation while calibration accuracy and physical
+validation remain pending; that initial acceptance did not authorize publication
+or Step 11. Later Step 11/publication permissions are recorded above. Reviewed
+implementation `2d7d2cd275f012ae0390807b9644a30df48c80023e72005649658d15aa082916`;
+diagnosis `aca33b56357d99d191f350f73d8099abc1900126a0740365067673da84d32f96`.
+Canonical accepted POC evidence: `runs/step10_sense_calibration/` (summary, compact
+results, source preview and two diagnosis plots). Separate durable, rejected
+candidate exports: `dmi_robot_config/local/step10_sense_offline/`.
+Offline SENSE schema 2 compares affine/homography with whole-control holdouts and
+explicit screen/region/kind aliases. Recorded-source inspection checks context and
+geometry, always returns unusable targets with no action support; legacy executable
+keypad calibration/action gates and TWIN detection remain unchanged.
+Full suite: 423 passes plus 330 subtests; focused/guard checks: 11 plus 21 subtests.
+Implementation code_review PASS WITH WARNINGS; step_checker NOT VERIFIED for the
+required adequate fit. Both reviewers PASS WITH WARNINGS on the later diagnosis.
+Two independent recording contexts fail the provisional 3 mm maximum: affine
+3.98/4.19 mm, homography 5.27/4.76 mm; no selected model or physical validated area.
+Diagnosis favors persistent reference/image-center mismatch, amplified by sparse
+coverage and field extrapolation; averaging does not pass. Small center bias and
+one reproduced 80-px partial-field transient also need follow-up. Exact physical
+cause, tool/origin convention and independent center/mm truth remain unverified.
+Next accuracy evidence: remeasure spread-out exact centers, prioritize column
+2/5/8/0, upper gray field and spacing 1/2/3; preserve independent holdouts and reject
+partial current field measurements. Do not infer replacement coordinates from fits.
+No live hardware or robot actions were performed. Evidence/new tests/local models
+need separate clone supply; the unchanged TapperWare reference JSON is a reviewed,
+production dependency included in the later Step 11 publication approval.
+
 Step 9 — reference audit accepted; commit/push authorized (2026-10-28).
 Read-only audit of `TapperWare_Flet/DmiPositions.json -> DMI_SENSE_TOUCHSCREEN`;
 no runtime, detector, TWIN, database or action-gate changes. Canonical accepted
@@ -80,7 +136,7 @@ Checks: 72 pure XML compiler cases at 0/+7/-7 mm, field/native-center contracts,
 alias isolation, accepted source/package hashes and Git diff check pass. The old
 calibration loader rejects the new schema; no path swap, fit or hardware action
 was performed. Package and generator are local/ignored and need separate clone
-supply. Step 8 remains pending; Step 10 is not authorized.
+supply. Step 8 remains pending; that approval did not authorize Step 10.
 
 Step 8.A — accepted offline/recorded-camera; commit/push authorized (2026-10-28).
 Expose `dmi_computer_vision.src.dmi.api.VisionSession` / `Observation` with a
@@ -123,8 +179,8 @@ headless replay is not installed-camera/GUI performance. Pending package:
 The user has no unannotated originals or transition recordings and hardware is
 currently unavailable. Resume these checks when new raw footage is supplied.
 Independent Step 8.A was subsequently accepted (see above); Step 8 detection
-coverage/latency remain unapproved, and calibration, motion and GUI integration
-remain unauthorized.
+coverage/latency remain unapproved; that approval did not authorize calibration,
+motion or GUI integration.
 
 Step 7 — accepted offline/recorded-camera; commit/push authorized (2026-10-28).
 Recognize the SENSE validation title and independently measured right Yes/No/Close;
@@ -437,11 +493,11 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 - New Driver ID reference is `DRIVER_ID_SCREEN`, e.g. KEY_1=[200,364], KEY_2=[165,364],
   KEY_3=[135,364], model default 100 ms. Old master reference is DRIVER_ID_WINDOW,
   KEY_1=[100,300], different spacing/axis direction, default 200 ms. Do not mix them.
-- Existing calibration code defaults to the old file and ten digit identities;
-  CLI accepts simulation replay only. Validation/target conversion/action checks
-  restrict the right Driver ID keypad/hull. Replacing a JSON path does not enable
-  all screens. Fit/coverage/context/schema and direct-support logic need deliberate
-  compatible extension, with SENSE isolated from future TWIN calibration.
+- Legacy executable calibration still uses the old file/right Driver ID keypad.
+  Step 10 adds a separate intended-reference SENSE offline fit/inspection schema
+  and CLI; neither recorded candidate meets 3 mm or enables action support. Physical
+  coverage, source/tool convention and direct-support validation still need work;
+  a file-path change or typed verification flag cannot enable other controls.
 - Reuse planar homography; compare simpler affine fit against independent mm error.
   Need actual matched points distributed across the plane, held-out validation,
   reference/origin/panel/tool conventions and a measured acceptance tolerance.
@@ -457,12 +513,14 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 
 ## Next approvals and delivery rules
 
-Steps 1–7, SENSE optimization, Step 8.A and the Step 9 reference audit are accepted
-with the limits above and approved for commit/push. Detection speed remains an
-open limitation despite acceptance for now. Step 8 remains pending new raw footage.
-Its acceptance, Steps 10–16 and further performance work need separate authorization;
-Step 8.A and Step 9 acceptance do not approve detection coverage/latency or
-authorize calibration/actions.
+Steps 1–7, SENSE optimization, Step 8.A and the Step 9 reference audit retain their
+accepted scope and publication approvals. Step 10 is accepted only as an offline
+proof of concept; accuracy and physical validation remain pending. Step 11 is now
+accepted offline with commit/push authorization, including reviewed Step 10/Flet
+dependencies. Further accuracy/performance work and Steps 12–16 require separate
+authorization.
+Detection speed remains an open limitation. Step 8 still awaits new raw footage
+and acceptance. POC acceptance does not validate a calibration or authorize actions.
 Continue one requested step at a time; do not infer next-step permission from
 acceptance or reviewer verdicts. Do not accumulate old reports.
 

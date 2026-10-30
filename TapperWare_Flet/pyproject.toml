@@ -1,0 +1,18 @@
+# Standard app. Native file drop is an explicit optional extension.
+[project]
+name = "tapperware"
+version = "2.2.0"
+description = "TapperWare DMI automation console"
+requires-python = ">=3.10"
+dependencies = ["flet==1.0.4", "Pillow==12.0.0", "numpy==2.5.1", "opencv-python==5.0.0.93", "PyYAML==6.0.3"]
+
+[project.optional-dependencies]
+native-drop = ["flet-dropzone==0.4.0"]
+
+[tool.flet]
+product = "TapperWare"
+
+[tool.flet.app]
+path = "."
+module = "main"
+exclude = ["tests", "README.md", "Avvia_DEMO.bat", "Avvia_HARDWARE.bat"]

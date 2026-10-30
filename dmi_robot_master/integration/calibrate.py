@@ -1,4 +1,4 @@
-"""Fit a simulation calibration from a Phase 2 replay observation directory."""
+"""Export legacy replay calibration or an unverified offline SENSE candidate."""
 from __future__ import annotations
 
 import argparse
@@ -66,14 +66,28 @@ def calibrate_replay(directory: str | Path, output: str | Path, *, observations:
 
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--observation-dir', type=Path, required=True)
+    sources = parser.add_mutually_exclusive_group(required=True)
+    sources.add_argument('--observation-dir', type=Path)
+    sources.add_argument('--sense-points', type=Path,
+                         help='Offline SENSE correspondences/context JSON; never hardware verified')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--observations', type=int, default=5)
-    parser.add_argument('--max-spread-px', type=float, required=True)
-    parser.add_argument('--ransac-threshold-mm', type=float, required=True)
+    parser.add_argument('--max-spread-px', type=float)
+    parser.add_argument('--ransac-threshold-mm', type=float)
     parser.add_argument('--simulation-tolerance-mm', type=float)
     args = parser.parse_args(argv)
     try:
+        if args.sense_points is not None:
+            from dmi_robot_master.integration.sense_calibration import fit_offline
+            document = fit_offline(read_json(args.sense_points))
+            save_calibration(document, args.output)
+            print('OFFLINE SENSE INSPECTION ONLY — no hardware verification or actions.')
+            print(json.dumps({'calibration_id': document['calibration_id'],
+                              'selected_model': document['selected_model'],
+                              'validation': document['validation']}, indent=2))
+            return 0
+        if args.max_spread_px is None or args.ransac_threshold_mm is None:
+            parser.error('--observation-dir requires --max-spread-px and --ransac-threshold-mm')
         result = calibrate_replay(args.observation_dir, args.output,
             observations=args.observations, max_spread_px=args.max_spread_px,
             ransac_threshold_mm=args.ransac_threshold_mm,

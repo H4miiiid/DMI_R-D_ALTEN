@@ -66,7 +66,10 @@ def _asset_mask(path: Path) -> np.ndarray:
 def _templates() -> dict[str, list[np.ndarray]]:
     templates = {}
     for path in sorted(path for path in ASSET_DIRECTORY.rglob("*")
-                       if path.suffix.lower() in ASSET_SUFFIXES):
+                       if path.suffix.lower() in ASSET_SUFFIXES
+                       # Paired white/yellow modes belong to the opt-in SENSE
+                       # observer. Keep the accepted generic/TWIN vocabulary.
+                       and not ({"box_14", "box_16"} & set(path.relative_to(ASSET_DIRECTORY).parts[:-1]))):
         mask = _asset_mask(path)
         if not np.any(mask):
             raise RuntimeError(f"Icon asset has no foreground: {path}")

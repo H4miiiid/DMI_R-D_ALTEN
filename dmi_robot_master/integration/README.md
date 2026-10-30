@@ -1,5 +1,58 @@
 # Robot/CV integration
 
+## SENSE offline calibration inspection
+
+The Step 10 interface is `sense_calibration.fit_offline(request)`, with
+`validate_offline` for loading and `inspect_result` for inspection. It reuses the
+existing homography point conversion, reference hashing and no-overwrite export.
+The old executable keypad schema remains separate. A schema-2 SENSE export always
+has `hardware_verified: false`, no physical coverage and no usable action targets,
+even if a supplied numerical tolerance passes. Existing actions reject this schema.
+Use root `STATE.md` for accepted detection coverage and current limitations; the
+historical monitor-support notes below describe earlier stages.
+
+Pass original-image correspondences and context in a JSON request:
+`frame_size`, `camera` (recorded source identity/settings/mount), `origin`,
+`conventions` (`coordinates: absolute_robot_xy_mm`, `panel`, `tool`, `point`),
+measured `geometry` (`left`/`right` corner lists), `fit_points` and optional
+`check_points`. Each point has `screen`, `display`, `kind`, `label`, `pixel`.
+Robot XY comes only from the explicit audited SENSE aliases in
+`TapperWare_Flet/DmiPositions.json`; END_OF_DATA_ENTRY and unknown aliases are
+rejected. No detector uses this reference file. Specify `outlier_threshold_mm`
+and optionally `tolerance_mm`/`tolerance_basis` for numerical screening. Unknown
+tool/center conventions must be recorded explicitly, never relabeled verified.
+
+```sh
+python3 -m dmi_robot_master.integration.calibrate --sense-points /path/to/points.json --output dmi_robot_config/local/sense-offline-candidate.json
+```
+
+Create the durable local output directory first. Export never overwrites a file;
+keep installed calibration outside temporary directories. The input points/context
+can remain local. Each fit requires at least five distinct, non-collinear physical
+locations. Leave-one-control-out and separate held-out controls compare affine and
+homography; repeated frames or aliases at the same XY add no independent coverage.
+All points remain in the error report. Failing controls are not silently dropped.
+Affine is selected first only when every independent error passes both the stated
+tolerance and outlier screen; otherwise homography must pass the same checks.
+If neither passes, `selected_model` is null and both rejected diagnostic matrices
+remain available for inspection. A low training residual is not held-out accuracy.
+
+`TargetProjector` can load this recorded-source candidate for inspection with an
+explicit geometry tolerance. It checks source/camera/origin/size, joined measured
+regions and current corners; loss, occlusion, separation or movement clears mm.
+It reports mathematically finite mm for other controls, including outside the fit
+hull, with `usable: false` and no direct action support. The fit hull is stored as
+candidate coverage; physical validated coverage remains null. Historical receipt
+ages and normal publication expiry are unchanged. Callers of `inspect_result`
+directly must validate the document/reference first and manage observation age.
+
+Stored upper SENSE coordinates include the panel/setup offset per operator.
+Do not add the legacy GUI panel Y offset again to absolute calibration targets.
+A separate tool datum and the accuracy of approximate geometric centers remain
+unverified; establish that convention at the calibration boundary before fitting
+for physical use. Different recordings/mounts are separate contexts, not extra
+fit points. No CLI flag in this workflow enables movement or pressing.
+
 ## Monitor-support offline validation
 
 The installed source mapping is camera 0 for the lower separated displays and

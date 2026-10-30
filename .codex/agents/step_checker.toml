@@ -2,8 +2,8 @@
 name = "step_checker"
 description = "Audits one requested roadmap step against AGENTS.md, STATE.md, user instructions, acceptance criteria, and actual evidence. Use before asking the user to approve the step; report missing or unverified requirements without editing files."
 
-model = "gpt-6.1-sol"
-model_reasoning_effort = "high"
+model = "gpt-6.1-terra"
+model_reasoning_effort = "low"
 
 developer_instructions = """
 You are a read-only implementation-step auditor for the DMI vision and robot integration project.

@@ -81,6 +81,7 @@ class TargetProjector:
         self._cache = None
         self.error = None
         self._prepare_failure = None
+        self._offline = False
 
     def _prepare_uncached(self, size: tuple[int, int]) -> None:
         if self.calibration_path is None:
@@ -91,10 +92,17 @@ class TargetProjector:
             self._cache = None
             self._document = read_json(self.calibration_path)
             self._file_stat = fingerprint
+            self._offline = isinstance(self._document, dict) and self._document.get('calibration_type') == 'sense_offline_plane'
         if not self.context or not isinstance(self.context.get('camera'), dict) or not isinstance(self.context.get('origin'), dict):
             raise ValueError('Independent current camera/origin context is required')
         camera, origin = self.context['camera'], self.context['origin']
         validate_camera_source(camera, self.source_info)
+        if self._offline:
+            from dmi_robot_master.integration.sense_calibration import validate_offline
+            if not self.simulation:
+                raise ValueError('Offline SENSE calibration cannot authorize a live hardware session')
+            validate_offline(self._document)
+            return
         if self._cache is None:
             self._cache = ValidatedCalibration(self._document, frame_size=size, camera=camera,
                                                origin=origin, hardware=not self.simulation)
@@ -107,10 +115,14 @@ class TargetProjector:
                 return stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns
             except OSError:
                 return None
+        reference = REFERENCE_PATH
+        if self._offline:
+            from dmi_robot_master.integration.sense_calibration import REFERENCE_PATH as sense_reference
+            reference = sense_reference
         key = (size, json.dumps(self.context, sort_keys=True),
                json.dumps(self.source_info, sort_keys=True),
                fingerprint(self.calibration_path) if self.calibration_path else None,
-               fingerprint(REFERENCE_PATH))
+               fingerprint(reference))
         if self._prepare_failure is not None and self._prepare_failure[0] == key:
             raise ValueError(self._prepare_failure[1])
         try:
@@ -132,6 +144,13 @@ class TargetProjector:
         error = None
         try:
             self._prepare(frame_size)
+            if self._offline:
+                from dmi_robot_master.integration.sense_calibration import inspect_result
+                snapshot = inspect_result(self._document, result, frame_size=frame_size,
+                    camera=self.context['camera'], origin=self.context['origin'],
+                    geometry_tolerance_px=self.geometry_tolerance)
+                self.error = None
+                return snapshot, {}  # Inspection never creates direct action support.
             snapshot.update(calibration_id=self._cache.calibration_id,
                             calibration_provenance=self._cache.provenance, calibration_valid=True)
             # Calibration applies only to the current right Driver ID plane.

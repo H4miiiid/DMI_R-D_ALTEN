@@ -80,6 +80,12 @@ documentation-only unless runtime implementation is explicitly requested. At eac
    only reviewed changes; report commit ID/destination and actual push result.
    Never force-push, silently include local files or infer publication approval.
 
+For Steps 11–15, you are is responsible for software implementation, offline validation and clear hardware operating instructions. Physical hardware validation is performed later by the user.
+
+Do not block completion of an offline implementation solely because hardware is unavailable, but explicitly distinguish implemented, simulated, unverified and physically validated functionality.
+
+Do not bypass calibration, freshness or robot safety requirements to make an offline test pass. Report any hardware-dependent acceptance criteria as pending until independently verified.
+
 ### Automatic implementation and review cycle
 
 For each user-authorized implementation step, the main agent owns implementation
@@ -402,95 +408,81 @@ planes require separate fits. Save model/matrix, reference hash/label map, camer
 identity/settings/frame size/mount, origin/panel/tool convention, coverage, errors
 and verification status. Durable calibration belongs outside `/tmp`.
 
-### 11. Implement guided physical calibration and move-only checks
+### 11. Integrate live vision and calibration into the Flet GUI
 
-The current calibration CLI is simulation-only; build a small explicit workflow
-using current HTTP frames and existing bounded UDP commands. First check ACK,
-homing/origin, measured travel and Z retraction with operator control. Capture
-fresh stable raw correspondences and save an unverified installed-camera fit.
-Simulation/old-recording transforms are not physical movement authorization.
+Reuse the existing Flet GUI and application-independent vision/calibration components. Add live camera preview, DMI detections, annotations, pixel centers, predicted robot XY coordinates and calibration status.
 
-Provide a separate commissioning mode for an operator-reviewed, bounded XY move
-with the tool retracted and no press; it must not mark an initial fit verified or
-weaken normal action gates. Resolve only the selected current target, show predicted
-XY, require explicit confirmation per commissioning move, and log measured alignment.
-Use independent robot/tool measurements across the plane. Correct a consistent
-offset once at the defined coordinate boundary; refit for location-dependent errors.
-Keep fit points and independent physical validation points distinct. Validate on
-held-out locations before enabling normal actions. Never treat a typed true flag
-or low training residual as physical verification. Defer missing hardware facts
-explicitly; implement/test the workflow offline with fake objects first.
+Keep acquisition, detection and rendering independent so slow detection does not block the GUI. Show freshness and invalidate stale results.
 
-### 12. Add observation to the TapperWare GUI
+Allow loading and inspecting unverified calibration models, but never authorize robot actions from rejected models. Preserve existing GUI functionality and avoid duplicate pipelines.
 
-Reuse Flet's `DmiControlPanel`/`Runner` lifecycle. Add a small live-view session
-adapter around existing acquisition/detection, not a subprocess running the terminal
-CLI or a duplicate detector. HTTP over TCP receives Pi `/frame.jpg`; detection and
-encoding run off the UI event loop, UI updates remain on its loop. Start/stop once,
-keep bounded buffering and observation age visible. Initialize/press/network waits
-must not freeze preview. Stop/clear targets on source loss, panel/camera change,
-window close or session reset. Reuse the bridge's latest image for photos; avoid
-a second camera owner/legacy TAKE_PICTURES conflict.
+Use a bounded in-memory latest-detection state for GUI observation and target resolution. Do not continuously write or transfer full per-frame JSON results as the runtime communication mechanism. Keep detailed JSONL logging optional for debugging and evaluation.
 
-### 13. Unify GUI and vision command ownership
+When an operator selects a button, resolve it from the latest valid observation, revalidate its identity, freshness and geometry, and apply the current verified calibration. Never use historical frame coordinates or cached annotations as authorization for robot actions.
 
-TapperWare currently loads flat local protocol/controller modules. Add the smallest
-adapter to share the common validated transport with GUI initialization and vision
-actions. Reconcile message IDs/payloads/units/timeouts with the installed slave;
-preserve the wire protocol. One UDP socket, one receiver and one serialized command
-owner per session; no simultaneous GUI and run_robot command clients.
+Use the existing icon templates in `data/icons/modes/`, with `box_14/` containing white mode icons, `box_16/` containing yellow blinking mode icons, and `power.bmp` representing the default icon in `box_14`.
 
-Verify ACK without motion before explicit INITIALIZE. Reset calibration context
-and targets when homing/origin changes. Report ACK, DONE, ERROR and timeout distinctly.
-Review local IP/ports on both ends; neither HTTP success nor demo initialization
-proves robot readiness. Provide explicit cleanup (the legacy GUI backend lacks
-complete socket cleanup). Keep existing XML/demo behavior testable through the same
-ownership boundary; never let a script bypass physical/vision-mode guards.
+Match corresponding templates to the same logical mode identity across both boxes. Maintain a short, time-based history of detection results to recognize blinking icons in `box_16`, distinguish temporary blink-off frames from actual disappearance, and track the confirmed UI state. Support verification of the same icon appearing steadily in `box_14`, replacing `power.bmp`.
 
-### 14. Add GUI target selection and move-only action
+Test offline using recordings and simulated inputs.
 
-Expose current screen/label/pixel/mm/usability and one operator-selected Move
-request. Reuse the validated action interface; extend its current Driver ID/right
-keypad restrictions with screen-qualified identities and direct support checks for
-each accepted SENSE control. Fields/boxes are not automatically press targets.
-Resolve/revalidate immediately before dispatch; no queued stale target positions.
-Block concurrent XML/vision/manual actions. Use at most one outstanding command,
-keep detection running, latch uncertain failures and require operator review.
-Inspect move-only alignment on installed hardware before the pressing step.
+### 12. Integrate robot communication and guided calibration
 
-### 15. Enable one GUI press and verify its effect
+Connect the existing GUI to the shared robot communication and calibration interfaces. Preserve one UDP command owner, existing protocol, command validation and safety mechanisms.
 
-After physical calibration/alignment/readiness acceptance, expose one Press request
-through existing MOVE_AND_CLICK. Preserve signed-integer bounds/rounding checks,
-correct press-duration units and no automatic retries. Observe a newer source frame
-and verify the expected screen/value change where recognition supports it; otherwise
-report unconfirmed. DONE means controller completion, not successful DMI input.
+Provide an operator-guided calibration workflow for collecting pixel-to-mm correspondences, inspecting residuals, fitting models and saving calibration data.
 
-Review known contact/Z-accounting and homing/limit defects before pressing, using
-focused separately reviewed fixes if needed. GUI Stop stops future commands; it
-cannot interrupt a blocking motor routine and is not an emergency stop. Do not
-automatically park/home/move after a failed action. Keep legacy XML coordinate
-mode explicit; a future vision XML mode must resolve fresh labels per action,
-not compile detected coordinates once for an entire sequence. No autonomous
-multi-screen execution is included in this first GUI integration.
+Implement and test hardware readiness checks, connection handling, coordinate conventions and failure behavior using fake hardware. Physical validation remains pending until the office test.
 
-### 16. Prepare a clean presentation and reproducible startup
+### 13. Add GUI target selection and move-only functionality
 
-Replace the root GitLab-template README with concise purpose, package map,
-PC/Pi dependencies (including system OCR), host-specific commands, configuration
-and verified limitations. Keep one GUI startup and existing observation/terminal
-entry points; no duplicate top-level launcher scripts. Include GUI source/assets
-and the SENSE reference database in the approved delivery, with portable example
-configuration; keep operator/network/calibration data local. Test startup from
-outside the owning directory and clean shutdown without hardware in demo.
+Allow the operator to select a detected DMI button and inspect its current pixel coordinates, predicted robot XY coordinates, calibration validity and action readiness.
 
-Keep only purposeful runtime/source/config/docs directories visible in the delivery.
-Remove/reorganize genuinely obsolete files only with specific review and preserve
-legacy/local evidence. Gitignore does not remove local clutter or already tracked
-files. Do not use git rm/cached, destructive cleanup or mass moves as an implicit
-part of ignore maintenance. Confirm staged files exclude videos, logs, test outputs,
-operator settings and unverified calibration. Present a clear final live trial:
-observe -> fit/validate -> move-only -> one press -> newer UI observation.
+Implement guarded, operator-confirmed move-only commands using the existing robot interface. The tool must remain retracted, with bounded movement and explicit safety checks.
+
+Rejected calibrations must not authorize normal movement. Any special commissioning movement must use independently established bounds and explicit operator confirmation.
+
+Test offline with simulated hardware; do not claim physical alignment has been verified.
+
+### 14. Implement guarded single-button pressing
+
+Integrate the existing MOVE_AND_CLICK functionality into the GUI without bypassing detection freshness, calibration, robot readiness or action safety checks.
+
+Allow only one explicitly selected and confirmed action at a time. Do not automatically retry or execute multi-screen sequences.
+
+Implement the functionality and validate its logic offline. Keep physical pressing disabled until independent hardware calibration, alignment and readiness checks have been completed successfully.
+
+Support an operator-confirmed five-second hold on `box_16` for eligible blinking mode icons, using the existing validated robot interface and safety checks.
+
+After the hold, verify using new camera observations that the same mode icon previously blinking in `box_16` now appears steadily in `box_14`, replacing the power icon, and is no longer present in `box_16`.
+
+Do not interpret temporary blink-off frames or robot command completion alone as successful acknowledgement.
+
+### 15. Prepare the GUI for office hardware testing
+
+Provide clear, reproducible instructions for configuring, launching and operating the existing GUI with the Raspberry Pi, camera and robot.
+
+Document connection settings, dependencies, startup and shutdown procedures, calibration workflow, live observation, move-only testing and the conditions required before enabling pressing.
+
+Prepare a concise hardware test checklist and a way to record detection problems, FPS, latency, coordinate offsets, calibration errors and robot behavior.
+
+Run available offline tests and report exactly what remains unverified on physical hardware.
+
+### 16. Validate and refine using real hardware
+
+Use observations and measurements collected by the operator during office testing.
+
+First validate live camera reception, detection accuracy, annotations and responsiveness. Then evaluate pixel-to-mm calibration using independently measured physical references and safe move-only alignment checks.
+
+Correct confirmed issues and revalidate calibration coverage and held-out errors. Enable a single physical press only after the necessary safety and accuracy requirements have been independently satisfied.
+
+Optimize detection and preview performance based on measured bottlenecks and observed usability problems.
+
+Preserve the accepted TWIN baseline and reusable interfaces for eventual integration into the team's main application.
+
+### Complete when
+
+The physical system has been validated against the agreed accuracy, responsiveness, calibration and safety requirements, or remaining limitations are explicitly documented. Do not claim hardware validation based only on offline tests.
 
 ## Code, output and validation standards
 
