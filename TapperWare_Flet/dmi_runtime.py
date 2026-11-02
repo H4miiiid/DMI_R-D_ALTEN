@@ -9,6 +9,7 @@ import asyncio
 import json
 import math
 import logging
+import time
 from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -343,10 +344,22 @@ class Runner:
         self._shutdown = False
         self._move_plan = None
         self._move_generation = 0
+        self._press_plan = None
 
     def discard_move(self):
         self._move_generation += 1
         self._move_plan = None
+        self._press_plan = None
+
+    async def _owned_transaction(self, function: Callable) -> tuple[dict,bool]:
+        future = asyncio.get_running_loop().run_in_executor(self.worker,function)
+        cancelled = False
+        while True:
+            try:
+                return await asyncio.shield(future), cancelled
+            except asyncio.CancelledError:
+                # The bounded synchronous call still owns the robot until its outcome.
+                cancelled = True
 
     async def prepare_move(self, observer, selection, envelope_path):
         if self.busy or not self.initialized or not isinstance(self.backend,RealBackend):
@@ -377,23 +390,77 @@ class Runner:
         plan, observer, backend = pending
         self.busy, self.phase = True, 'moving_only'
         try:
-            future = asyncio.get_running_loop().run_in_executor(self.worker,
+            result,cancelled = await self._owned_transaction(
                 lambda:backend.session.move_only(plan,observer,
                     operator_confirmed=operator_confirmed,checks=checks))
-            cancelled = False
-            while True:
-                try:
-                    result = await asyncio.shield(future)
-                    break
-                except asyncio.CancelledError:
-                    # The bounded synchronous transaction still owns the robot.
-                    # Keep busy until its actual outcome; never queue another action.
-                    cancelled = True
             self.emit('move_only_result',result=result)
             if cancelled:
                 raise asyncio.CancelledError
             return result
         finally:
+            if not backend.session.status()['homed']:
+                self.initialized = False
+                self.emit('origin_changed')
+            self.busy, self.phase = False, 'idle'
+
+    async def prepare_press(self, observer, selection, envelope_path, *, kind: str) -> dict:
+        if self.busy or not self.initialized or not isinstance(self.backend,RealBackend):
+            raise HardwareError('Initialize the shared owner and wait for the active action')
+        from dmi_robot_master.integration.pressing import prepare_press
+        self.discard_move()
+        generation = self._move_generation
+        self.busy, self.phase = True, 'preparing_press'
+        try:
+            backend = self.backend
+            plan = await self._worker_call(lambda:prepare_press(observer,selection,envelope_path,kind=kind,
+                origin_epoch=backend.session.status()['origin_epoch'],
+                limits=backend.session.settings.xy_limits_mm,simulation=backend.session.simulation))
+            if self._shutdown or self.backend is not backend or generation != self._move_generation:
+                raise HardwareError('Source/selection/robot changed during preparation')
+            self._press_plan = (plan,observer,backend)
+            return plan.preview()
+        finally:
+            self.busy, self.phase = False, 'idle'
+
+    async def confirm_press(self, token, *, operator_confirmed=False, checks=None) -> dict:
+        if self.busy:
+            raise HardwareError('A command is already active; presses are not queued')
+        pending, self._press_plan = self._press_plan, None
+        if (pending is None or pending[0].token != token or self.backend is not pending[2]
+                or not self.initialized or self._shutdown):
+            raise HardwareError('Press confirmation is missing, consumed or invalidated')
+        from dmi_robot_master.integration.pressing import HoldVerification, VERIFICATION_SECONDS
+        plan,observer,backend = pending
+        self.busy, self.phase = True, 'pressing_once'
+        result = None
+        try:
+            result,cancelled = await self._owned_transaction(lambda:backend.session.press_once(plan,observer,
+                operator_confirmed=operator_confirmed,checks=checks))
+            if cancelled:
+                result['verification_reason'] = 'UI task cancelled; wire outcome retained'
+                raise asyncio.CancelledError
+            if plan.kind=='mode_hold':
+                self.phase = 'verifying_hold'
+                verifier = HoldVerification(plan,result['done_at_monotonic'])
+                deadline = time.monotonic()+VERIFICATION_SECONDS
+                outcome = None
+                while time.monotonic()<deadline:
+                    try:
+                        outcome = await self._worker_call(verifier.poll,observer)
+                    except Exception as exc:
+                        outcome = {'ui_outcome':'unconfirmed','verification_reason':str(exc)}
+                    if time.monotonic()>deadline:
+                        outcome = {'ui_outcome':'unconfirmed','verification_reason':'Visual verification timeout'}
+                    if outcome is not None:break
+                    await asyncio.sleep(.05)
+                result.update(outcome or {'ui_outcome':'unconfirmed','verification_reason':'No confirmed post-hold transition before timeout'})
+            return result
+        except asyncio.CancelledError:
+            if result is not None:
+                result.update(ui_outcome='unconfirmed',verification_reason='UI task cancelled; no acknowledgement claimed')
+            raise
+        finally:
+            if result is not None:self.emit('press_result',result=result)
             if not backend.session.status()['homed']:
                 self.initialized = False
                 self.emit('origin_changed')

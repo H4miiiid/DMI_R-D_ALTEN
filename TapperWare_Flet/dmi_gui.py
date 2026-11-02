@@ -29,6 +29,7 @@ from dmi_photos import PhotoError, latest_photo, snapshot_images, wait_for_new_p
 from dmi_activity import ExecutionActivity, motion
 from dmi_commissioning import ConnectionControls, CalibrationControls
 from dmi_move import MoveControls
+from dmi_press import PressControls
 
 APP_DIR = Path(__file__).resolve().parent
 BG, SURFACE, FIELD = "#0B111B", "#121C2A", "#0D1521"
@@ -389,6 +390,7 @@ class DmiControlPanel:
         self.vision_selection = label("Selezione solo per ispezione · nessun movimento", 12, AMBER, selectable=True)
         self.calibration_ui = CalibrationControls(self)
         self.move_ui = MoveControls(self)
+        self.press_ui = PressControls(self)
         self.vision_card = panel(ft.Column([
             label("Visione SENSE · osservazione", 16, weight=ft.FontWeight.W_600),
             self.vision_kind, self.vision_address, self.vision_calibration, self.vision_context,
@@ -398,6 +400,7 @@ class DmiControlPanel:
             caption("RILEVAMENTO · ANNOTAZIONE DEL FOTOGRAMMA ANALIZZATO"), self.vision_annotated,
             self.vision_mode, self.vision_targets, self.vision_selection,
             self.move_ui.control,
+            self.press_ui.control,
             ft.Divider(),self.calibration_ui.control,
         ], spacing=10))
         self._vision_signature = None
@@ -409,6 +412,7 @@ class DmiControlPanel:
         self.legacy_xml_confirm.value = False
         self.calibration_ui.reset()
         self.move_ui.reset()
+        self.press_ui.reset()
         self.vision_raw.visible = self.vision_annotated.visible = False
         self.vision_raw.src = self.vision_annotated.src = b""
         self.vision_targets.controls.clear()
@@ -457,6 +461,7 @@ class DmiControlPanel:
 
     async def select_vision_target(self, session_id, screen, target_label):
         self.move_ui.changed()
+        self.press_ui.changed()
         try:
             target = await asyncio.to_thread(self.vision.observer.inspect_target,
                                             session_id, screen, target_label)
@@ -467,6 +472,8 @@ class DmiControlPanel:
             self._vision_selection_key = (session_id, screen, target_label)
             self.vision_selection.value = (f"{screen} · {target_label} · px {target['pixel']} · "
                 f"XY previsto {target.get('mm')} mm · età {target['age_seconds']:.2f} s · azioni disabilitate")
+            if target['kind']=='box':
+                self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
         except Exception as exc:
             self._vision_selection_key = None
             self.vision_selection.value = f"Selezione invalidata: {exc}"
@@ -497,6 +504,7 @@ class DmiControlPanel:
         projection = view['projection']
         self.calibration_ui.update_targets(view)
         self.move_ui.update(view)
+        self.press_ui.update(view)
         self.vision_cal_status.value = ("Calibrazione: " + (view['calibration_error'] or
             ("solo ispezione · modello non verificato/non utilizzabile" if projection and not projection['calibration_valid']
              else "solo ispezione")) + " · azioni disabilitate")
@@ -520,6 +528,8 @@ class DmiControlPanel:
                     text = f"{screen} · {name} · px {target['pixel']} · XY previsto {target.get('mm')} mm"
                     if 'active' in target:
                         text += f" · active={target['active']}"
+                    if target['kind']=='box':
+                        text += ' · stima non verificata; nessuna autorizzazione fisica'
                     async def select(e, sid=view['session_id'], state=screen, identity=name):
                         await self.select_vision_target(sid, state, identity)
                     self.vision_targets.controls.append(ft.TextButton(text, on_click=select))
@@ -529,6 +539,8 @@ class DmiControlPanel:
                 target = projection['targets'][selected[2]]
                 self.vision_selection.value = (f"{selected[1]} · {selected[2]} · px {target['pixel']} · "
                     f"XY previsto {target.get('mm')} mm · età {age} · azioni disabilitate")
+                if target['kind']=='box':
+                    self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
             else:
                 self._vision_selection_key = None
                 self.vision_selection.value = "Seleziona un rilevamento attuale per ispezionarlo · azioni disabilitate"
@@ -574,6 +586,7 @@ class DmiControlPanel:
         self.communication.refresh()
         self.calibration_ui.refresh()
         self.move_ui.refresh()
+        self.press_ui.refresh()
         self.stop_button.disabled = self.runner.phase != "running" or self.runner.stop.is_set()
         self.mode_badge.content.value = "DEMO · SIMULAZIONE" if self.is_demo else "HARDWARE"
         self.mode_badge.content.color = AMBER if self.is_demo else BLUE
@@ -1106,6 +1119,7 @@ class DmiControlPanel:
             self.legacy_xml_confirm.value = False
             self.calibration_ui.reset()
             self.move_ui.reset()
+            self.press_ui.reset()
             if self.vision.observer:
                 self.vision.observer.invalidate_calibration()
         elif kind == 'robot_status':
@@ -1113,6 +1127,10 @@ class DmiControlPanel:
         elif kind == 'move_only_result':
             result = data['result']
             self.log('Movimento simulato' if result['simulation'] else 'Movimento commissioning',str(result))
+            self.axis_x.value,self.axis_y.value = map(str,result['command_xy_mm'])
+        elif kind == 'press_result':
+            result = data['result']
+            self.log('Pressione simulata',str(result))
             self.axis_x.value,self.axis_y.value = map(str,result['command_xy_mm'])
         elif kind == "status":
             self.status_text.value = data["text"]

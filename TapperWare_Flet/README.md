@@ -1,5 +1,69 @@
 # TapperWare · interfaccia Flet
 
+## Single press and mode hold (Step 14, offline implementation)
+
+The Vision card now provides explicitly confirmed **simulated** single-button
+presses and five-second holds on eligible blinking modes in left `box_16`.
+The new vision-selected physical press path is unconditionally locked: neither
+readiness checkboxes nor typed verification flags enable it. Independent physical
+calibration, coverage, alignment, contact/retraction/sensors and stop checks remain
+for office validation. The pre-existing static XML workflow keeps its separate
+accepted safety/observation controls; it does not consume vision calibration.
+
+Use Demo with the shared fake robot initialized, one SENSE upper-panel source,
+a numerically adequate guided candidate collected on that origin, its matching
+independent context and the independently declared envelope used for move-only.
+All current recorded candidates still fail 3 mm and remain blocked. A saved
+candidate is never promoted: `hardware_verified=false`, `action_usable=false`, no
+physical coverage. Positive offline cases use synthetic images/correspondences;
+those fixtures and tests are local/ignored, not production runtime dependencies.
+
+Select one current right-region measured button and enable simulated pressing.
+**Simula una pressione** prepares a 100 ms request (the current SENSE reference
+default). For **Simula hold box 16**, select the detected left box; the same known
+mode must be confirmed blinking and directly visible there, with power directly
+visible in box 14. A retained blink-off identity cannot authorize the hold.
+Only the box-16 hold is added on the left; other left/field actions stay unavailable.
+
+Inspect the prepared pixels, predicted/rounded absolute XY, duration, selected mode
+and independent bounds, then complete all eight simulation readiness checks for
+that single action. Cancel sends nothing. Each intent is single-use and expires
+in 30 s; the 1.5-s direct-evidence limit is unchanged. Preparing either a move or
+press invalidates any other pending action. Source/session/origin/selection, file,
+mode-history or measured-box changes invalidate old confirmations.
+
+The existing command owner checks ACK and internally calculated controller XY,
+reloads/revalidates the fit and independent bounds, checks current direct evidence
+and sends exactly one `MOVE_AND_CLICK [X,Y,100]` or `[X,Y,5000]` to fake hardware.
+Both floating/rounded destination, start point and displacement must fit the bounds.
+No retry, return motion or multi-screen sequence follows. Busy input is rejected.
+Cancellation retains ownership until the bounded command outcome; detection and
+rendering continue while the command and read-only verification are pending.
+The fake robot acknowledges immediately: checking a 5000 ms payload does not prove
+five seconds of real contact. Real command timeout, travel and retraction timing
+remain deployment/hardware work; no existing timeout or calibration limit is relaxed.
+
+A normal button's DONE remains **unconfirmed**. After a mode hold, verification
+uses only new source evidence later than DONE, accounting for upstream age. It
+requires at least three distinct frames spanning 0.8 s, the same mode steadily in
+box 14 replacing power, and a measured empty box 16. The existing mode history must
+retain the original power/blink lineage and its reset epoch; loss, ambiguity,
+geometry changes, different modes or invalidated history cannot confirm success.
+Buffered/pre-completion frames and repeated reads of one frame do not count.
+Verification times out after four seconds without sending another command.
+`observed_mode_transition` reports camera evidence, not contact, physical accuracy
+or proof the robot caused the UI change. Communication/motion uncertainty revokes
+readiness and closes the shared owner; unavailable/ambiguous camera feedback keeps
+the outcome unconfirmed. GUI Stop cannot interrupt a blocking receiver motor call.
+
+The SENSE inspector also predicts XY for detected boxes 14/16 with the existing
+chosen affine/homography model. These remain explicitly unverified, including when
+outside the fit hull. Extrapolated box centers never authorize these simulated
+presses: an adequate fit and in-hull point are required. Current Driver02 left-box
+estimates are outside the keypad hull and cannot press. TWIN/core detector outputs
+are unchanged; only opt-in SENSE mode-history reset metadata is added. Natural
+blinking footage, native Flet window layout and all physical validation stay pending.
+
 ## Selected-target move-only commissioning (Step 13, offline implementation)
 
 Select a current detection in the SENSE upper-panel Vision card to inspect native

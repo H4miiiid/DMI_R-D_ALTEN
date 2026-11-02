@@ -78,6 +78,7 @@ class RobotSession:
                        'origin_epoch': uuid4().hex, 'simulation': self.simulation,
                        'physical_verified': False, 'action_ready': False}
         self._legacy = False
+        self._last_press_created_at = -math.inf
 
     def status(self) -> dict:
         result = deepcopy(self._state)
@@ -246,6 +247,47 @@ class RobotSession:
     def end_legacy(self) -> None:
         with self._exclusive():
             self._legacy = False
+
+    def press_once(self, plan, observer, *, operator_confirmed: bool, checks: dict) -> dict:
+        """One fake MOVE_AND_CLICK; physical vision pressing stays disabled."""
+        from dmi_robot_master.integration.actions import check_hardware_readiness, SessionMode
+        from dmi_robot_master.integration.pressing import PRESS_CHECKS, PressPlan
+        with self._exclusive():
+            if (self.simulation is not True or self._link is None or
+                    not isinstance(self._link.transport,FakeTransport)):
+                raise ValueError('Physical vision pressing is disabled pending independent hardware validation')
+            if (type(plan) is not PressPlan or operator_confirmed is not True or
+                    not isinstance(checks,dict) or any(checks.get(k) is not True for k in PRESS_CHECKS)):
+                raise ValueError('Explicitly confirm one simulated press and all readiness checks')
+            if self._legacy or not self._state['homed']:
+                raise ValueError('Initialize the one owner and leave legacy XML mode first')
+            check_hardware_readiness(SessionMode.PHYSICAL_PRESS,
+                {**self._state['operator_checks'],**checks,'homed':True})
+            if plan.target.created_at <= self._last_press_created_at:
+                raise ValueError('Press intent was already consumed or superseded; prepare again')
+            self._last_press_created_at = plan.target.created_at
+            plan.resolve(observer,origin_epoch=self._state['origin_epoch'],
+                limits=self.settings.xy_limits_mm,simulation=True)
+            self._check(DmiMessages.ACK)
+            position = self._check(DmiMessages.GET_CURRENT_POSITION)
+            if any(type(v) is not int or not 0 <= v < lim for v,lim in zip(position,self.settings.xy_limits_mm)):
+                self._invalidate('fault','INVALID_POSITION');self._close()
+                raise ValueError('Controller position exceeds configured travel limits')
+            xy = plan.resolve(observer,origin_epoch=self._state['origin_epoch'],
+                limits=self.settings.xy_limits_mm,simulation=True,position=position)
+            try:
+                success = self._link.press(*xy,plan.duration_ms)
+                response = self._link.response
+                if not success:
+                    raise RuntimeError(response or 'PRESS_FAILED')
+            except Exception as exc:
+                self._invalidate('fault',self._link.response or str(exc));self._close()
+                raise
+            done_at = time.monotonic()
+            self._state = {**self._state,'response':response,'last_response_at':done_at}
+            return {**plan.preview(),'response':response,'command':'MOVE_AND_CLICK',
+                'start_xy_mm':position,'simulation':True,'physical_verified':False,
+                'done_at_monotonic':done_at,'ui_outcome':'unconfirmed'}
 
     def photo(self, name: str, args: tuple, *, directory=None) -> bool:
         with self._exclusive():

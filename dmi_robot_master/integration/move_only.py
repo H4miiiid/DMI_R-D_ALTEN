@@ -67,7 +67,7 @@ def _within(point, envelope):
         envelope['minimum_xy_mm'],_xy(point),envelope['maximum_xy_mm']))
 
 
-def _candidate(document, sample, context, origin_epoch):
+def _calibrated_candidate(document, sample, context, origin_epoch):
     # Neither rejected fits nor legacy reference-file calibrations enter this path.
     validate_guided(document)
     name = document['selected_model']
@@ -86,17 +86,11 @@ def _candidate(document, sample, context, origin_epoch):
     target = sample['target']
     if sample.get('calibration_id') != document['calibration_id'] or sample.get('calibration_error') is not None:
         raise ValueError('Current calibration inspection is invalidated or differs from the candidate')
-    if target['kind'] != 'button' or target['display'] != 'right' or sample['screen'] == 'unknown':
-        raise ValueError('Commissioning currently supports measured right-region buttons only')
     if (sample.get('visibility') != 'clear' or sample.get('direct_screen') != sample['screen']
             or sample.get('direct_visibility') != 'clear'):
         raise ValueError('Current direct screen evidence is unclear or disagrees with the selected identity')
     if 'active' in target and target['active'] is not True:
         raise ValueError('Selected button is inactive or its activity is uncertain')
-    matches = [p for p in document['request']['points'] if
-               all(p[k] == target[k] for k in ('label','kind','display')) and p['screen'] == sample['screen']]
-    if len(matches) != 1 or max(abs(a-b) for a,b in zip(matches[0]['pixel'],target['pixel'])) > 4:
-        raise ValueError('Selected button has no matching measured calibration control')
     if cv2.pointPolygonTest(np.array(document['coverage']['fit_hull_pixels'],np.float32),
                            tuple(map(float,target['pixel'])),False) < 0:
         raise ValueError('Selected button is outside the fitted control hull')
@@ -104,6 +98,18 @@ def _candidate(document, sample, context, origin_epoch):
     xy = transform_point(document['models'][document['selected_model']]['matrix'],target['pixel'])
     if target.get('mm') is None or not np.allclose(_xy(target['mm']),xy,atol=1e-6,rtol=1e-6):
         raise ValueError('Current inspected coordinates are unavailable or disagree with the candidate')
+    return xy
+
+
+def _candidate(document, sample, context, origin_epoch):
+    xy = _calibrated_candidate(document,sample,context,origin_epoch)
+    target = sample['target']
+    if target['kind'] != 'button' or target['display'] != 'right' or sample['screen'] == 'unknown':
+        raise ValueError('Commissioning currently supports measured right-region buttons only')
+    matches = [p for p in document['request']['points'] if
+               all(p[k] == target[k] for k in ('label','kind','display')) and p['screen'] == sample['screen']]
+    if len(matches) != 1 or max(abs(a-b) for a,b in zip(matches[0]['pixel'],target['pixel'])) > 4:
+        raise ValueError('Selected button has no matching measured calibration control')
     return xy
 
 
@@ -133,7 +139,7 @@ class MovePlan:
             'independent_envelope':json.loads(self.envelope_json),
             'commissioning_only':True,'normal_action_ready':False,'physical_verified':False}
 
-    def resolve(self, observer, *, origin_epoch, limits, simulation, position=None):
+    def resolve(self, observer, *, origin_epoch, limits, simulation, position=None, _resolve_target=None):
         if origin_epoch != self.origin_epoch or not 0 <= time.monotonic()-self.created_at <= 30:
             raise ValueError('Move confirmation expired or robot origin changed; prepare again')
         if str(observer.projector.calibration_path) != self.calibration_path:
@@ -153,7 +159,7 @@ class MovePlan:
                 max(abs(a-b) for a,b in zip(sample['target']['pixel'],anchor['target']['pixel'])) > 4 or
                 any(np.max(np.abs(np.array(sample['geometry'][s])-anchor['geometry'][s])) > 4 for s in ('left','right'))):
             raise ValueError('Selected button/geometry changed since preview; prepare again')
-        xy = _candidate(document,sample,context,origin_epoch)
+        xy = (_resolve_target or _candidate)(document,sample,context,origin_epoch)
         command = tuple(rounded_mm(v) for v in xy)
         if command != self.command_xy or not _within(xy,envelope) or not _within(command,envelope):
             raise ValueError('Current/rounded destination changed or exceeds independent bounds')
@@ -170,7 +176,7 @@ class MovePlan:
         return command
 
 
-def prepare_move(observer, selection, envelope_path, *, origin_epoch, limits, simulation):
+def _prepare_target(observer, selection, envelope_path, *, origin_epoch, limits, simulation, _resolve_target=None):
     if observer.projector.calibration_path is None or observer.projector.context is None:
         raise ValueError('Load an independently collected guided candidate/context first')
     calibration_path = str(observer.projector.calibration_path)
@@ -179,7 +185,7 @@ def prepare_move(observer, selection, envelope_path, *, origin_epoch, limits, si
     envelope, envelope_digest = _load(envelope_path)
     sample = observer.calibration_sample(*selection)
     validate_envelope(envelope,observer.projector.context,limits)
-    xy = _candidate(document,sample,observer.projector.context,origin_epoch)
+    xy = (_resolve_target or _candidate)(document,sample,observer.projector.context,origin_epoch)
     plan = MovePlan(token=uuid4().hex,created_at=time.monotonic(),origin_epoch=origin_epoch,
         selection=tuple(selection),calibration_path=calibration_path,calibration_sha256=digest,
         envelope_path=envelope_path,envelope_sha256=envelope_digest,
@@ -187,5 +193,10 @@ def prepare_move(observer, selection, envelope_path, *, origin_epoch, limits, si
         max_error_mm=document['models'][document['selected_model']]['max_error_mm'],
         anchor_json=json.dumps(sample,allow_nan=False),
         command_xy=tuple(rounded_mm(v) for v in xy),predicted_xy=tuple(xy))
-    plan.resolve(observer,origin_epoch=origin_epoch,limits=limits,simulation=simulation)
+    plan.resolve(observer,origin_epoch=origin_epoch,limits=limits,simulation=simulation,_resolve_target=_resolve_target)
     return plan
+
+
+def prepare_move(observer, selection, envelope_path, *, origin_epoch, limits, simulation):
+    return _prepare_target(observer,selection,envelope_path,origin_epoch=origin_epoch,
+        limits=limits,simulation=simulation)

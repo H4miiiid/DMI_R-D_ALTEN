@@ -95,6 +95,8 @@ class ModeHistory:
         self.reset()
 
     def reset(self) -> None:
+        # Observer/action metadata only; the detector and recognition output stay unchanged.
+        self.epoch = getattr(self, 'epoch', -1) + 1
         self.samples = deque(maxlen=32)
         self._geometry = None
         self._power_at = None

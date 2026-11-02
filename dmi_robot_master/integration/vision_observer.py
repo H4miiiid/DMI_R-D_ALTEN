@@ -143,6 +143,8 @@ class VisionObserver:
                                 for side in ('left', 'right')] if icons else None
                     mode = history.update(packet.received_at, icons, geometry)
                     mode['observations'] = icons
+                    if icons:
+                        mode['history_epoch'] = history.epoch
                     duration = time.monotonic()-started
                     with self._condition:
                         if self._stop.is_set():
@@ -320,8 +322,24 @@ class VisionObserver:
                 'direct_visibility':observed.direct_evidence.get('right_visibility'),
                 'calibration_id':view['projection'].get('calibration_id'),
                 'calibration_error':view['calibration_error'],
+                'modes':deepcopy(self._mode),
                 'capture_index':observed.capture_index, 'received_at':observed.received_at,
                 'upstream_age_seconds':observed.upstream_age_seconds,
                 'frame_size':list(observed.frame_size), 'source_info':deepcopy(self.source_info),
+                'geometry':{side:deepcopy(observed.result[f'{side}_display']['geometry']['corners'])
+                            for side in ('left','right')}}
+
+    def action_observation(self) -> dict:
+        """Detached fresh SENSE feedback; this method never grants action authority."""
+        with self._condition:
+            view = self.snapshot()
+            if not view['fresh'] or not connected_regions(self._observation[0].result):
+                raise ValueError('No fresh measured SENSE feedback')
+            observed = self._observation[0]
+            return {'session_id':observed.session_id,'capture_index':observed.capture_index,
+                'received_at':observed.received_at,'upstream_age_seconds':observed.upstream_age_seconds,
+                'source_info':deepcopy(self.source_info),'frame_size':list(observed.frame_size),
+                'calibration_id':view['projection'].get('calibration_id'),
+                'calibration_error':view['calibration_error'],'modes':deepcopy(self._mode),
                 'geometry':{side:deepcopy(observed.result[f'{side}_display']['geometry']['corners'])
                             for side in ('left','right')}}

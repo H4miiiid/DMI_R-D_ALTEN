@@ -235,7 +235,7 @@ def inspect_result(document: dict, result: dict, *, frame_size: tuple, camera: d
     matrix = document['models'][document['inspection_model']]['matrix']
     for target in snapshot['targets'].values():
         target['mm'], target['usable'] = None, False
-        if target['kind'] == 'box':
+        if target['kind'] == 'box' and target['label'] not in ('left/box/box_14','left/box/box_16'):
             continue
         try:
             target['mm'] = transform_point(matrix, target['pixel'])
