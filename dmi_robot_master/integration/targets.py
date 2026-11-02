@@ -82,6 +82,7 @@ class TargetProjector:
         self.error = None
         self._prepare_failure = None
         self._offline = False
+        self._guided = False
 
     def _prepare_uncached(self, size: tuple[int, int]) -> None:
         if self.calibration_path is None:
@@ -92,16 +93,22 @@ class TargetProjector:
             self._cache = None
             self._document = read_json(self.calibration_path)
             self._file_stat = fingerprint
-            self._offline = isinstance(self._document, dict) and self._document.get('calibration_type') == 'sense_offline_plane'
+            kind = self._document.get('calibration_type') if isinstance(self._document,dict) else None
+            self._guided = kind == 'sense_guided_candidate'
+            self._offline = self._guided or kind == 'sense_offline_plane'
         if not self.context or not isinstance(self.context.get('camera'), dict) or not isinstance(self.context.get('origin'), dict):
             raise ValueError('Independent current camera/origin context is required')
         camera, origin = self.context['camera'], self.context['origin']
         validate_camera_source(camera, self.source_info)
         if self._offline:
-            from dmi_robot_master.integration.sense_calibration import validate_offline
-            if not self.simulation:
-                raise ValueError('Offline SENSE calibration cannot authorize a live hardware session')
-            validate_offline(self._document)
+            if self._guided:
+                from dmi_robot_master.integration.guided_calibration import validate_guided
+                validate_guided(self._document)
+            else:
+                from dmi_robot_master.integration.sense_calibration import validate_offline
+                if not self.simulation:
+                    raise ValueError('Offline SENSE calibration cannot authorize a live hardware session')
+                validate_offline(self._document)
             return
         if self._cache is None:
             self._cache = ValidatedCalibration(self._document, frame_size=size, camera=camera,
@@ -148,7 +155,8 @@ class TargetProjector:
                 from dmi_robot_master.integration.sense_calibration import inspect_result
                 snapshot = inspect_result(self._document, result, frame_size=frame_size,
                     camera=self.context['camera'], origin=self.context['origin'],
-                    geometry_tolerance_px=self.geometry_tolerance)
+                    geometry_tolerance_px=self.geometry_tolerance,
+                    **({'provenance':'guided_unverified','simulation':self.simulation} if self._guided else {}))
                 self.error = None
                 return snapshot, {}  # Inspection never creates direct action support.
             snapshot.update(calibration_id=self._cache.calibration_id,

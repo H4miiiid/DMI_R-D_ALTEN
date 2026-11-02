@@ -9,8 +9,12 @@ class UDPSocketManager:
     _SEND_SLEEP: float = 0.0
     def __init__(self, address):
         self._sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        self._sock.bind(address)
-        self._sock.setblocking(False)
+        try:
+            self._sock.bind(address)
+            self._sock.setblocking(False)
+        except OSError:
+            self._sock.close()
+            raise
     
     def send(self, msg: List[int], remote_address: Tuple[str, int]):
         try:

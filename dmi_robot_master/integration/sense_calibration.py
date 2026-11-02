@@ -97,6 +97,31 @@ def _errors(matrix, rows):
             for row in rows}
 
 
+def compare_models(fit: list[dict], check: list[dict], *, threshold: float,
+                   tolerance: float | None) -> tuple[dict, str | None]:
+    """Shared affine/homography diagnostics; whole-control holdouts, no pruning."""
+    pixels = np.array([r['pixel'] for r in fit], dtype=float)
+    mm = np.array([r['mm'] for r in fit], dtype=float)
+    models = {}
+    for model in ('affine', 'homography'):
+        matrix = _matrix(pixels, mm, model)
+        loo = {}
+        for i, row in enumerate(fit):
+            keep = np.arange(len(fit)) != i
+            held_matrix = _matrix(pixels[keep], mm[keep], model)
+            loo.update(_errors(held_matrix, [row]))
+        independent = _errors(matrix, check)
+        errors = {**loo, **independent}
+        outliers = [key for key, error in errors.items() if error > threshold]
+        models[model] = {'matrix': matrix.tolist(), 'training_error_mm': _errors(matrix, fit),
+                         'leave_one_control_out_mm': loo, 'held_out_control_error_mm': independent,
+                         'mean_error_mm': float(np.mean(list(errors.values()))),
+                         'max_error_mm': max(errors.values()), 'outliers': outliers,
+                         'numerically_accepted': tolerance is not None and max(errors.values()) <= tolerance and not outliers}
+    selected = next((name for name in ('affine', 'homography') if models[name]['numerically_accepted']), None)
+    return models, selected
+
+
 def _fit_offline(request: dict, *, reference_path: str | Path) -> dict:
     """Compare affine/homography using whole-control holdouts; export diagnostics.
 
@@ -138,24 +163,7 @@ def _fit_offline(request: dict, *, reference_path: str | Path) -> dict:
         if not isinstance(request.get('tolerance_basis'), str) or not request['tolerance_basis'].strip():
             raise ValueError('Explain the numerical tolerance; it is not physical verification')
     pixels = np.array([r['pixel'] for r in fit], dtype=float)
-    mm = np.array([r['mm'] for r in fit], dtype=float)
-    models = {}
-    for model in ('affine', 'homography'):
-        matrix = _matrix(pixels, mm, model)
-        loo = {}
-        for i, row in enumerate(fit):
-            keep = np.arange(len(fit)) != i
-            held_matrix = _matrix(pixels[keep], mm[keep], model)
-            loo.update(_errors(held_matrix, [row]))
-        independent = _errors(matrix, check)
-        errors = {**loo, **independent}
-        outliers = [key for key, error in errors.items() if error > threshold]
-        models[model] = {'matrix': matrix.tolist(), 'training_error_mm': _errors(matrix, fit),
-                         'leave_one_control_out_mm': loo, 'held_out_control_error_mm': independent,
-                         'mean_error_mm': float(np.mean(list(errors.values()))),
-                         'max_error_mm': max(errors.values()), 'outliers': outliers,
-                         'numerically_accepted': tolerance is not None and max(errors.values()) <= tolerance and not outliers}
-    selected = next((name for name in ('affine', 'homography') if models[name]['numerically_accepted']), None)
+    models, selected = compare_models(fit, check, threshold=threshold, tolerance=tolerance)
     document = {'schema_version': 2, 'calibration_type': CALIBRATION_TYPE, 'model': MODEL,
                 'provenance': 'offline_recording', 'plane': 'upper_SENSE_screen_candidate',
                 'frame_size': list(size), 'camera': camera,
@@ -202,7 +210,8 @@ def validate_offline(document: dict, *, reference_path: str | Path = REFERENCE_P
 
 
 def inspect_result(document: dict, result: dict, *, frame_size: tuple, camera: dict,
-                   origin: dict, geometry_tolerance_px: float) -> dict:
+                   origin: dict, geometry_tolerance_px: float,
+                   provenance: str = 'offline_recording', simulation: bool = True) -> dict:
     """Inspect mathematically defined mm without renewing evidence or enabling actions.
 
     The caller validates the document/reference on load. Current source context and
@@ -221,8 +230,8 @@ def inspect_result(document: dict, result: dict, *, frame_size: tuple, camera: d
     if result['right_display']['visibility'] != 'clear':
         raise ValueError('Occluded/unknown geometry cannot support offline inspection')
     snapshot = project_pixels(result, frame_size=frame_size)
-    snapshot.update(simulation=True, calibration_id=document['calibration_id'], calibration_valid=False,
-                    calibration_provenance='offline_recording')
+    snapshot.update(simulation=simulation, calibration_id=document['calibration_id'], calibration_valid=False,
+                    calibration_provenance=provenance)
     matrix = document['models'][document['inspection_model']]['matrix']
     for target in snapshot['targets'].values():
         target['mm'], target['usable'] = None, False

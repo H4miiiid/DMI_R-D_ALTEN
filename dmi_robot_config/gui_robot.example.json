@@ -1,0 +1,6 @@
+{
+  "address": [null, null, null],
+  "remote_address": [null, null, null],
+  "xy_limits_mm": [null, null],
+  "timeout_seconds": 60
+}

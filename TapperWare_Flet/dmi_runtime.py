@@ -6,9 +6,9 @@ that API runs on one dedicated worker; UI updates stay on the asyncio loop.
 from __future__ import annotations
 
 import asyncio
-import importlib
 import json
 import math
+import logging
 from threading import RLock
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
@@ -205,28 +205,68 @@ def compile_script(source: bytes, name: str, model: str, database: dict, *, y_of
 
 
 class RealBackend:
-    """No protocol assumptions beyond those present in the original GUI."""
-    def __init__(self, directory: Path):
-        cfg_module = importlib.import_module("YamlCfg")
-        protocol_module = importlib.import_module("ComProtocol")
-        log_module = importlib.import_module("Logger")
-        self.messages = importlib.import_module("DmiMessages").DmiMessages
-        self.master = importlib.import_module("DmiControllerMaster").DmiControllerMaster
-        cfg = cfg_module.YamlCfg(str(directory / "pc_cfg.yaml"))
-        log_module.setup_logging(cfg.log_level, "DmiGUI")
-        self.protocol = protocol_module.ComProtocol(cfg.address, cfg.remote_address)
-        self.controller = self.master(self.protocol.put_data, self.protocol.get_data)
+    """Small adapter to the shared owner; no flat protocol copies or extra sockets."""
+    def __init__(self, config_path=None, *, simulation=False):
+        from dmi_robot_master.integration.robot_session import RobotSession, RobotSettings
+        if not simulation and not config_path:
+            raise ValueError("Select explicit robot JSON settings; no network/bounds defaults are inferred")
+        settings = RobotSettings.demo() if simulation and not config_path else RobotSettings.load(config_path)
+        self.session = RobotSession(settings, simulation=simulation)
+
+    def connect(self):
+        return self.session.connect()
+
+    def initialize(self, operator_confirmed, checks):
+        return self.session.initialize(operator_confirmed=operator_confirmed, checks=checks)
+
+    def close(self):
+        self.session.close()
+
+    def begin_legacy(self, script, confirmed):
+        from dmi_robot_common.DmiMessages import DmiMessages
+        from dmi_robot_common.command_validation import validate_command
+        for command in script.commands:
+            for operation in command.operations:
+                if operation.name != 'WAIT':
+                    validate_command(DmiMessages[operation.name],list(operation.args),self.session.settings.xy_limits_mm)
+                    if operation.name == 'MOVE' and operation.args[2] != 0:
+                        raise ValueError('Legacy XML movement must keep requested Z at zero')
+        self.session.begin_legacy(operator_confirmed=confirmed)
+
+    def end_legacy(self):
+        self.session.end_legacy()
 
     def send(self, name: str, args: tuple) -> bool:
-        message = getattr(self.messages, name)
         if name == "ACK":
-            action = self.master.Action(message, [], self.messages.ACK, 0, 1)
-        elif name == "GET_PICTURES":
-            action = self.master.Action(message, [], self.messages.PICTURE)
-        else:
-            action = self.master.Action(message, list(args), self.messages.DONE, 0)
-        success, _ = self.controller.manage_action(action)
-        return bool(success)
+            self.session.ping()
+            return True
+        if name in ('TAKE_PICTURES','GET_PICTURES'):
+            return self.session.photo(name,args,directory=Path(__file__).resolve().parent)
+        return self.session.legacy_action(name, args)
+
+
+class GuidedCalibrationRuntime:
+    """GUI lifecycle for a draft; fits and file I/O run outside the UI loop."""
+    def __init__(self):
+        self.draft = None
+
+    def start(self, context_path, origin_epoch):
+        from dmi_robot_master.integration.calibration import read_json
+        from dmi_robot_master.integration.guided_calibration import CalibrationDraft
+        self.draft = CalibrationDraft(read_json(context_path), origin_epoch=origin_epoch)
+
+    def invalidate(self):
+        self.draft = None
+
+    def collect(self, observer, selected, mm, role, origin_epoch):
+        draft = self.draft
+        if draft is None:
+            raise ValueError("Start a calibration draft first")
+        sample = observer.calibration_sample(*selected)
+        if draft is not self.draft:
+            raise ValueError("Calibration context changed during collection")
+        draft.add(sample, mm, role=role, origin_epoch=origin_epoch)
+        return draft.points()
 
 
 class ObservationRuntime:
@@ -288,9 +328,11 @@ class ObservationRuntime:
 
 
 class Runner:
-    def __init__(self, directory: Path, emit: Callable = lambda *a, **k: None):
+    def __init__(self, directory: Path, emit: Callable = lambda *a, **k: None,
+                 *, observation_active: Callable[[], bool] = lambda:False):
         self.directory = directory
         self.emit = emit
+        self.observation_active = observation_active
         self.mode = "hardware"
         self.backend = None
         self.initialized = False
@@ -298,6 +340,73 @@ class Runner:
         self.phase = "idle"
         self.stop = asyncio.Event()
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dmi-protocol")
+        self._shutdown = False
+
+    @property
+    def origin_epoch(self):
+        return self.backend.session.status()['origin_epoch'] if isinstance(self.backend, RealBackend) else None
+
+    @property
+    def hardware_actions_blocked(self):
+        return self.mode == 'hardware' and self.observation_active()
+
+    async def connect(self, config_path=None):
+        if self.busy:
+            raise HardwareError("A command is already active")
+        self.busy, self.phase, self.initialized = True, 'connecting', False
+        self.emit('origin_changed')
+        try:
+            if self.backend is not None:
+                await self._worker_call(self.backend.close)
+                self.backend = None
+            self.backend = await self._worker_call(
+                lambda: RealBackend(config_path, simulation=self.mode == 'demo'))
+            status = await self._worker_call(self.backend.connect)
+            self.emit('robot_status', status=status)
+            return status
+        finally:
+            self.busy, self.phase = False, 'idle'
+
+    async def disconnect(self):
+        if self.busy:
+            raise HardwareError("Wait for the active command before disconnecting")
+        self.busy, self.phase, self.initialized = True, 'disconnecting', False
+        self.emit('origin_changed')
+        try:
+            if self.backend is not None and hasattr(self.backend,'close'):
+                await self._worker_call(self.backend.close)
+            self.backend = None
+            self.emit('robot_status', status={'connection':'disconnected','response':None,'action_ready':False})
+        finally:
+            self.busy, self.phase = False, 'idle'
+
+    async def read_position(self):
+        if self.busy or not isinstance(self.backend,RealBackend):
+            raise HardwareError("Connect and wait for the active command")
+        self.busy, self.phase = True, 'position'
+        try:
+            return await self._worker_call(self.backend.session.position)
+        except Exception:
+            self.initialized = False
+            self.emit('origin_changed')
+            raise
+        finally:
+            self.busy, self.phase = False, 'idle'
+
+    async def check_connection(self):
+        if self.busy or not isinstance(self.backend,RealBackend):
+            raise HardwareError("Connect and wait for the active command")
+        self.busy, self.phase = True, 'checking'
+        try:
+            status = await self._worker_call(self.backend.session.ping)
+            self.emit('robot_status', status=status)
+            return status
+        except Exception:
+            self.initialized = False
+            self.emit('origin_changed')
+            raise
+        finally:
+            self.busy, self.phase = False, 'idle'
 
     async def _worker_call(self, function, *args):
         return await asyncio.get_running_loop().run_in_executor(self.worker, function, *args)
@@ -308,14 +417,16 @@ class Runner:
         if mode not in ("demo", "hardware"):
             raise ValueError(mode)
         if mode != self.mode:
+            if isinstance(self.backend, RealBackend):
+                raise HardwareError("Disconnect the shared owner before changing mode")
             self.mode = mode
-            # Keep the real adapter alive so ComProtocol background resources are
-            # not duplicated when the user switches to demo and back.
+            # Real adapters require explicit disconnect above; changing mode
+            # always revokes the previous initialization state.
             self.initialized = False
 
     async def _send(self, name: str, args: tuple = ()):
         self.emit("transmit", name=name, args=args)
-        if self.mode == "demo":
+        if self.mode == "demo" and not isinstance(self.backend,RealBackend):
             delay = 0.08 if name == "ACK" else 0.22
             if name == "INITIALIZE":
                 delay = 0.8
@@ -324,7 +435,10 @@ class Runner:
             await asyncio.sleep(delay)
             return True
         try:
-            return await self._worker_call(self.backend.send, name, args)
+            result = await self._worker_call(self.backend.send, name, args)
+            if isinstance(self.backend,RealBackend):
+                self.emit('robot_status', status=self.backend.session.status())
+            return result
         except Exception as exc:
             raise HardwareError(f"{name}: {exc}") from exc
 
@@ -342,7 +456,7 @@ class Runner:
             await asyncio.sleep(0.1)
         raise HardwareError("Nessun ACK dal Raspberry Pi. Controlla rete e processo Slave.")
 
-    async def initialize(self):
+    async def initialize(self, *, operator_confirmed=False, checks=None):
         if self.busy:
             raise HardwareError("Un'operazione è già in corso.")
         self.busy, self.initialized, self.phase = True, False, "initializing"
@@ -350,10 +464,16 @@ class Runner:
         self.emit("status", text="Sincronizzazione con il controller…")
         try:
             if self.mode == "hardware" and self.backend is None:
-                self.backend = await self._worker_call(RealBackend, self.directory)
-            await self._handshake()
+                raise HardwareError("Connect and check ACK before initialization")
+            if not isinstance(self.backend,RealBackend):
+                await self._handshake()
             self.emit("status", text="Inizializzazione degli assi in corso…")
-            await self._checked_send("INITIALIZE")
+            self.emit('origin_changed')
+            if isinstance(self.backend,RealBackend):
+                await self._worker_call(self.backend.initialize, operator_confirmed, checks or {})
+                self.emit('robot_status', status=self.backend.session.status())
+            else:
+                await self._checked_send("INITIALIZE")
             self.initialized = True
             self.emit("initialized")
         except Exception:
@@ -367,18 +487,33 @@ class Runner:
             self.stop.set()
             self.emit("status", text="Arresto richiesto · attesa del comando in corso…")
 
-    async def capture_pictures(self):
+    async def capture_pictures(self, *, directory=None):
         """Run the exact camera actions supplied by the project author, in order."""
         if self.busy or not self.initialized:
             raise HardwareError("La postazione deve essere inizializzata e libera.")
+        if self.hardware_actions_blocked:
+            raise HardwareError('Stop observation before legacy camera acquisition')
+        if isinstance(self.backend,RealBackend):
+            if self.mode == 'demo':
+                self.emit('status', text='Foto demo: nessuna camera reale viene aperta.')
+                return
         self.busy, self.phase = True, "capturing"
         try:
             self.emit("status", text="Acquisizione foto in corso…")
             await self._checked_send("TAKE_PICTURES", (0, 1, 1))
             self.emit("status", text="Ricezione foto in corso…")
-            await self._checked_send("GET_PICTURES")
+            if isinstance(self.backend,RealBackend):
+                result = await self._worker_call(
+                    lambda:self.backend.session.photo('GET_PICTURES',(),directory=directory))
+                if not result:
+                    raise HardwareError('GET_PICTURES: incomplete photo or controller error')
+            else:
+                await self._checked_send("GET_PICTURES")
         finally:
             # A camera failure does not imply that axis homing has been lost.
+            if isinstance(self.backend,RealBackend) and not self.backend.session.status()['homed']:
+                self.initialized = False
+                self.emit('origin_changed')
             self.busy, self.phase = False, "idle"
 
     async def _wait(self, seconds: float):
@@ -390,7 +525,11 @@ class Runner:
             return
         raise Stopped
 
-    async def run(self, script: Script) -> str:
+    async def run(self, script: Script, *, legacy_confirmed=False) -> str:
+        if self.hardware_actions_blocked:
+            raise HardwareError("Stop observation before the existing legacy XML workflow")
+        if isinstance(self.backend,RealBackend) and self.mode=='hardware' and legacy_confirmed is not True:
+            raise HardwareError('Explicitly confirm legacy static-coordinate XML mode')
         if self.busy or not self.initialized:
             raise HardwareError("Inizializza l'hardware prima di avviare.")
         if not script.commands:
@@ -400,6 +539,9 @@ class Runner:
         handshake_ok = False
         outcome = "completed"
         try:
+            if isinstance(self.backend,RealBackend):
+                await self._worker_call(self.backend.begin_legacy,script,
+                    legacy_confirmed is True or self.mode=='demo')
             try:
                 self.emit("status", text="Verifica connessione prima della sequenza…")
                 await self._handshake(interruptible=True)
@@ -434,9 +576,23 @@ class Runner:
             self.emit("fault")
             raise
         finally:
-            self.busy, self.phase = False, "idle"
+            try:
+                if isinstance(self.backend,RealBackend) and not self._shutdown:
+                    await self._worker_call(self.backend.end_legacy)
+            finally:
+                self.busy, self.phase = False, "idle"
 
     def shutdown(self):
         # Never cancel a synchronous controller call: its physical outcome would
         # still be pending. Normal window-close is blocked while busy by the UI.
+        if self._shutdown:
+            return
+        self._shutdown = True
+        if self.backend is not None and hasattr(self.backend,'close'):
+            self.close_future = self.worker.submit(self.backend.close)
+            def report_cleanup(future):
+                error = future.exception()
+                if error is not None:
+                    logging.getLogger(__name__).error('Robot cleanup failed after disconnect: %s',error)
+            self.close_future.add_done_callback(report_cleanup)
         self.worker.shutdown(wait=False, cancel_futures=False)

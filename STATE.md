@@ -1,6 +1,6 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-10-30. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-11-02. Read `AGENTS.md` for the new numbered roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
@@ -10,18 +10,20 @@ AGENTS Steps 1–7, the reusable SENSE optimization and Step 8.A are accepted
 offline/recorded-camera. Step 9's reference audit is also accepted (2026-10-28);
 it was published in `da7eddb`. Step 10 is accepted only as an offline proof of
 concept (2026-10-29), with calibration accuracy and physical validation pending.
-Step 11 is accepted offline/recorded-camera (2026-10-30), and the user authorizes
-commit/push of the accepted implementation and its reviewed dependencies, including
-the Step 10 inspection code and existing Flet source/reference/assets. No fit meets
-the unchanged 3 mm limit; rejected candidates remain unusable for robot actions.
+Step 11 is accepted offline/recorded-camera (2026-10-30), published with its
+reviewed Step 10/Flet dependencies in `6189b98`. Step 12 is accepted as an offline
+software implementation (2026-11-02), with commit/push explicitly authorized.
+Physical hardware validation and calibration accuracy remain pending. No recorded
+fit meets the unchanged 3 mm limit; rejected/unverified candidates remain unusable
+for vision-guided robot actions. Step 13 has not been authorized.
 Step 8.A was published in `d360176`. Steps 1–3 were published in `f14e46c`,
 Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd`
 and Step 7 in `c07ecdc`.
 Step 8 remains unaccepted: its offline checks pass, but required raw transition/
 TRN footage and hardware are unavailable. The user deferred those checks while
 independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives.
-Further accuracy/performance work and Step 12 onward need separate authorization. The user
-reports prior testing of the upper SENSE reference coordinates, including
+Further accuracy/performance work and Steps 13–16 need separate authorization.
+The user reports prior testing of the upper SENSE reference coordinates, including
 panel/setup offsets; this does
 not validate camera-to-robot calibration. Detection speed, installed-camera
 performance and vision-guided physical actions remain unverified. Keep reports in
@@ -65,6 +67,53 @@ The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
 
+Step 12 — accepted as an offline software implementation; commit/push authorized
+(2026-11-02). One shared UDP command owner connects the Flet GUI to validated
+communication, ACK-only connection, explicit readiness/homing checks, position
+inspection and cleanup. Guided SENSE collection records fresh native pixels and
+operator-entered absolute XY, compares affine/homography with held-out controls,
+shows residuals and saves durable schema-3 inspection candidates. Source/origin/
+geometry changes invalidate drafts and mappings. Legacy static-coordinate XML
+requires separate per-run confirmation, homing and stopped observation; the whole
+plan is bounds-checked before XML movement. Legacy photos share that owner and
+exclude observation; atomic saves preserve complete photos on write failure.
+Both reviewers PASS WITH WARNINGS on reviewed implementation source
+`94709bbef079908e836f5e3349d3521d9f7839495e006355fb09b9ad2a510e4c`.
+Accepted evidence: `runs/step12_guided_calibration/` (summary, compact results,
+annotated source preview and residual plot; immutable pre-acceptance snapshot).
+Full suite: 473 passes plus 330 subtests; focused: 63 passes. GUI: 66 passes and
+three pre-existing fixture failures: attached-script reference/50-ms expectations,
+empty TWINS-profile expectation, and normal-run 50-ms versus current 100-ms default.
+An earlier full trial hit the existing intermittent simulated-terminal 2-s timeout;
+focused recheck and final serial suite passed without relaxing any safety limits.
+All 59 detector/icon files match accepted Step 11. The same 51 cold samples were
+rerun, but their historical temporary rich/direct baseline expired; final outputs
+are fingerprinted and numeric equality was not re-compared. TWIN is not retuned.
+Recorded Driver02 demo: 10 points, eight fit/two held out, using existing reference
+XY as simulated operator input, not new independent physical truth. Affine/
+homography maxima 5.216/3.986 mm both reject 3 mm; no selected model or physically
+validated coverage. Durable local candidates: `dmi_robot_config/local/step12_sense_guided/`;
+the accepted summary identifies the exact candidate path/hash. Receipt replay:
+3.70 processed FPS, analysis mean/P95 0.261/0.326 s, P95 age including recorded
+upstream age 0.538 s; 28/53 processed, 23 overwrites, two EOF discards. These are
+local worker measurements, not current sensor/network or native GUI paint rates.
+Unverified: native window/dialog layout (Computer Use permission unavailable), live
+Pi/camera/robot connection and installed settings/mount, homing/travel limits,
+Z retraction/contact/physical stop, tool/origin/panel conventions, independent
+held-out mm accuracy, alignment and physical vision-guided moves/presses. Operator
+checkboxes, entered XY and controller XY/DONE are not independent physical proof.
+Existing speed, overlays, natural-transition/TRN and center/field limits persist.
+Schema-3 exports always retain hardware_verified=false, action_usable=false and
+no physically validated area, even for numerically adequate fits; rejected models
+cannot authorize movement. Freshness, confirmation, coverage and calibration gates
+remain intact. New vision-selected movement/pressing/holds are not implemented.
+Explicit homing and separately confirmed legacy XML can move real hardware when
+later operated; only fake hardware was exercised here. No automatic retries or
+parking after uncertain failures. Incomplete drafts are memory-only; save complete
+candidates before context changes and back up local calibration independently.
+Ignored tests/evidence/local models need separate clone supply. Next proposed step
+is Step 13, awaiting explicit authorization; office physical validation is pending.
+
 Step 11 — accepted offline/recorded-camera; commit/push authorized (2026-10-30).
 Integrate observation into the existing Flet GUI through VisionSession and the
 shared calibration inspector: independent acquisition/detection/render workers,
@@ -84,7 +133,7 @@ including recorded upstream age 0.894/0.553/0.572 s; EOF clears targets. These a
 local replay measurements, not camera/GUI paint rates. Native GUI layout, natural
 blinking footage, installed-camera performance and physical operation remain
 unverified. Rejected calibration remains inspection-only. Evidence/tests/local
-models need separate clone supply. Step 12 is not authorized.
+models need separate clone supply. The later Step 12 acceptance is recorded above.
 
 Step 10 — accepted as an offline proof of concept only (2026-10-29).
 User explicitly accepts the implementation while calibration accuracy and physical
@@ -421,13 +470,14 @@ temporary review artifacts only. No additional OCR or physical action.
   `dmi_runtime.py` (`compile_script`, `Runner`, `RealBackend`). GUI has model/panel
   selection, initialization, XML actions, demo, settings, photos and activity view.
   UI uses asyncio; protocol calls run on one executor worker.
-- Current GUI compiles XML to static database coordinates, applies a selected
-  panel's Y offset, sends ACK then INITIALIZE, runs sequential operations and
-  normally returns to origin. It is not CV-integrated. GUI demo is not readiness.
-- GUI RealBackend imports flat local protocol/controller copies, opens a separate
-  UDP socket and lacks full socket cleanup. Integration uses common protocol and
-  validated RobotCommands/RobotLink. Share ownership via a small adapter; do not
-  run both command clients. Live vision uses HTTP/TCP; actions/responses use UDP.
+- GUI observation uses VisionSession/VisionObserver; guided fitting uses the shared
+  calibration interfaces. Existing XML remains static database coordinates with
+  the selected panel's Y offset, separate legacy confirmation and observation
+  exclusion. Successful XML normally returns to origin; uncertain failure does not.
+- GUI RealBackend wraps RobotSession/RobotLink/validated RobotCommands/common
+  protocol on one executor and one UDP owner with explicit cleanup. Connect sends
+  ACK only; homing needs explicit readiness confirmation. Live bridge frames use
+  HTTP/TCP; commands/responses use UDP. Demo is not physical readiness.
 - `dmi_photos.py`/legacy TAKE_PICTURES is separate from HTTP capture. Avoid opening
   an already-owned camera; future photos should reuse the bridge's recent frame.
 - `dmi_robot_general/` is a legacy reference copy. Root README is a GitLab template.
@@ -502,9 +552,10 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
   Need actual matched points distributed across the plane, held-out validation,
   reference/origin/panel/tool conventions and a measured acceptance tolerance.
   Do not apply the GUI Y offset again if already included in calibrated absolute XY.
-- No guided installed-camera commissioning mode exists yet. Implement an explicit
-  operator-confirmed move-only measurement workflow for unverified current-camera
-  fits, without enabling normal presses or relabeling simulation as verified.
+- Guided correspondence collection/fitting exists offline in Step 12; installed-
+  camera commissioning, independently bounded operator-confirmed move-only
+  alignment and physical verification remain pending. Unverified/rejected fits
+  cannot authorize normal movement or presses; simulation is not verification.
 - Review homing, measured limits, Z retraction/contact and physical stop first.
   Known slave concerns include contact success reporting and Z step accounting.
   Position feedback is internally calculated, not independent alignment evidence.
@@ -516,9 +567,10 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
 Steps 1–7, SENSE optimization, Step 8.A and the Step 9 reference audit retain their
 accepted scope and publication approvals. Step 10 is accepted only as an offline
 proof of concept; accuracy and physical validation remain pending. Step 11 is now
-accepted offline with commit/push authorization, including reviewed Step 10/Flet
-dependencies. Further accuracy/performance work and Steps 12–16 require separate
-authorization.
+accepted offline and published with reviewed Step 10/Flet dependencies. Step 12
+is accepted offline with explicit commit/push authorization (2026-11-02), retaining
+all calibration/hardware limits above. Further accuracy/performance work and Steps
+13–16 require separate authorization. Do not start Step 13 from this approval.
 Detection speed remains an open limitation. Step 8 still awaits new raw footage
 and acceptance. POC acceptance does not validate a calibration or authorize actions.
 Continue one requested step at a time; do not infer next-step permission from

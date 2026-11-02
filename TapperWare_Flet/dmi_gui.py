@@ -22,11 +22,12 @@ REPOSITORY = Path(__file__).resolve().parent.parent
 if str(REPOSITORY) not in sys.path:
     sys.path.insert(0, str(REPOSITORY))
 
-from dmi_runtime import (MODELS, MAX_XML_BYTES, ObservationRuntime, Runner, Script, ValidationError,
+from dmi_runtime import (MODELS, MAX_XML_BYTES, GuidedCalibrationRuntime, ObservationRuntime, RealBackend, Runner, Script, ValidationError,
                          compile_script, integer, load_database, model_data)
 from dmi_settings import AppSettings, PANELS, load_settings, save_settings
 from dmi_photos import PhotoError, latest_photo, snapshot_images, wait_for_new_photo
 from dmi_activity import ExecutionActivity, motion
+from dmi_commissioning import ConnectionControls, CalibrationControls
 
 APP_DIR = Path(__file__).resolve().parent
 BG, SURFACE, FIELD = "#0B111B", "#121C2A", "#0D1521"
@@ -80,9 +81,10 @@ def panel_options():
 class DmiControlPanel:
     def __init__(self, page: ft.Page, demo=False, native_drop=False, settings_path=None):
         self.page = page
-        self.runner = Runner(APP_DIR, self.on_runtime)
+        self.runner = Runner(APP_DIR, self.on_runtime,observation_active=lambda:self.vision.running)
         self.runner.set_mode("demo" if demo or page.web else "hardware")
         self.vision = ObservationRuntime()
+        self.calibration = GuidedCalibrationRuntime()
         self.vision_busy = False
         self.script: Script | None = None
         self.source: bytes | None = None
@@ -332,12 +334,16 @@ class DmiControlPanel:
             ft.Row([ft.Icon(ft.Icons.PHOTO_CAMERA_OUTLINED, color=ACCENT), self.photo_title], spacing=12),
             self.photo_preview, self.photo_info, self.photo_open_button,
         ], spacing=12))
-        right = ft.Column([self.build_vision(), self.sequence_panel, photo_card, logs], spacing=16,
+        self.communication = ConnectionControls(self)
+        right = ft.Column([panel(self.communication.control), self.build_vision(), self.sequence_panel, photo_card, logs], spacing=16,
                           col={"xs": 12, "md": 12, "lg": 8.5})
         self.run_button = ft.Button("Avvia sequenza", icon=ft.Icons.PLAY_ARROW_ROUNDED,
             style=button_style(ACCENT, "#10251E"), height=46, on_click=self.run)
         self.stop_button = ft.Button("Arresta", icon=ft.Icons.STOP_ROUNDED,
             style=button_style("#422931", RED), height=46, on_click=self.stop)
+        self.legacy_xml_confirm = ft.Checkbox(
+            label='Confermo XML legacy con coordinate statiche del database; nessun target visivo/calibrazione',
+            value=False,on_change=lambda e:self.refresh())
         self.progress = ft.ProgressBar(value=0, bar_height=5, color=ACCENT, bgcolor=LINE, border_radius=4)
         self.progress_text = label("0%", 12, ACCENT)
         self.current_text = label("In attesa di una sequenza", 13, weight=ft.FontWeight.W_600,
@@ -345,6 +351,7 @@ class DmiControlPanel:
         self.dock_spinner = ft.ProgressRing(width=21, height=21, stroke_width=2.5,
                                             color=ACCENT, visible=False)
         dock = ft.Container(ft.Column([
+            self.legacy_xml_confirm,
             ft.Row([self.dock_spinner, ft.Column([self.current_text, self.status_text], spacing=4, expand=True),
                     self.run_button, self.stop_button], spacing=12),
             ft.Row([ft.Container(self.progress, expand=True), self.progress_text], spacing=12),
@@ -379,6 +386,7 @@ class DmiControlPanel:
         self.vision_annotated = ft.Image(src=b"", height=230, visible=False)
         self.vision_targets = ft.Column(spacing=4, height=150, scroll=ft.ScrollMode.AUTO)
         self.vision_selection = label("Selezione solo per ispezione · nessun movimento", 12, AMBER, selectable=True)
+        self.calibration_ui = CalibrationControls(self)
         self.vision_card = panel(ft.Column([
             label("Visione SENSE · osservazione", 16, weight=ft.FontWeight.W_600),
             self.vision_kind, self.vision_address, self.vision_calibration, self.vision_context,
@@ -387,6 +395,7 @@ class DmiControlPanel:
             caption("CAMERA · FOTOGRAMMA RECENTE"), self.vision_raw,
             caption("RILEVAMENTO · ANNOTAZIONE DEL FOTOGRAMMA ANALIZZATO"), self.vision_annotated,
             self.vision_mode, self.vision_targets, self.vision_selection,
+            ft.Divider(),self.calibration_ui.control,
         ], spacing=10))
         self._vision_signature = None
         self._vision_running = False
@@ -394,6 +403,8 @@ class DmiControlPanel:
         return self.vision_card
 
     def clear_vision(self):
+        self.legacy_xml_confirm.value = False
+        self.calibration_ui.reset()
         self.vision_raw.visible = self.vision_annotated.visible = False
         self.vision_raw.src = self.vision_annotated.src = b""
         self.vision_targets.controls.clear()
@@ -479,6 +490,7 @@ class DmiControlPanel:
             control.visible = value is not None
             control.src = value or b""
         projection = view['projection']
+        self.calibration_ui.update_targets(view)
         self.vision_cal_status.value = ("Calibrazione: " + (view['calibration_error'] or
             ("solo ispezione · modello non verificato/non utilizzabile" if projection and not projection['calibration_valid']
              else "solo ispezione")) + " · azioni disabilitate")
@@ -541,14 +553,20 @@ class DmiControlPanel:
             self.drop_area.disabled = locked
         self.run_button.disabled = locked or not self.runner.initialized or not self.script
         observing = self.vision.running or self.vision_busy
-        # Legacy XML/photos still own a separate command/camera path until Step 12.
-        if observing and not self.is_demo:
-            self.run_button.disabled = self.init_button.disabled = True
+        # Legacy static-coordinate XML shares this owner but cannot compete with vision/photos.
+        if self.runner.hardware_actions_blocked:
+            self.run_button.disabled = True
+        self.legacy_xml_confirm.visible = not self.is_demo
+        self.legacy_xml_confirm.disabled = locked or observing
+        if not self.is_demo and isinstance(self.runner.backend,RealBackend) and not self.legacy_xml_confirm.value:
+            self.run_button.disabled = True
         self.vision_start.disabled = locked or observing
         self.vision_stop.disabled = self.vision_busy or not self.vision.running
         for control in (self.vision_kind, self.vision_address, self.vision_calibration,
                         self.vision_context, self.vision_debug):
             control.disabled = observing
+        self.communication.refresh()
+        self.calibration_ui.refresh()
         self.stop_button.disabled = self.runner.phase != "running" or self.runner.stop.is_set()
         self.mode_badge.content.value = "DEMO · SIMULAZIONE" if self.is_demo else "HARDWARE"
         self.mode_badge.content.color = AMBER if self.is_demo else BLUE
@@ -607,6 +625,7 @@ class DmiControlPanel:
     def activate(self, name, source):
         if self.locked:
             return
+        self.legacy_xml_confirm.value = False
         self.clear_preview()
         self.clear_photo()
         self.source, self.filename = source, name
@@ -897,7 +916,7 @@ class DmiControlPanel:
             except (OSError, PhotoError) as exc:
                 folder_error = str(exc)
         try:
-            await self.runner.capture_pictures()
+            await self.runner.capture_pictures(directory=folder)
         except Exception as exc:
             raise PhotoError(f"Sequenza e rientro completati. Acquisizione foto non riuscita: {exc}") from exc
         if self.is_demo:
@@ -931,8 +950,14 @@ class DmiControlPanel:
                                 detail="Rientro e acquisizione foto confermati.", active=False)
         self.display_photo(photo, "Operazione completata")
 
-    def change_mode(self, e):
+    async def change_mode(self, e):
         if self.locked:
+            return
+        try:
+            await self.runner.disconnect()
+        except Exception as exc:
+            self.mode.selected = [self.runner.mode]
+            self.error(str(exc))
             return
         self.vision.invalidate()
         self.clear_vision()
@@ -944,8 +969,27 @@ class DmiControlPanel:
         self.log("Sistema", "Modalità demo attiva." if self.is_demo else "Modalità hardware reale attiva.")
         self.refresh()
 
-    async def initialize(self, e=None):
-        if self.locked or ((self.vision.running or self.vision_busy) and not self.is_demo):
+    async def initialize(self, e=None, *, operator_confirmed=False, checks=None):
+        if self.locked:
+            return
+        if isinstance(self.runner.backend,RealBackend) and not self.is_demo and not operator_confirmed:
+            from dmi_robot_master.integration.robot_session import HOMING_CHECKS
+            confirmed_backend = self.runner.backend
+            confirmed_epoch = self.runner.origin_epoch
+            titles = ('Limiti XY misurati e configurati','Tool Z retratto','Arresto fisico disponibile',
+                      'Area homing libera','Origine, montaggio e convenzioni verificati dall’operatore')
+            boxes = {key:ft.Checkbox(label=text,value=False) for key,text in zip(HOMING_CHECKS,titles)}
+            async def confirm(event):
+                if not all(box.value for box in boxes.values()):
+                    return
+                self.page.pop_dialog()
+                if self.runner.backend is not confirmed_backend or self.runner.origin_epoch != confirmed_epoch:
+                    self.error('Connessione/origine cambiata: richiedere una nuova conferma di homing')
+                    return
+                await self.initialize(operator_confirmed=True,checks={key:box.value for key,box in boxes.items()})
+            self.page.show_dialog(ft.AlertDialog(title=label('Confermare homing hardware',20),
+                content=ft.Column([label('INITIALIZE può muovere gli assi. Le caselle sono dichiarazioni, non prove fisiche.',12),*boxes.values()],tight=True),
+                actions=[ft.TextButton('Annulla',on_click=lambda e:self.page.pop_dialog()),ft.TextButton('Confermo homing',on_click=confirm)]))
             return
         self.ui_busy = True
         self.activity.set_phase("sync", "Connessione", title="Inizializzazione della postazione",
@@ -953,13 +997,18 @@ class DmiControlPanel:
         self.status("Inizializzazione", "Connessione al controller…", BLUE)
         self.refresh()
         try:
-            await self.runner.initialize()
+            if self.is_demo and isinstance(self.runner.backend,RealBackend):
+                from dmi_robot_master.integration.robot_session import HOMING_CHECKS
+                operator_confirmed,checks = True,{key:True for key in HOMING_CHECKS}
+            await self.runner.initialize(operator_confirmed=operator_confirmed,checks=checks)
             self.axis_x.value = self.axis_y.value = "0"
             self.activity.move_to(0, 0)
             self.activity.set_phase("ready", "Postazione operativa", title="Inizializzazione completata",
                 detail="Sequenza disponibile per l'esecuzione." if self.script else "Caricare una sequenza XML.",
                 active=False)
             self.status("Operativa", "Postazione inizializzata. " + ("Avvio della sequenza abilitato." if self.script else "Carica uno script XML."))
+            if not self.is_demo:
+                self.status('Homing controller', 'DONE ricevuto; XML legacy richiede conferma separata. Azioni da visione non abilitate.', AMBER)
             self.log("Hardware", "Homing simulato completato." if self.is_demo else "INITIALIZE completato: DONE ricevuto.")
         except Exception as exc:
             self.activity.set_phase("error", "Inizializzazione non riuscita", title="Postazione non inizializzata",
@@ -971,7 +1020,9 @@ class DmiControlPanel:
 
     async def run(self, e=None):
         if (self.locked or not self.script or not self.runner.initialized
-                or ((self.vision.running or self.vision_busy) and not self.is_demo)):
+                or self.runner.hardware_actions_blocked):
+            return
+        if not self.is_demo and isinstance(self.runner.backend,RealBackend) and not self.legacy_xml_confirm.value:
             return
         self.ui_busy = True
         self.clear_photo()
@@ -988,7 +1039,10 @@ class DmiControlPanel:
         self.log("Script", f"Avvio {self.script.name}" + (" [DEMO]" if self.is_demo else ""))
         self.refresh()
         try:
-            result = await self.runner.run(self.script)
+            if isinstance(self.runner.backend,RealBackend):
+                result = await self.runner.run(self.script,legacy_confirmed=self.legacy_xml_confirm.value)
+            else:
+                result = await self.runner.run(self.script)
             if result == "stopped":
                 self.current_text.value = "Sequenza interrotta"
                 self.status("Interrotta", "Arresto della sequenza completato.", AMBER)
@@ -1019,6 +1073,7 @@ class DmiControlPanel:
             self.started = None
             self.active_index = None
             self.ui_busy = False
+            self.legacy_xml_confirm.value = False
             self.refresh()
 
     def stop(self, e=None):
@@ -1040,7 +1095,14 @@ class DmiControlPanel:
                 size=16, color=color)
 
     def on_runtime(self, kind, **data):
-        if kind == "status":
+        if kind == 'origin_changed':
+            self.legacy_xml_confirm.value = False
+            self.calibration_ui.reset()
+            if self.vision.observer:
+                self.vision.observer.invalidate_calibration()
+        elif kind == 'robot_status':
+            self.log('Robot',str(data['status']))
+        elif kind == "status":
             self.status_text.value = data["text"]
         elif kind == "transmit":
             name, args = data["name"], data["args"]
@@ -1080,6 +1142,10 @@ class DmiControlPanel:
     async def clock(self):
         while not self.disposed:
             now = time.monotonic()
+            previous = self.communication.status.value
+            self.communication.refresh()
+            if previous != self.communication.status.value:
+                self.page.update(self.communication.control)
             changed = self.activity.tick(now)
             if self.started is not None:
                 self.elapsed = now - self.started
@@ -1159,7 +1225,8 @@ class DmiControlPanel:
                 self.refresh()
                 try:
                     await asyncio.to_thread(self.vision.close)
-                except RuntimeError as exc:
+                    await self.runner.disconnect()
+                except Exception as exc:
                     self.ui_busy = False
                     self.error(str(exc))
                     return
@@ -1173,8 +1240,9 @@ class DmiControlPanel:
         self.runner.request_stop()
         self.activity.active = False
         self.disposed = True
-        if not self.runner.busy:
-            self.runner.shutdown()
+        # The executor queues socket cleanup after any bounded in-flight call;
+        # never cancel it or create a second owner while its outcome is pending.
+        self.runner.shutdown()
 
     async def close_vision_after_disconnect(self):
         try:

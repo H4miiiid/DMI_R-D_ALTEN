@@ -10,9 +10,10 @@ import cv2
 import numpy as np
 
 from dmi_computer_vision.src.dmi.api import VisionSession
-from dmi_computer_vision.src.dmi.mode_observation import ModeHistory, observe_modes
+from dmi_computer_vision.src.dmi.mode_observation import ModeHistory, observe_modes, connected_regions
 from dmi_computer_vision.src.dmi.output.annotation import annotate_frame
 from dmi_robot_master.integration.targets import TargetProjector
+from dmi_robot_master.integration.publication import project_pixels
 
 
 def _jpeg(image):
@@ -42,6 +43,8 @@ class VisionObserver:
         self.debug_jsonl = Path(debug_jsonl) if debug_jsonl else None
         self._condition = Condition()
         self._project_lock = Lock()
+        self._calibration_epoch = 0
+        self._calibration_invalidated = False
         self._stop = Event()
         self._threads = []
         self._packet = self._observation = self._projection = None
@@ -128,8 +131,8 @@ class VisionObserver:
                     started = time.monotonic()
                     observation = session.process(packet)
                     with self._project_lock:
-                        projection, _ = self.projector.project(observation.result,
-                            observation.direct_evidence, frame_size=observation.frame_size)
+                        calibration_epoch = self._calibration_epoch
+                        projection = self._project(observation)
                     # This API is observation-only, including for legacy valid fits.
                     for target in projection['targets'].values():
                         target['usable'] = False
@@ -144,6 +147,8 @@ class VisionObserver:
                     with self._condition:
                         if self._stop.is_set():
                             break
+                        if calibration_epoch != self._calibration_epoch:
+                            self._clear_mm(projection)
                         self._analysis_count += 1
                         self._analysis_total += duration
                         self._samples.append(duration)
@@ -218,7 +223,8 @@ class VisionObserver:
                 'projection': projection, 'modes': deepcopy(self._mode) if fresh else {},
                 'raw_jpeg': self._raw_jpeg if raw_age is not None and raw_age <= 1.5 else None,
                 'raw_index': self._raw_index, 'annotation_jpeg': annotation,
-                'calibration_error': self.projector.error,
+                'calibration_error': ('Robot origin/connection changed; reload independent context'
+                    if self._calibration_invalidated else self.projector.error),
                 'action_ready': False,
                 'metrics': {'processed': self._analysis_count, 'overwrites': self._overwrites,
                     'analysis_mean_seconds': self._analysis_total/max(1, self._analysis_count),
@@ -236,13 +242,15 @@ class VisionObserver:
         # Re-read calibration/context/geometry through the same resolver used by
         # analysis, so changing a model file cannot leave a selected cached XY.
         with self._project_lock:
-            projection, _ = self.projector.project(observation.result,
-                observation.direct_evidence, frame_size=observation.frame_size)
+            calibration_epoch = self._calibration_epoch
+            projection = self._project(observation)
         with self._condition:
             current = self.snapshot()
             if (not current['fresh'] or current['session_id'] != session_id
                     or current['capture_index'] != observation.capture_index):
                 raise ValueError('Observation changed during selection; select again')
+            if calibration_epoch != self._calibration_epoch:
+                raise ValueError('Calibration/origin changed during selection; select again')
             if projection['screen'] != screen or label not in projection['targets']:
                 raise ValueError('Selected identity disappeared or screen changed')
             # Pixel/mm inspection is not action authorization. Fields/boxes
@@ -267,3 +275,48 @@ class VisionObserver:
             target.update(usable=False, action_ready=False,
                           capture_index=view['capture_index'], age_seconds=view['age_seconds'])
             return target
+
+    @staticmethod
+    def _clear_mm(projection):
+        projection.update(calibration_valid=False, calibration_id=None, calibration_provenance=None)
+        for target in projection['targets'].values():
+            target.update(mm=None, usable=False)
+
+    def _project(self, observation):
+        if self._calibration_invalidated:
+            projection = project_pixels(observation.result, frame_size=observation.frame_size)
+            projection.update(simulation=self.projector.simulation)
+            self._clear_mm(projection)
+            return projection
+        return self.projector.project(observation.result,
+            observation.direct_evidence, frame_size=observation.frame_size)[0]
+
+    def invalidate_calibration(self) -> None:
+        """Origin/connection changes clear mm, while camera/preview keep running."""
+        with self._condition:
+            self._calibration_epoch += 1
+            self._calibration_invalidated = True
+            if self._projection:
+                self._clear_mm(self._projection)
+
+    def calibration_sample(self, session_id: str, screen: str, label: str) -> dict:
+        """Detach one current point; collection must recheck its age before use."""
+        target = self.inspect_target(session_id, screen, label)
+        with self._condition:
+            view = self.snapshot()
+            if (not view['fresh'] or view['session_id'] != session_id
+                    or view['capture_index'] != target['capture_index']):
+                raise ValueError('Observation changed while collecting; select again')
+            observed = self._observation[0]
+            if not connected_regions(observed.result):
+                raise ValueError('Calibration requires current measured joined SENSE regions')
+            if target['display'] == 'right' and target['kind'] == 'field':
+                raw = observed.direct_evidence.get('right_field')
+                if raw is None or max(abs(a-b) for a,b in zip(raw,target['pixel'])) > 4:
+                    raise ValueError('Field lacks matching current direct geometry')
+            return {'session_id':session_id, 'screen':screen, 'target':target,
+                'capture_index':observed.capture_index, 'received_at':observed.received_at,
+                'upstream_age_seconds':observed.upstream_age_seconds,
+                'frame_size':list(observed.frame_size), 'source_info':deepcopy(self.source_info),
+                'geometry':{side:deepcopy(observed.result[f'{side}_display']['geometry']['corners'])
+                            for side in ('left','right')}}

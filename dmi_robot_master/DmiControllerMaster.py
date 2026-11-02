@@ -2,6 +2,7 @@ from __future__ import annotations
 import inspect
 import os
 import pathlib
+import tempfile
 import time
 from typing import Any, Dict, List, Tuple, Union
 from dmi_robot_common.YamlCfg import YamlCfg
@@ -14,9 +15,10 @@ from dmi_robot_common.DmiMessages import DmiMessages
 class DmiControllerMaster:
     
     
-    def __init__(self, send_function, receive_function)->None:
+    def __init__(self, send_function, receive_function, *, image_directory=None)->None:
         self._send_function = send_function
         self._receive_function = receive_function
+        self.image_directory = pathlib.Path(image_directory) if image_directory is not None else pathlib.Path(__file__).parent
         
     def _start_timer(self)->None:
         self._start_time = time.monotonic()
@@ -50,9 +52,22 @@ class DmiControllerMaster:
     
     def _wait_PICTURE(self, timeout: float, sleep: float, expected_data_len: Union[int, None]) -> Tuple[bool, list[int]]:
         ret: Tuple[bool, list[int]] = self._wait_single_message(DmiMessages.PICTURE, timeout, sleep, None)
+        paths = []
         if ret[0]:
             total_chunks_list: List[int] = ret[1]
-            images: List[List[int]] = [self._wait_n_messages(DmiMessages.PICTURE_DATA, timeout, sleep, None, chunk)[1] for chunk in total_chunks_list]
+            if not total_chunks_list:
+                return False, []
+            images = []
+            for index, count in enumerate(total_chunks_list):
+                if type(count) is not int or count <= 0:
+                    return False, []
+                success, packets = self._wait_n_messages(DmiMessages.PICTURE_DATA, timeout, sleep, None, count)
+                if (not success or len(packets) != count or
+                        any(len(p) < 4 or p[:3] != [len(total_chunks_list), index, count] for p in packets) or
+                        any(type(byte) is not int or not 0 <= byte <= 255 for p in packets for byte in p[4:]) or
+                        {p[3] for p in packets} != set(range(count))):
+                    return False, []
+                images.append(packets)
             paths: List[str] = self._save_images([elem for sublist in images for elem in sublist])
         return ret[0], paths
     
@@ -150,7 +165,8 @@ class DmiControllerMaster:
 
             images[current_img][current_chunk] = data
 
-        folder = pathlib.Path(__file__).parent
+        folder = self.image_directory
+        folder.mkdir(parents=True, exist_ok=True)
         if 0 != len(images):
             for img_idx, pezzi in images.items():
                 img_data = []
@@ -158,8 +174,15 @@ class DmiControllerMaster:
                     img_data.extend(pezzi[i])
 
                 file_path = os.path.join(folder, f"{img_idx}.jpg")
-                with open(file_path, "wb") as f:
-                    f.write(bytes(img_data))
+                temporary = None
+                try:
+                    with tempfile.NamedTemporaryFile(dir=folder, prefix='.photo-', delete=False) as stream:
+                        temporary = pathlib.Path(stream.name)
+                        stream.write(bytes(img_data))
+                    os.replace(temporary, file_path)
+                finally:
+                    if temporary is not None:
+                        temporary.unlink(missing_ok=True)
                 paths.append(file_path)
                 logger.debug(f"Image {img_idx} saved in {file_path}")
         
