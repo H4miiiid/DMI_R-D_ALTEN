@@ -1,5 +1,385 @@
 # TapperWare · interfaccia Flet
 
+## Start here: see the SENSE camera in the GUI
+
+Your **Mac runs the GUI**. The **Raspberry Pi sends the camera picture**.
+Start by getting that picture and the detected buttons onto the PC screen.
+Robot connection, calibration and movement are later tasks.
+
+These steps use the complete project already copied to both computers, with its
+Python dependencies installed. Use the same Python environment you normally use
+for this project. On a new computer, expand **Detailed setup and robot testing**
+below and follow **Prepare the PC and Pi** first.
+
+### 1. On the Raspberry Pi: start the camera
+
+Open a terminal **on the Pi**, and open the project folder: the folder containing
+`TapperWare_Flet`, `dmi_robot_master` and `dmi_robot_config`.
+
+Find the Pi's network address:
+
+```console
+hostname -I
+```
+
+Write down its Ethernet IPv4 address (four numbers such as `192.168.1.210`).
+If several addresses appear, use the one on the same network as the PC.
+Then start the upper SENSE camera:
+
+```console
+python3 -m dmi_robot_master.integration.frame_bridge --bind 0.0.0.0 --camera 1
+```
+
+**Leave this terminal open.** Close any other app using that camera first.
+This command runs the camera bridge; do not start the robot receiver for this check.
+
+### 2. On the Mac: open the GUI
+
+Open **Terminal on the Mac**, in the project's root folder. To get there, type
+`cd` followed by a space, drag the project folder from Finder into Terminal,
+then press Return. Run:
+
+```console
+python3 TapperWare_Flet/main.py
+```
+
+If you normally activate a project virtual environment, activate it first.
+Start without `--demo`: Demo accepts recordings, not a live camera.
+
+### 3. In the GUI: select the camera
+
+- Model: **SENSE TOUCHSCREEN**.
+- Panel: **superiore** (upper).
+- Under **Visione SENSE**, source: **Bridge HTTP camera SENSE**.
+- Address: `http://PI_IP:8080/frame.jpg`, replacing `PI_IP` with the address from step 1.
+  For example, if the Pi reports `192.168.1.210`, enter
+  `http://192.168.1.210:8080/frame.jpg`.
+- Leave the **calibration model** and **independent context** fields empty.
+- Click **Avvia osservazione**.
+
+You should see a recent camera picture and a separate annotated picture showing
+the detected monitor/buttons. The annotation may update more slowly than the camera.
+This first check sends no robot commands. Leave **Connetti / ACK**,
+**Inizializza hardware** and **Avvia sequenza** unused.
+
+### 4. Finish, or report what went wrong
+
+To finish, click **Ferma visione**, wait for it to stop, and close the GUI.
+In the Pi camera terminal, press **Ctrl+C**.
+
+If it fails, keep the exact error message:
+
+- Python/module/Tesseract error: check the installation section below.
+- Camera busy: close the other camera app, then restart the camera command.
+- No picture/connection error: check that both computers are on the same network,
+  the Pi terminal is still running, and the GUI URL uses the Pi's actual address.
+- Picture visible but missing/wrong detections: note the screen shown and save
+  the error or a useful image. Stop observation before restarting it.
+
+For this first check, **no robot JSON, calibration JSON or movement-limit JSON is
+needed**. Once the camera check works, proceed separately through robot connection,
+calibration and one guarded move using the details below. Physical vision pressing
+remains disabled in this version.
+
+<details>
+<summary>Detailed setup and robot testing — open when needed</summary>
+
+## Office hardware test procedure (Step 15)
+
+Use this procedure for the **upper SENSE TOUCHSCREEN / superiore** only, one
+camera per session. It describes the implementation based on `68196f6`; later
+sections describe earlier milestones and historical features. This procedure
+takes precedence where those sections still say that Steps 13/14 are deferred.
+Preparation and offline checks do not establish physical validation or authorize
+Step 16 changes. TWIN detection remains frozen; do not use a SENSE fit on TWIN.
+
+Current operating boundary: observation and calibration collection are available;
+ordinary physical vision movement is unavailable. Restricted, independently bounded
+right-button commissioning MOVE is implemented but physically unverified. All
+vision-selected presses and box-16 holds are **fake-transport simulation only**.
+There is no office checkbox, config flag or supported command to unlock physical
+vision pressing. Existing recorded fits fail the unchanged 3 mm maximum and cannot
+authorize even commissioning. Legacy static XML can move/press real hardware under
+its separate confirmation; leave it unarmed throughout the vision trial.
+
+### Prepare the PC and Pi
+
+Keep the complete repository, including shared packages, English OCR data and
+tracked `dmi_computer_vision/data/icons/` assets. Run module commands below from
+the repository root in separate terminals. Record `git rev-parse HEAD` and
+`git status --short` on both machines; deploy matching reviewed runtime sources.
+Do not use the older master GUI or `dmi_robot_general` as another backend.
+
+On the PC, use Python 3.13 (the offline test environment), or separately validate
+another supported Python >=3.10. On macOS/Linux create a new virtual environment:
+
+```console
+python3 -m venv .venv
+```
+
+On Windows with the Python launcher, create it with
+`py -3.13 -m venv .venv` instead. Activate with `source .venv/bin/activate` on
+macOS/Linux, or `.venv\Scripts\Activate.ps1` in Windows PowerShell. If activation
+is unavailable, use `.venv\Scripts\python.exe` in place of `python` in the PC
+commands below. Then:
+
+```console
+python -m pip install -r TapperWare_Flet/requirements.txt
+python -m pip check
+python -c "import cv2, numpy, flet, PIL, yaml; print('PC imports OK')"
+tesseract --version
+tesseract --list-langs
+python TapperWare_Flet/main.py --demo
+```
+
+Install Tesseract using the PC's managed OS installer and put its executable on
+PATH; `--list-langs` must include `eng`. Keep the matching shared library available
+for the existing SENSE C-API acceleration; CLI fallback may be slower. Flet's native
+desktop client must be available (Linux native file dialogs also need Zenity).
+The pinned Python requirements are the deployment request, not a claim that a
+fresh installation or native window has been validated on the office PC. Record
+`python --version` and `python -m pip freeze` after installation. Browser preview
+is Demo-only. Do not install Pi GPIO/camera packages on the PC.
+
+On the Pi, use the existing Raspberry Pi OS camera/GPIO environment. It must provide
+`picamera2`, `libcamera`, `lgpio`, `cv2`, `numpy` and `yaml`; Picamera2/libcamera must
+match the installed OS camera stack. Have the office maintainer provision missing
+OS packages before continuing; the PC requirements are not a Pi camera installer.
+Run this import-only check with the same Pi interpreter used for the commands below:
+
+```console
+python3 -c "import picamera2, libcamera, lgpio, cv2, numpy, yaml; print('Pi imports OK')"
+```
+
+This check does not open a camera, claim GPIO or test motors. Record the Pi OS,
+Python/package versions and selected libcamera mode from the later bridge startup.
+No Pi installation, native GUI layout or actual device operation was verified here.
+
+### Set deployment values before starting hardware
+
+Copy these portable examples into ignored, durable `dmi_robot_config/local/`
+with unique session names. Never use `/tmp` as the only calibration copy:
+
+- [gui_robot.example.json](../dmi_robot_config/gui_robot.example.json): GUI UDP
+  `address=[PC IPv4, PC listen port, PC protocol ID]`,
+  `remote_address=[Pi IPv4, Pi listen port, Pi protocol ID]`, measured positive
+  integer `xy_limits_mm` (upper bounds exclusive), finite `timeout_seconds` in
+  `(0,120]`. Use decimal protocol IDs in JSON. Choose timeout from the independently
+  assessed homing/travel duration; timeout is not a motor stop.
+- [guided_calibration.example.json](../dmi_robot_config/guided_calibration.example.json):
+  independent camera identity/mount, origin/axes, panel/tool/contact-center convention
+  and the same measured XY limits. For the bridge use `source_kind="remote_bridge"`
+  and add the actual full `bridge_url` under `camera.settings`. Retain receiver
+  `rotation_clockwise=0`, no mirror/crop. Record actual native `original_size` in settings
+  as `[width,height]`. For a local camera use `source_kind="local_camera"`,
+  `camera_index` and `requested_size=[null,null]`. Calibration XY are absolute mm;
+  include the measured panel/tool offset once, never add the XML GUI Y offset again.
+- [commissioning_envelope.example.json](../dmi_robot_config/commissioning_envelope.example.json):
+  fill only after independent physical measurement. Camera/mount/origin/axes must
+  match the candidate. Minimum/maximum XY describe an inclusive safe rectangle;
+  both corners must be inside exclusive robot limits. Declare a conservative
+  maximum single-move distance and measurement basis. Never derive bounds from a fit.
+- [office_trial.example.json](../dmi_robot_config/office_trial.example.json): manual
+  checklist, measurements and problem record, described below. It is not loaded
+  by the GUI and cannot authorize any action.
+
+The Pi receiver currently reads **only**
+`dmi_robot_config/raspberry_cfg.yaml` beside the deployed repository; it has no
+config-path argument and does not read a copy in `local/`. Back up the deployed
+file into durable local storage, then have the operator set its actual network
+tuples and independently verified GPIO assignments on the **Pi deployment**.
+Pi `address` must equal GUI `remote_address`, and Pi `remote_address` must equal
+GUI `address`, including protocol IDs. Existing IDs are `0xAAAA=43690` (Pi) and
+`0xBBBB=48059` (PC); confirm them against the deployment. Do not copy historical
+IP addresses as current truth. The old YAML PC ports include 50, which may require
+privileges; agree usable matching ports on both ends rather than elevating the GUI
+by default. Allow the configured UDP pair and camera TCP port through the local
+firewall. Flet does not use `TapperWare_Flet/pc_cfg.yaml` for communication now.
+
+The receiver also contains nominal `_X=380`, `_Y=470` limits in
+`dmi_robot_rasp/DmiRobot.py`. Those constants are not measurements. If they conflict
+with measured travel, stop hardware motion and report the discrepancy; do not
+increase bounds or edit motor code to get through this trial.
+
+### Start with observation, then communication
+
+1. Inspect the physical stop/power isolation, retracted tool, homing path, sensors,
+   travel and camera/tool mount with the office operator. Do not home with an
+   unverified stop or unsafe path. Close other UDP command clients (`run_robot.py`,
+   old GUIs/master scripts) and camera owners. The bridge alone owns camera 1.
+2. Start the Pi camera bridge in its own terminal, replacing `PI_LAN_IP` below
+   with the actual interface IPv4 address:
+
+   ```console
+   python3 -m dmi_robot_master.integration.frame_bridge --bind PI_LAN_IP --port 8080 --backend picamera2 --camera 1 --width 2304 --height 1728 --frame-fps 10
+   ```
+
+   These are requested settings: 30-FPS sensor capture, continuous autofocus,
+   -2 EV, source rotation 180 degrees, and a 10-FPS JPEG publication cap. Save the
+   startup `capture_settings` output and verify actual selected mode, resolution,
+   focus and upright image. Camera index selects acquisition, never screen identity.
+   Receiver rotation stays zero; do not rotate the GUI image a second time.
+3. Launch `python TapperWare_Flet/main.py` on the PC (without `--demo` or `--web`).
+   Select **SENSE TOUCHSCREEN**, **superiore**, **Bridge HTTP camera SENSE**, enter
+   `http://PI_LAN_IP:8080/frame.jpg`, leave model/context empty initially and press
+   **Avvia osservazione**. Starting observation sends no robot commands. Check
+   raw and matching annotated frames, independently measured monitor division,
+   identities, native-pixel centers and age. Preview images are scaled for display;
+   do not measure original pixels from their screen size. The GUI should remain
+   responsive while analysis runs. No receiver is needed for this observation test.
+4. With robot motion still unarmed, briefly stop/restart the bridge. Verify stale
+   targets/annotations clear (1.5-s evidence lifetime plus UI scheduling) and report
+   errors. Stop the old observation and wait for its workers before explicitly
+   restarting; no automatic recovery is assumed. Do not test a network interruption
+   during physical motion. A stale/lost target must never remain action authority.
+5. Once the independent physical preflight is complete, start the Pi receiver in
+   another terminal: `python3 -m dmi_robot_rasp.DmiControllerSlave`. This claims GPIO;
+   it is hardware-capable. Enter the local robot JSON in **Configurazione robot
+   JSON**, press **Connetti / ACK**, then **Controlla ACK** and **Leggi XY controller**.
+   Connect checks communication only; confirm it does not home/move. No response:
+   check endpoint reversal, IDs, firewall, bind permissions and sole UDP ownership.
+   Do not repeatedly send motion to diagnose communication.
+6. **Inizializza hardware** requires explicit confirmation of all five checks:
+   measured XY limits, independently retracted Z, available physical stop, clear
+   homing area and verified origin/mount. INITIALIZE moves axes. Observe it in
+   person. DONE and controller XY are internally calculated completion/position,
+   not independent alignment, retraction or contact proof. Connection/homing changes
+   invalidate calibration drafts/mappings; start collection only after this origin.
+
+### Collect calibration and try one commissioning move
+
+Enter the independent context path in the Vision card (stop/restart observation
+to change source/model/context fields). Choose **Nuova raccolta**, select a fresh
+measured right button or confirmation field, enter independently measured absolute
+XY and confirm its visible center. Use at least five distinct spread-out fit
+controls plus one or more different held-out controls; prefer additional reliable
+digits/wider controls. Repeated frames or references at one physical location do
+not add coverage. Collection sends no movement. If safe independent metrology is
+unavailable, record calibration as blocked and continue observation only.
+
+Use **Confronta fit / residui**, inspect each held-out and leave-one-control-out
+error and compare affine/homography. Every required error must meet the maximum
+3 mm (or stricter) limit. Record outliers rather than forcing a fit or dropping
+them silently. Wrong measurements need independent recollection. **Salva candidato**
+uses a new durable local filename; back up points, context and candidate separately.
+Restart observation with that candidate and matching independent context on the
+same connected/homed origin. A mismatch or source/geometry/origin change requires
+reassessment, not copied verification flags. Save complete candidates before
+changing context; incomplete drafts are memory-only.
+
+A numerical pass still saves `hardware_verified=false`, `action_usable=false` and
+no physical coverage. It does not unlock normal movement or pressing. Current
+recorded fits reject 3 mm; use them for inspection only. Out-of-hull left box-14/16
+XY estimates have unverified error and cannot authorize physical movement.
+
+Only after an adequate new fit **and independently measured envelope/start/path/
+retraction/stop** are available, enable **Commissioning: solo allineamento con limiti
+indipendenti**, enter the envelope path and select one represented right button
+inside the fit hull. Fields, left targets, missing/uncertain/inactive controls are
+ineligible. Press **Verifica e prepara un movimento**; inspect predicted and rounded
+XY, Z=0, error and bounds. Complete the five checks for this one action or cancel.
+The 30-s single-use intent does not extend 1.5-s direct evidence; confirmation
+rechecks identity/source/geometry/context/files, ACK, controller start and bounds.
+It sends one MOVE only, without press, retry or return. Independently measure the
+physical tool alignment and record signed actual-minus-requested XY and measurement
+uncertainty before preparing another move. Requested Z=0 and DONE do not prove
+retraction or physical accuracy. Rejected fits or failed guards mean **no move**.
+
+Physical vision presses/holds remain locked even after good alignment. A future
+separately authorized Step 16 change would require independently validated fit
+coverage/held-out accuracy, installed-camera freshness, tool/origin conventions,
+travel/start/path bounds, physical Z/contact/retraction/sensors/stop checks and a
+reviewed single-action implementation before enabling them. A five-second physical
+hold also needs measured force/duration and new natural camera evidence of the same
+mode steadily replacing power in box 14 while box 16 is empty; blink-off or DONE
+alone cannot confirm acknowledgement. Do not use legacy XML to bypass this lock.
+
+### Record the trial and finish safely
+
+Copy `office_trial.example.json` into the session's ignored local directory. This
+is a **manual blank form**, not a runtime schema or generated validation report.
+Fill session identity, source revision, actual settings and artifact paths/hashes;
+use ISO-8601 times with timezone. Checklist entries start `not_run`; set `pass`,
+`fail` or `blocked` with an evidence reference and reason. Record each physical
+measurement's method/uncertainty separately from simulated results or declarations.
+Set each coordinate row's `evidence_kind` to `measured_physical`,
+`operator_declaration`, `simulated` or `recorded` as appropriate. Duplicate
+measurement/problem rows as needed. Unknown values stay null.
+
+For a short fixed observation interval, record the GUI's analysis FPS, mean/P95
+seconds, overwrite count and visible age samples; record interval length/screen/
+lighting and cold/steady/transition condition. FPS/mean cover the observer session;
+P95 uses its last at most 256 analyses. Restart observation for a comparable window.
+Agree required responsiveness and independent center-error tolerance with the operator
+before testing; no detection FPS is promised. Keep the fixed 1.5-s evidence expiry
+and maximum 3 mm calibration criterion even if throughput is insufficient.
+GUI FPS is not capture, bridge publication, paint or MP4 playback FPS. Age includes
+available upstream age and round-trip allowance, not independently measured full
+sensor-to-display latency. GUI does not expose age P95, OCR time/calls or policy
+skip totals; leave those null unless a separate instrumented run supplies evidence.
+For transition latency record the event and first correct current observation in
+the same timed recording/clock, plus confirmed-state delay separately; otherwise
+mark latency unmeasured. For coordinate problems record native frame index, region,
+screen/label, expected independent center and observed pixel/XY, never just a crop.
+
+Export **Esporta registro** (before 2,000 lines are exceeded). Optional **Log JSONL
+diagnostico** appends full detection results to
+`dmi_robot_config/local/vision_debug.jsonl`; it does not record raw video or complete
+latency metrics and adds I/O cost. Enable only for a specific problem, record its
+effect on the timing configuration, then stop observation before copying that log
+to a uniquely named session artifact. Do not truncate older logs.
+
+For missing natural transitions/TRN/blinking evidence, stop GUI observation and
+keep robot commands idle; record a separate unannotated bridge trial from the PC:
+
+```console
+python -m dmi_robot_master.integration.record_raw --bridge-url http://PI_LAN_IP:8080/frame.jpg --output-dir runs/office_SESSION_raw --seconds 30 --request-fps 10
+```
+
+Replace `SESSION` with a unique name; the directory must not exist. Navigate the
+DMI manually using an approved office procedure, never by an autonomous sequence.
+Keep `raw.mp4`, `processed_frames.jsonl`, `session.json` and first/last PNGs together,
+unchanged. Native resolution is retained; actual receipt cadence/sidecars, not
+10-FPS encoding, determine timing. This separate acquisition is not a GUI performance
+measurement. Do not copy source recordings into every experiment or overwrite
+accepted evidence. No additional debug-frame exports are required.
+
+On any uncertain motion, sensor/contact or stop failure, use the independently
+established physical safe-stop/isolation procedure, record the fault and end motion
+testing. GUI **Arresta**, timeout, disconnect and Ctrl+C cannot guarantee stopping a
+blocking receiver motor routine. Never queue retries or a recovery return-to-origin.
+For normal shutdown, wait for the current bounded transaction, **Ferma visione**
+and wait for workers, export logs/save complete candidates, **Disconnetti**, then
+close the GUI. A still-active operation can prevent normal close; do not start a
+second owner. With motion physically safe and no active command, Ctrl+C the Pi
+receiver and bridge, then use the office power-down procedure. Software process
+exit does not certify tool retraction or motor-power isolation. Back up ignored
+local records/calibrations before any cleanup.
+
+Offline regression commands (local ignored tests must be supplied separately in
+a clean clone; no real devices are used):
+
+```console
+python -m pip install "pytest>=9,<10"
+python -m pytest tests -q
+python -m pytest TapperWare_Flet/tests -q
+```
+
+Three known GUI fixture failures remain: attached-script reference/50-ms expectations,
+empty TWINS-profile expectation and normal-run 50-ms versus current 100-ms default.
+Do not alter production coordinates/durations or weaken guards to satisfy them.
+The office checklist remains unexecuted: PC/Pi provisioning, native dialogs/layout,
+network/camera cadence/focus, natural transitions/TRN/blinks, detection latency and
+center truth, calibration accuracy/coverage/conventions, homing/limits/path/stop,
+retraction/contact/accounting and actual move/press/hold behavior all need independent
+hardware evidence. In particular Step 8 coverage remains open. Software/fake tests
+do not turn any of these into physically validated results.
+
+</details>
+
+<details>
+<summary>Earlier feature documentation and technical reference</summary>
+
 ## Single press and mode hold (Step 14, offline implementation)
 
 The Vision card now provides explicitly confirmed **simulated** single-button
@@ -654,3 +1034,5 @@ di destinazione. Non è una dichiarazione di collaudo dell'hardware.
 - [Animazioni Flet](https://flet.dev/docs/cookbook/animations/)
 - [Compilazione Flet](https://flet.dev/docs/cli/flet-build/)
 - [flet-dropzone](https://github.com/shiena/flet-dropzone)
+
+</details>

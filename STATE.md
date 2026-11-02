@@ -15,9 +15,10 @@ reviewed Step 10/Flet dependencies in `6189b98`. Step 12 is accepted offline
 (2026-11-02) and published in `d78153a`. Step 13 is accepted offline and published
 in `806e532` for right-region commissioning moves. Step 14 is accepted for now as
 an offline implementation (2026-11-02): simulated pressing/box-16 hold verification
-and inspection-only box-14/16 XY estimates. Commit/push is now explicitly authorized;
-Step 15 is not authorized. Physical hardware validation and calibration accuracy
-remain pending.
+and inspection-only box-14/16 XY estimates; published in `68196f6`. Step 15's office
+instructions and manual test record are accepted (2026-11-02), with commit/push
+explicitly authorized. Step 16 is not authorized. Physical hardware validation and
+calibration accuracy remain pending.
 No recorded fit meets the unchanged 3 mm limit. Physical vision pressing is locked;
 ordinary physical vision movement and general left-region actions remain unavailable.
 Unverified candidates are never promoted; box XY extrapolations are not actionable.
@@ -27,7 +28,7 @@ and Step 7 in `c07ecdc`.
 Step 8 remains unaccepted: its offline checks pass, but required raw transition/
 TRN footage and hardware are unavailable. The user deferred those checks while
 independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives.
-Further accuracy/performance work, additional left-region actions and Steps 15–16
+Further accuracy/performance work, additional left-region actions and Step 16
 need separate authorization.
 The user reports prior testing of the upper SENSE reference coordinates, including
 panel/setup offsets; this does
@@ -73,8 +74,28 @@ The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
 
+Step 15 — accepted documentation-only; commit/push authorized (2026-11-02).
+`TapperWare_Flet/README.md` provides a four-step Mac-first camera check, expandable
+PC/Pi setup and office procedures for observation, communication, guided calibration,
+independently bounded commissioning moves, failure handling and safe shutdown.
+`dmi_robot_config/office_trial.example.json` is a portable manual checklist and
+measurement/problem form; all 14 hardware checks start not_run. Neither document
+is an action authorization. No runtime, detector, TWIN or Pi code changed.
+Both reviewers PASS WITH WARNINGS on final reviewed source
+`d7540adfca2bc57456be6063fbb832bdb55320f3e8e79c24b0f1241c622a1835`.
+JSON, local links, collapsible sections and diff checks pass. Unchanged-runtime
+offline suites: 572 integration/vision tests plus 330 subtests pass; GUI 78 pass
+with the same three known fixture failures. Suites were not repeated for the later
+documentation simplification. Docs-only work needs no generated evidence package.
+Fresh PC/Pi provisioning, native GUI layout and all physical calibration, alignment,
+camera/robot/stop/contact/hold behavior remain unverified. Physical vision pressing
+stays locked; Step 8's footage/coverage limits remain open. The user requested
+publication without invoking subagents again. Next proposed step: 16, only after
+separate authorization and operator-supplied office observations/measurements.
+
 Step 14 — accepted for now as an offline implementation (2026-11-02).
-Commit/push was subsequently explicitly authorized; Step 15 remains unauthorized.
+Commit/push was subsequently explicitly authorized and published in `68196f6`;
+that approval did not authorize Step 15, which was accepted separately above.
 One explicitly confirmed
 simulated right-button press (100 ms) or eligible left-box-16 hold (5000 ms) uses
 the shared command owner and existing MOVE_AND_CLICK protocol. Eight fresh checks,
@@ -677,10 +698,11 @@ accepted scope and publication approvals. Step 10 is accepted only as an offline
 proof of concept; accuracy and physical validation remain pending. Step 11 is now
 accepted offline and published with reviewed Step 10/Flet dependencies. Step 12
 is accepted offline and published in `d78153a`; Step 13 in `806e532`. Step 14 is
-accepted for now offline (2026-11-02), retaining all restrictions and warnings above.
-Its commit/push is now explicitly authorized. Further accuracy/performance work, additional
-left-region actions and Steps 15–16 require separate authorization. Do not start
-Step 15 from this approval.
+accepted for now offline (2026-11-02), retaining all restrictions and warnings above,
+and published in `68196f6`. Step 15's documentation is accepted with commit/push
+authorized (2026-11-02). Further accuracy/performance work, additional left-region
+actions and Step 16 require separate authorization. Do not start Step 16 from
+this publication approval.
 Detection speed remains an open limitation. Step 8 still awaits new raw footage
 and acceptance. POC acceptance does not validate a calibration or authorize actions.
 Continue one requested step at a time; do not infer next-step permission from

@@ -1,0 +1,130 @@
+{
+  "record_kind": "manual_office_trial",
+  "instructions": "Copy into ignored local storage. Null means unmeasured. Each checklist status is not_run, pass, fail or blocked; supply evidence/reason. This record is not loaded by the GUI and never authorizes actions.",
+  "session": {
+    "id": null,
+    "started_at_iso8601_with_timezone": null,
+    "finished_at_iso8601_with_timezone": null,
+    "operator": null,
+    "pc_git_revision_and_dirty_status": null,
+    "pi_git_revision_and_dirty_status": null,
+    "pc_os_python_packages_path": null,
+    "pi_os_python_packages_path": null,
+    "environment": null,
+    "camera_identity_mount_settings": null,
+    "bridge_startup_capture_settings_path": null,
+    "robot_config_path_and_sha256": null,
+    "pi_deployed_yaml_path_and_sha256": null,
+    "independent_context_path_and_sha256": null,
+    "candidate_path_and_sha256": null,
+    "independent_envelope_path_and_sha256": null,
+    "origin_axes_panel_tool_convention": null,
+    "debug_jsonl_enabled": false
+  },
+  "agreed_trial_criteria": {
+    "minimum_analysis_fps": null,
+    "maximum_observed_transition_delay_seconds": null,
+    "maximum_independent_center_error_px": null,
+    "measurement_basis": null,
+    "fixed_direct_evidence_expiry_seconds": 1.5,
+    "maximum_calibration_error_mm_no_greater_than": 3
+  },
+  "checklist": [
+    {"id": "dependencies_versions_native_gui", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "single_command_owner_and_camera_owner", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "camera_identity_orientation_focus_native_size", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "titles_buttons_centers_modes_and_responsiveness", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "stale_loss_stop_clear_and_explicit_restart_no_motion", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "udp_ack_only_and_controller_position_not_independent", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "measured_limits_retraction_sensors_physical_stop_homing_area", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "explicit_homing_and_independent_origin_check", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "independent_spread_fit_and_heldout_measurements", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "fit_errors_coverage_and_durable_candidate_backup", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "single_bounded_commissioning_move_independent_alignment", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "physical_vision_press_lock_and_legacy_xml_unarmed", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "natural_transition_trn_blink_raw_evidence", "status": "not_run", "evidence_or_block_reason": null},
+    {"id": "safe_shutdown_disconnect_and_local_backup", "status": "not_run", "evidence_or_block_reason": null}
+  ],
+  "observation_windows": [
+    {
+      "timestamp_iso8601_with_timezone": null,
+      "source_session_screen_and_condition": null,
+      "lighting_focus_occlusion": null,
+      "duration_seconds": null,
+      "native_frame_size_px": [null, null],
+      "sensor_capture_fps_measured": null,
+      "bridge_publication_fps_measured": null,
+      "gui_analysis_fps": null,
+      "gui_analysis_mean_seconds": null,
+      "gui_analysis_p95_seconds_last_up_to_256": null,
+      "gui_overwrites_session_total": null,
+      "result_age_samples_seconds": [],
+      "instrumented_age_p95_seconds": null,
+      "ocr_calls_and_seconds_if_instrumented": null,
+      "policy_skips_if_instrumented": null,
+      "transition_event_and_observation_clock_basis": null,
+      "transition_first_correct_delay_seconds": null,
+      "transition_confirmed_state_delay_seconds": null,
+      "evidence_path_and_sha256": null
+    }
+  ],
+  "calibration_comparison": {
+    "tolerance_mm": 3,
+    "measurement_basis_and_uncertainty": null,
+    "models": [
+      {
+        "model_type": null,
+        "fit_leave_one_control_out_mean_mm": null,
+        "fit_leave_one_control_out_max_mm": null,
+        "heldout_mean_mm": null,
+        "heldout_max_mm": null,
+        "outliers": [],
+        "numerical_pass": null,
+        "rejection_reason": null
+      }
+    ],
+    "independently_validated_physical_coverage": null
+  },
+  "coordinate_and_robot_observations": [
+    {
+      "timestamp_iso8601_with_timezone": null,
+      "evidence_kind": null,
+      "source_frame_index_region_screen_kind_label": null,
+      "observed_pixel_xy": [null, null],
+      "independent_expected_pixel_xy": [null, null],
+      "pixel_center_error_px": null,
+      "predicted_robot_xy_mm": [null, null],
+      "requested_rounded_xy_mm": [null, null],
+      "controller_reported_xy_mm_not_independent": [null, null],
+      "independently_measured_actual_xy_mm": [null, null],
+      "actual_minus_requested_xy_mm": [null, null],
+      "independent_measurement_method_and_uncertainty_mm": null,
+      "calibration_fit_or_heldout_role": null,
+      "calibration_residual_mm": null,
+      "in_fit_hull": null,
+      "command_response_and_duration_seconds": null,
+      "physical_retraction_contact_stop_and_behavior_notes": null,
+      "evidence_path_and_sha256": null
+    }
+  ],
+  "problems": [
+    {
+      "timestamp_iso8601_with_timezone": null,
+      "reproduction_steps": null,
+      "expected": null,
+      "observed": null,
+      "impact_and_safe_stop_taken": null,
+      "source_frame_region_screen_label": null,
+      "evidence_path_and_sha256": null,
+      "pending_followup": null
+    }
+  ],
+  "finish": {
+    "observed_passes": [],
+    "failures_and_blockers": [],
+    "unverified_or_not_run": [],
+    "logs_raw_receipt_sidecars_and_backup_paths": [],
+    "physical_vision_pressing_available": false,
+    "next_action_requires_separate_authorization": true
+  }
+}
