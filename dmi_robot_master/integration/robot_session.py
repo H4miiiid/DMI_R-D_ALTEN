@@ -64,7 +64,7 @@ class RobotSettings:
 class RobotSession:
     """Serialized bounded transactions. ACK is connection evidence, not readiness.
 
-    Vision-selected moves/presses await their later guarded interfaces. The existing
+    Vision-selected pressing awaits its later guarded interface. The existing
     static-coordinate XML workflow requires its explicit legacy mode and homing.
     """
     def __init__(self, settings: RobotSettings, *, simulation=False, transport_factory=None):
@@ -208,6 +208,40 @@ class RobotSession:
             if operator_confirmed is not True or self._link is None or not self._state['homed']:
                 raise ValueError('Confirm the initialized static-coordinate XML workflow explicitly')
             self._legacy = True
+
+    def move_only(self, plan, observer, *, operator_confirmed: bool, checks: dict) -> dict:
+        """One bounded commissioning MOVE with Z=0, no retry/press/return motion."""
+        from dmi_robot_master.integration.move_only import MOVE_CHECKS, MovePlan
+        with self._exclusive():
+            if (not isinstance(plan,MovePlan) or operator_confirmed is not True or
+                    not isinstance(checks,dict) or any(checks.get(k) is not True for k in MOVE_CHECKS)):
+                raise ValueError('Explicitly confirm each move and all independent safety checks')
+            if self._legacy or self._link is None or not self._state['homed']:
+                raise ValueError('Connect/home the one owner and leave legacy XML mode first')
+            if plan.origin_epoch != self._state['origin_epoch']:
+                raise ValueError('Robot origin changed; prepare again')
+            # Validate before any packets, then again after communication delays.
+            plan.resolve(observer,origin_epoch=self._state['origin_epoch'],
+                limits=self.settings.xy_limits_mm,simulation=self.simulation)
+            self._check(DmiMessages.ACK)
+            position = self._check(DmiMessages.GET_CURRENT_POSITION)
+            if any(type(v) is not int or not 0 <= v < lim for v,lim in zip(position,self.settings.xy_limits_mm)):
+                self._invalidate('fault','INVALID_POSITION');self._close()
+                raise ValueError('Controller position exceeds configured travel limits')
+            xy = plan.resolve(observer,origin_epoch=self._state['origin_epoch'],
+                limits=self.settings.xy_limits_mm,simulation=self.simulation,position=position)
+            try:
+                success = self._link.move(*xy)
+                response = self._link.response
+                if not success:
+                    raise RuntimeError(response or 'MOVE_FAILED')
+            except Exception as exc:
+                self._invalidate('fault',self._link.response or str(exc));self._close()
+                raise
+            self._state = {**self._state,'response':response,'last_response_at':time.monotonic()}
+            return {**plan.preview(),'response':response,'command':'MOVE','requested_z_mm':0,
+                    'start_xy_mm':position,'simulation':self.simulation,
+                    'alignment_verified':False,'ui_outcome':'not_requested'}
 
     def end_legacy(self) -> None:
         with self._exclusive():

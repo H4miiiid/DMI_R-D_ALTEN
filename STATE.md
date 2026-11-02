@@ -11,18 +11,21 @@ offline/recorded-camera. Step 9's reference audit is also accepted (2026-10-28);
 it was published in `da7eddb`. Step 10 is accepted only as an offline proof of
 concept (2026-10-29), with calibration accuracy and physical validation pending.
 Step 11 is accepted offline/recorded-camera (2026-10-30), published with its
-reviewed Step 10/Flet dependencies in `6189b98`. Step 12 is accepted as an offline
-software implementation (2026-11-02), with commit/push explicitly authorized.
-Physical hardware validation and calibration accuracy remain pending. No recorded
-fit meets the unchanged 3 mm limit; rejected/unverified candidates remain unusable
-for vision-guided robot actions. Step 13 has not been authorized.
+reviewed Step 10/Flet dependencies in `6189b98`. Step 12 is accepted offline
+(2026-11-02) and published in `d78153a`. Step 13 is accepted offline (2026-11-02),
+with explicit commit/push authorization, for the reviewed right-region commissioning
+move-only scope. Physical hardware validation and calibration accuracy remain
+pending. No recorded fit meets the unchanged 3 mm limit. Ordinary vision-guided
+movement and pressing remain blocked; unverified candidates are never promoted.
+Left-region movement/box XY display remain unimplemented. Step 14 is not authorized.
 Step 8.A was published in `d360176`. Steps 1–3 were published in `f14e46c`,
 Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd`
 and Step 7 in `c07ecdc`.
 Step 8 remains unaccepted: its offline checks pass, but required raw transition/
 TRN footage and hardware are unavailable. The user deferred those checks while
 independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives.
-Further accuracy/performance work and Steps 13–16 need separate authorization.
+Further accuracy/performance work, left-region movement/box XY display and Steps
+14–16 need separate authorization.
 The user reports prior testing of the upper SENSE reference coordinates, including
 panel/setup offsets; this does
 not validate camera-to-robot calibration. Detection speed, installed-camera
@@ -66,6 +69,53 @@ separate permissions. Both reviewers returned PASS on the workflow instructions.
 The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
+
+Step 13 — accepted offline with the disclosed limits; commit/push authorized
+(2026-11-02). Current target selection inspects native pixels, predicted absolute
+XY, calibration status and freshness. Explicit commissioning-only moves require a
+numerically adequate guided fit, a measured right-region button inside its fit
+hull, current direct screen/button evidence, matching source/geometry/context/origin,
+and independently configured absolute XY bounds plus a maximum move distance.
+Prepare sends no packets. A single-use 30-s intent requires five fresh operator
+checks, without extending the 1.5-s evidence limit. The one command owner checks
+ACK/current controller XY, revalidates current evidence/files/bounds and sends one
+validated MOVE[X,Y,0]. Busy requests are rejected, not queued; UI cancellation
+retains ownership until the bounded transaction finishes. No press, retry or
+automatic return is added; uncertain faults revoke readiness/origin and close.
+Both reviewers PASS WITH WARNINGS on reviewed implementation source
+`dc5c0b990650dc83fb6692a16985dc8114ad464944d62284cbff0af5796082a4`.
+Accepted package: `runs/step13_move_only/` (summary, compact results and one native
+recorded-frame preview; immutable pre-acceptance snapshot, not a GUI screenshot).
+Full suite: 518 passes plus 330 subtests; focused: 88 passes. GUI: 71 passes with
+the same three pre-existing reference/50-ms/TWINS-profile fixture failures. Each
+reviewer independently passed 50 move/Flet tests. All 51 rich/direct cold output
+fingerprints match durable accepted Step 12 evidence, including 39 TWIN samples;
+all 59 detector/icon files are unchanged. The earlier Step 12 temporary-baseline
+expiry remains historical, not retroactively repaired. TWIN is not retuned.
+Positive movement/Flet checks use an adequate synthetic fit, independent synthetic
+bounds and fake hardware only. Actual recorded Driver02 keeps its rejected fit
+and sends no MOVE. Receipt replay: 3.50 processed FPS, analysis mean/P95
+0.274/0.332 s, P95 result age 0.550 s; 27/53 processed, 24 overwrites, two EOF
+discards. Preparation mean/P95 0.0168/0.0184 s. These are local measurements,
+not installed-camera/network/native-GUI performance or a claimed speedup.
+Ordinary movement stays blocked: schema-3 hardware_verified=false/action_usable=false
+and no physically validated coverage remain unchanged. Both recorded models still
+fail 3 mm and cannot authorize even commissioning movement. Only represented right
+buttons inside the fitted hull are supported; left buttons, fields and unmeasured
+controls remain inspection-only. Box centers remain detected in pixels; GUI box XY
+projection is skipped. A read-only Driver02 frame-0 follow-up calculated affine/
+homography estimates for boxes 14/16, both outside the fit hull; left-region error
+is unverified. That calculation did not implement box XY display or movement.
+Native layout and all physical bounds/start-position/retraction/path/stop, camera/
+mount/tool/origin conventions, calibration accuracy and alignment remain unverified.
+Operator declarations, controller XY, requested Z=0 and DONE are not physical proof;
+GUI Stop cannot interrupt blocking receiver motor code. Existing receiver accounting/
+contact, detection speed/transition/TRN/overlay/center/field limits persist. Legacy
+XML/photos retain their separate accepted confirmation/observation guards. Tests,
+evidence and synthetic calibration/envelope fixtures remain local/ignored and need
+separate clone supply. Next proposed step is Step 14 (guarded pressing/box-16 hold
+and box-14 visual verification), requiring explicit authorization. Acceptance here
+does not implement or authorize that step or a left-region extension.
 
 Step 12 — accepted as an offline software implementation; commit/push authorized
 (2026-11-02). One shared UDP command owner connects the Flet GUI to validated
@@ -111,8 +161,8 @@ Explicit homing and separately confirmed legacy XML can move real hardware when
 later operated; only fake hardware was exercised here. No automatic retries or
 parking after uncertain failures. Incomplete drafts are memory-only; save complete
 candidates before context changes and back up local calibration independently.
-Ignored tests/evidence/local models need separate clone supply. Next proposed step
-is Step 13, awaiting explicit authorization; office physical validation is pending.
+Ignored tests/evidence/local models need separate clone supply. Step 13 was later
+accepted with the restricted scope above; office physical validation stays pending.
 
 Step 11 — accepted offline/recorded-camera; commit/push authorized (2026-10-30).
 Integrate observation into the existing Flet GUI through VisionSession and the
@@ -552,10 +602,12 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
   Need actual matched points distributed across the plane, held-out validation,
   reference/origin/panel/tool conventions and a measured acceptance tolerance.
   Do not apply the GUI Y offset again if already included in calibrated absolute XY.
-- Guided correspondence collection/fitting exists offline in Step 12; installed-
-  camera commissioning, independently bounded operator-confirmed move-only
-  alignment and physical verification remain pending. Unverified/rejected fits
-  cannot authorize normal movement or presses; simulation is not verification.
+- Guided collection/fitting exists offline in Step 12; Step 13 adds independently
+  bounded, explicitly confirmed right-button commissioning moves, with fake-hardware
+  validation only. Rejected fits cannot authorize that path. Installed-camera
+  commissioning, physical accuracy/alignment, normal movement and left-region box
+  XY display/movement remain pending; unverified fits never authorize normal moves
+  or presses, and simulation is not physical verification.
 - Review homing, measured limits, Z retraction/contact and physical stop first.
   Known slave concerns include contact success reporting and Z step accounting.
   Position feedback is internally calculated, not independent alignment evidence.
@@ -568,9 +620,11 @@ Steps 1–7, SENSE optimization, Step 8.A and the Step 9 reference audit retain 
 accepted scope and publication approvals. Step 10 is accepted only as an offline
 proof of concept; accuracy and physical validation remain pending. Step 11 is now
 accepted offline and published with reviewed Step 10/Flet dependencies. Step 12
-is accepted offline with explicit commit/push authorization (2026-11-02), retaining
-all calibration/hardware limits above. Further accuracy/performance work and Steps
-13–16 require separate authorization. Do not start Step 13 from this approval.
+is accepted offline and published in `d78153a`. Step 13 is accepted offline with
+explicit commit/push authorization (2026-11-02), retaining its right-only commissioning
+scope and all limits above. Further accuracy/performance work, left-region movement/
+box XY display and Steps 14–16 require separate authorization. Do not start Step 14
+from this approval.
 Detection speed remains an open limitation. Step 8 still awaits new raw footage
 and acceptance. POC acceptance does not validate a calibration or authorize actions.
 Continue one requested step at a time; do not infer next-step permission from

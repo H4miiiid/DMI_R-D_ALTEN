@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "model": "DMI_SENSE_TOUCHSCREEN",
+  "commissioning_only": true,
+  "coordinates": "absolute_robot_xy_mm",
+  "camera": {"identity": null, "mount_id": null},
+  "origin": {"identity": null, "axes": null},
+  "minimum_xy_mm": [null, null],
+  "maximum_xy_mm": [null, null],
+  "maximum_move_mm": null,
+  "measurement_basis": null
+}

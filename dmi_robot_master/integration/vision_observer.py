@@ -315,6 +315,11 @@ class VisionObserver:
                 if raw is None or max(abs(a-b) for a,b in zip(raw,target['pixel'])) > 4:
                     raise ValueError('Field lacks matching current direct geometry')
             return {'session_id':session_id, 'screen':screen, 'target':target,
+                'visibility':view['projection']['visibility'],
+                'direct_screen':observed.direct_evidence.get('right_state'),
+                'direct_visibility':observed.direct_evidence.get('right_visibility'),
+                'calibration_id':view['projection'].get('calibration_id'),
+                'calibration_error':view['calibration_error'],
                 'capture_index':observed.capture_index, 'received_at':observed.received_at,
                 'upstream_age_seconds':observed.upstream_age_seconds,
                 'frame_size':list(observed.frame_size), 'source_info':deepcopy(self.source_info),

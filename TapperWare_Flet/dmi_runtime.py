@@ -341,6 +341,63 @@ class Runner:
         self.stop = asyncio.Event()
         self.worker = ThreadPoolExecutor(max_workers=1, thread_name_prefix="dmi-protocol")
         self._shutdown = False
+        self._move_plan = None
+        self._move_generation = 0
+
+    def discard_move(self):
+        self._move_generation += 1
+        self._move_plan = None
+
+    async def prepare_move(self, observer, selection, envelope_path):
+        if self.busy or not self.initialized or not isinstance(self.backend,RealBackend):
+            raise HardwareError('Connect/home the shared owner and wait for the active command')
+        from dmi_robot_master.integration.move_only import prepare_move
+        self.discard_move()
+        generation = self._move_generation
+        self.busy, self.phase = True, 'preparing_move'
+        try:
+            backend = self.backend
+            plan = await self._worker_call(lambda:prepare_move(observer,selection,envelope_path,
+                origin_epoch=backend.session.status()['origin_epoch'],
+                limits=backend.session.settings.xy_limits_mm,simulation=backend.session.simulation))
+            if self._shutdown or self.backend is not backend or generation != self._move_generation:
+                raise HardwareError('Robot owner changed during move preparation')
+            self._move_plan = (plan,observer,backend)
+            return plan.preview()
+        finally:
+            self.busy, self.phase = False, 'idle'
+
+    async def confirm_move(self, token, *, operator_confirmed=False, checks=None):
+        if self.busy:
+            raise HardwareError('A command is already active; move requests are not queued')
+        pending, self._move_plan = self._move_plan, None
+        if (pending is None or pending[0].token != token or self.backend is not pending[2]
+                or not self.initialized or self._shutdown):
+            raise HardwareError('Move confirmation is missing, consumed or invalidated')
+        plan, observer, backend = pending
+        self.busy, self.phase = True, 'moving_only'
+        try:
+            future = asyncio.get_running_loop().run_in_executor(self.worker,
+                lambda:backend.session.move_only(plan,observer,
+                    operator_confirmed=operator_confirmed,checks=checks))
+            cancelled = False
+            while True:
+                try:
+                    result = await asyncio.shield(future)
+                    break
+                except asyncio.CancelledError:
+                    # The bounded synchronous transaction still owns the robot.
+                    # Keep busy until its actual outcome; never queue another action.
+                    cancelled = True
+            self.emit('move_only_result',result=result)
+            if cancelled:
+                raise asyncio.CancelledError
+            return result
+        finally:
+            if not backend.session.status()['homed']:
+                self.initialized = False
+                self.emit('origin_changed')
+            self.busy, self.phase = False, 'idle'
 
     @property
     def origin_epoch(self):
@@ -354,6 +411,7 @@ class Runner:
         if self.busy:
             raise HardwareError("A command is already active")
         self.busy, self.phase, self.initialized = True, 'connecting', False
+        self.discard_move()
         self.emit('origin_changed')
         try:
             if self.backend is not None:
@@ -371,6 +429,7 @@ class Runner:
         if self.busy:
             raise HardwareError("Wait for the active command before disconnecting")
         self.busy, self.phase, self.initialized = True, 'disconnecting', False
+        self.discard_move()
         self.emit('origin_changed')
         try:
             if self.backend is not None and hasattr(self.backend,'close'):
@@ -420,6 +479,7 @@ class Runner:
             if isinstance(self.backend, RealBackend):
                 raise HardwareError("Disconnect the shared owner before changing mode")
             self.mode = mode
+            self.discard_move()
             # Real adapters require explicit disconnect above; changing mode
             # always revokes the previous initialization state.
             self.initialized = False
@@ -460,6 +520,7 @@ class Runner:
         if self.busy:
             raise HardwareError("Un'operazione è già in corso.")
         self.busy, self.initialized, self.phase = True, False, "initializing"
+        self.discard_move()
         self.stop.clear()
         self.emit("status", text="Sincronizzazione con il controller…")
         try:
@@ -535,6 +596,7 @@ class Runner:
         if not script.commands:
             raise ValidationError("La sequenza è vuota.")
         self.busy, self.phase = True, "running"
+        self.discard_move()
         self.stop.clear()
         handshake_ok = False
         outcome = "completed"
@@ -588,6 +650,7 @@ class Runner:
         if self._shutdown:
             return
         self._shutdown = True
+        self.discard_move()
         if self.backend is not None and hasattr(self.backend,'close'):
             self.close_future = self.worker.submit(self.backend.close)
             def report_cleanup(future):

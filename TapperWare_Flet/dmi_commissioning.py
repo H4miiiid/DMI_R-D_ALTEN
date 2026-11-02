@@ -17,7 +17,7 @@ class ConnectionControls:
             ft.Row(self.buttons,wrap=True), self.status,
             ft.Text('ACK verifica solo la comunicazione. XY controller non è una misura indipendente. '
                     'XML legacy usa coordinate statiche e conferma separata, solo a visione ferma. '
-                    'Nuove azioni da target visivi non abilitate.',size=11)],spacing=10)
+                    'Movimento normale/pressione da target visivi non pronti; commissioning richiede limiti indipendenti.',size=11)],spacing=10)
 
     async def _run(self, operation):
         if self.app.locked:

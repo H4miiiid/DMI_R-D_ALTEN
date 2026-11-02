@@ -1,5 +1,63 @@
 # TapperWare · interfaccia Flet
 
+## Selected-target move-only commissioning (Step 13, offline implementation)
+
+Select a current detection in the SENSE upper-panel Vision card to inspect native
+pixels, predicted absolute robot XY, result age and calibration status. Ordinary
+vision-guided movement remains unavailable: Step 12 candidates retain
+`hardware_verified: false`, `action_usable: false` and no physically validated area.
+The existing rejected recorded fits cannot move the robot, including commissioning.
+No pressing or mode-icon hold is added by this step. Physical validation is pending.
+
+An explicit commissioning-only path can make one operator-confirmed MOVE using a
+numerically adequate guided candidate and independently established movement bounds:
+
+1. Configure measured travel limits and the shared robot connection, inspect ACK,
+   and complete the existing explicit homing/readiness procedure. For offline work,
+   use Demo/fake transport. A recorded source cannot drive a hardware-mode session.
+2. Collect and save a guided SENSE candidate after this homing origin. It must pass
+   the unchanged maximum 3 mm criterion with independent held-out controls. Load it
+   and its matching context in a new observation session on the same origin.
+   Do not alter verification flags or replace reference coordinates to obtain a pass.
+3. Copy `dmi_robot_config/commissioning_envelope.example.json` into ignored
+   `dmi_robot_config/local/`. Fill independently measured inclusive minimum/maximum
+   absolute XY, maximum single-move distance, measurement basis, camera identity/
+   mount and origin matching the candidate. Both rectangle corners must be inside
+   the exclusive configured robot travel limits. No physical defaults are supplied.
+   Never derive this envelope from the fitted image/calibration coordinates.
+4. Select a currently recognized right-region button represented in the collected
+   controls and inside the fitted control hull. Inactive/uncertain marked buttons,
+   fields, left controls and unmeasured identities remain inspection-only here.
+   Enable commissioning explicitly, enter the envelope path, and prepare a move.
+5. Inspect the dialog's current pixels, predicted XY, whole-mm command (nearest mm,
+   half upward), model/error and independent envelope. Absolute coordinates already
+   include the declared panel/tool convention; the XML panel Y offset is not added.
+   Independently verify the tool is retracted, start position is inside the envelope,
+   path is clear, physical stop is available, and bounds are independently measured.
+   Confirm all five checks for this single movement, or cancel.
+
+Preparation sends no packets. Confirmation is single-use and expires after 30 s;
+this does not extend the unchanged 1.5-s direct-evidence limit. The same command
+worker checks ACK, reads internally calculated controller XY, reloads the model and
+bounds, and resolves the selected identity again from the latest direct evidence
+before sending exactly one validated `MOVE [X, Y, 0]`. Both current predicted/rounded
+XY and the start position must be inside the independent rectangle, and displacement
+must not exceed its maximum. The rectangle contains the straight XY path only if
+the declared start is physically correct; controller XY is not independent proof.
+Source/session/origin changes, model/bounds edits, stale evidence, mismatched direct
+screen evidence or changed coordinates invalidate the intent. Prepare again after
+any rejection. A second request is rejected while busy, rather than queued.
+
+No press, automatic retry or automatic return-to-origin follows this command.
+A communication/motion failure revokes homing and closes the shared connection;
+a pre-send guard rejection sends no MOVE. Detection/rendering continue independently.
+The receiver's existing retraction routine and requested Z=0 do not prove physical
+retraction: verify it independently before operation. GUI Stop cannot interrupt a
+blocking receiver motor routine. DONE is protocol completion, not alignment, contact
+or successful DMI input. Native layout, real camera/robot behavior, independent
+calibration accuracy and physical alignment remain unverified. The legacy static
+XML/photo workflow retains its separate confirmation and observation exclusion.
+
 ## Shared robot communication and guided calibration (Step 12)
 
 Step 12 implements the software workflow offline. Hardware commissioning, measured
