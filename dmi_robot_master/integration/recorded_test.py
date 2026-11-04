@@ -1,8 +1,9 @@
 """Explicit experimental reuse of an unchanged-camera recorded SENSE mapping.
 
 The original candidate is validated for integrity, never promoted or rewritten.
-Only numerical accuracy acceptance is waived for this operator-authorized test.
-Live evidence, measured geometry, fitted coverage and robot travel stay mandatory.
+Numerical accuracy and keypad-only coverage are waived for the operator-authorized
+whole-SENSE test. Live evidence, measured monitor bounds and robot travel remain
+mandatory. Extrapolated accuracy is never presented as validated coverage.
 """
 from copy import deepcopy
 from dataclasses import dataclass
@@ -23,21 +24,10 @@ from dmi_robot_master.integration.targets import TargetProjector
 
 
 def _covered(document, target, recorded_pixel):
-    if target['kind'] != 'button' or target['display'] != 'right':
+    if target['kind'] != 'button' or target['display'] not in ('left', 'right'):
         return False
-    if cv2.pointPolygonTest(np.asarray(document['coverage']['fit_hull_pixels'], np.float32),
-                           tuple(map(float, recorded_pixel)), False) >= 0:
-        return True
-    # A recorded control at the hull edge may land a fraction of a pixel outside
-    # after measured-border registration. Reuse the existing 4 px centre tolerance
-    # only for that same independently recorded identity, not an expanded hull.
-    for point in document['fit_points'] + document['check_points']:
-        name = point['label']
-        label = f'KEY_{name[6:]}' if name.startswith('digit_') else f"right/button/{name}"
-        if (point['kind'] == 'button' and point['display'] == 'right' and target['label'] == label
-                and max(abs(a-b) for a,b in zip(point['pixel'], recorded_pixel)) <= 4):
-            return True
-    return False
+    return cv2.pointPolygonTest(np.asarray(document['geometry'][target['display']], np.float32),
+                               tuple(map(float, recorded_pixel)), False) >= 0
 
 
 class RecordedTestProjector(TargetProjector):
@@ -57,6 +47,12 @@ class RecordedTestProjector(TargetProjector):
         if stamp != self._recorded_stamp:
             document, digest = _load(self.calibration_path)
             validate_offline(document)
+            # A keypad fit must not be extrapolated through its projective horizon.
+            corners = np.asarray(document['geometry']['left'] + document['geometry']['right'])
+            denominators = np.column_stack((corners, np.ones(len(corners)))) @ np.asarray(
+                document['models']['homography']['matrix'])[2]
+            if not ((denominators > 1e-9).all() or (denominators < -1e-9).all()):
+                raise ValueError('Saved homography is not finite across the SENSE monitor')
             if self.source_info.get('kind') != 'remote_bridge' or self.source_info.get('simulation') is not False:
                 raise ValueError('Recorded experimental pressing requires the live Pi HTTP camera')
             settings = document['camera']['settings']
@@ -70,7 +66,7 @@ class RecordedTestProjector(TargetProjector):
             self._recorded_stamp = stamp
         return self._recorded_document, self._recorded_digest
 
-    def registration(self, document, geometry, frame_size):
+    def registration(self, document, geometry, frame_size, *, require_left=False):
         """Map measured current right-plane borders into the recorded pixel plane.
 
         The session may begin with a differently framed view. Once established,
@@ -91,6 +87,10 @@ class RecordedTestProjector(TargetProjector):
         matrix = cv2.getPerspectiveTransform(current, recorded)
         if not np.isfinite(matrix).all() or abs(np.linalg.det(matrix)) < 1e-12:
             raise ValueError('Current measured monitor cannot define a finite view registration')
+        if require_left:
+            registered_left = np.asarray([transform_point(matrix, pixel) for pixel in measured['left']])
+            if np.max(np.abs(registered_left - np.asarray(document['geometry']['left']))) > 4:
+                raise ValueError('Measured left borders do not agree with the saved SENSE mapping within 4 px')
         if self._view_anchor is None:
             self._view_anchor = deepcopy(measured)
         return matrix
@@ -111,8 +111,17 @@ class RecordedTestProjector(TargetProjector):
                             experimental_max_error_mm=document['models']['homography']['max_error_mm'],
                             experimental_view_registration=registration.tolist())
             for target in snapshot['targets'].values():
-                if target['kind'] != 'button' or target['display'] != 'right':
+                if target['kind'] != 'button' or target['display'] not in ('left', 'right'):
                     continue
+                current_region = np.asarray(geometry[target['display']], np.float32)
+                if cv2.pointPolygonTest(current_region, tuple(map(float, target['pixel'])), False) < 0:
+                    continue
+                if target['display'] == 'left':
+                    try:
+                        self.registration(document, geometry, frame_size, require_left=True)
+                    except ValueError as exc:
+                        target['mapping_error'] = str(exc)
+                        continue
                 # Output pixel centres stay in the current original image. Only
                 # the transform input/coverage test uses registered coordinates.
                 recorded_pixel = transform_point(registration, target['pixel'])
@@ -136,14 +145,20 @@ def _xy(observer, sample, document, origin_epoch):
     if (sample['frame_size'] != document['frame_size'] or sample.get('calibration_id') != document['calibration_id']
             or sample.get('calibration_error') is not None):
         raise ValueError('Recorded mapping does not match the current frame/calibration')
-    registration = projector.registration(document, sample['geometry'], sample['frame_size'])
+    target = sample['target']
+    registration = projector.registration(document, sample['geometry'], sample['frame_size'],
+                                          require_left=target['display'] == 'left')
     if (sample.get('visibility') != 'clear' or sample.get('direct_visibility') != 'clear'
             or sample['screen'] == 'unknown' or sample.get('direct_screen') != sample['screen']):
         raise ValueError('No clear current direct screen evidence')
-    target = sample['target']
     recorded_pixel = transform_point(registration, target['pixel'])
     if not _covered(document, target, recorded_pixel) or target.get('active', True) is not True:
-        raise ValueError('Selected button is inactive, uncertain or outside recorded keypad coverage')
+        raise ValueError('Selected button is inactive, uncertain or outside measured SENSE monitor bounds')
+    name = f"digit_{target['label'][4:]}" if target['label'].startswith('KEY_') else target['label'].rsplit('/', 1)[-1]
+    raw = sample.get('direct_buttons', {}).get(name)
+    if (raw is None or len(raw) != 2 or not all(math.isfinite(v) for v in raw)
+            or max(abs(a-b) for a,b in zip(raw, target['pixel'])) > 4):
+        raise ValueError('Selected button lacks matching current direct evidence')
     xy = transform_point(document['models']['homography']['matrix'], recorded_pixel)
     if target.get('mm') is None or not np.allclose(target['mm'], xy, atol=1e-6, rtol=1e-6):
         raise ValueError('Current target has no matching experimental XY')

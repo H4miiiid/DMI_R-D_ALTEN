@@ -181,6 +181,12 @@ def process_frame(
             )
     if train_left is not None:
         left_content = train_left[1]
+        if connected and target_evidence is not None:
+            # Current SENSE completion controls, before temporal stabilization.
+            # Separated/TWIN output and evidence remain unchanged.
+            target_evidence['left_buttons'] = {
+                name: list(region['center']) for name, region in left_content.get('buttons', {}).items()
+                if region is not None}
         if left_workflow_stabilizer is not None:
             left_content = left_workflow_stabilizer.update(
                 train_state, left_content, left_geometry

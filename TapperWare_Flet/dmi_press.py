@@ -60,6 +60,11 @@ class PressControls:
     async def request(self,kind):
         from dmi_robot_master.integration.pressing import PRESS_CHECKS
         if self.app.locked or not self.enabled.value or not self.app._vision_selection_key:return
+        backend = self.app.runner.backend
+        if not hasattr(backend, 'session') or backend.session.simulation is not True:
+            self.message.value = 'Physical vision pressing is disabled in simulation controls; use the separate physical commissioning flow.'
+            self.app.log('Pressione', self.message.value)
+            return
         self.app.ui_busy = True;self.app.refresh()
         try:
             intent = await self.app.runner.prepare_press(self.app.vision.observer,self.app._vision_selection_key,

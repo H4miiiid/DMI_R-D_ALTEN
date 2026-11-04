@@ -1,5 +1,169 @@
 # TapperWare · interfaccia Flet
 
+## Using the camera → key → robot view
+
+### Manual movement: 5 mm per click
+
+After **Connetti / ACK** and **Initialize robot · sensor homing**, use the visible
+**Manual robot movement · 5 mm per click** panel under the connection controls.
+Confirm the tool is retracted, path clear, starting position/movement limits verified
+and physical stop available. Then click **X−**, **X+**, **Y−** or **Y+** for one
+5 mm step in the robot's coordinate axes. There is no repeat while holding a button.
+
+Each click reads the current controller XY, checks the full 5 mm destination against
+the existing configured limits, and sends one MOVE with Z=0. An out-of-bounds step is
+rejected rather than shortened. Controls stay disabled until that command finishes;
+no movement is queued, retried or followed by an automatic return. Reported XY is
+read again after completion and is internally calculated, not physical metrology.
+**Read controller XY** is also available without moving. Camera/calibration are not
+required for manual movement; they remain required for vision-guided actions.
+Pre-initialization jogging is not supported: the existing Pi conversion needs
+the sensor-based travel scaling established during homing.
+
+A new connection/origin, reinitialization or communication failure clears manual
+readiness. A failure requires checking the setup and reconnecting/initializing as
+needed. GUI Stop cannot interrupt blocking motor code. This panel has been validated
+offline with fake hardware; physical direction, travel and retraction require office
+verification. No Pi code update is needed for this panel; it uses the existing MOVE
+and position commands.
+
+### Current office test: reuse the recorded homography
+
+At the user's request, **Hardware / SENSE TOUCHSCREEN / superiore** can reuse the
+saved `dmi_robot_config/local/step10_sense_offline/driver03.candidate.json`
+**homography** for an explicitly experimental short press. The user confirmed the
+live camera position, orientation, 2304×1728 size and crop are unchanged. The recorded
+maximum independent error is about **4.76 mm**, exceeding the earlier **3 mm** limit.
+This exception accepts that numerical inaccuracy for this initial test; it does not
+mark the model verified, change its saved rejection flags or validate physical contact.
+
+1. Restart the GUI after this code update. Connect/ACK and initialize the robot.
+2. In **Camera and detection results**, choose **Bridge HTTP camera SENSE** and
+   enter `http://192.168.1.210:8080/frame.jpg`. Leave both custom calibration fields
+   empty. **Start camera** automatically loads the saved experimental homography.
+   If camera observation was started before connection/initialization, stop/start it
+   afterward so its origin binding is current.
+3. Select a currently detected button on either the **right or left SENSE region**,
+   on any recognized screen. The GUI shows its latest native pixels and predicted robot XY, labelled
+   unverified. **Experimental move and click · 100 ms** becomes available.
+4. Click it, inspect the predicted XY and accept the experimental-accuracy/readiness
+   statement. **Press once · 100 ms** sends exactly one MOVE_AND_CLICK. Observe the
+   actual DMI result yourself before another action.
+
+The initial camera view is registered to the recording using all four currently
+measured right-region corners. Current native pixel centres are transformed into
+the recorded pixel plane, then through the saved robot homography. No sample
+coordinates or synthetic monitor borders are substituted for current detections.
+A small framing difference from the recording therefore does not require an
+identical pixel-for-pixel camera pose. The first clear measured geometry anchors
+this camera session; movement beyond the existing 4 px tolerance afterward clears
+XY and requires an explicit Stop camera / Start camera before a new preview.
+
+No calibration collection, alignment form, preceding move-only test or separate
+movement-envelope file is required for this experimental path. It uses the existing
+configured robot XY limits confirmed during homing, checks the actual controller
+start and target, and bounds movement by that configured travel. Retraction, clear
+path/contact area, physical stop and contact-sensor/routine readiness still require
+operator confirmation. Controller position is internally calculated, not independent
+metrology. GUI Stop cannot interrupt blocking Pi motors.
+
+At the user's request, this experimental path uses the **same unchanged homography
+across the whole measured SENSE surface**, including detected buttons in both logical
+regions. The user reports accurate physical presses for **Key 1 and Key 4**. Other
+locations remain unverified; the recorded 4.76 mm error describes the recorded
+validation points, not a maximum error bound across the whole monitor. The saved
+keypad fit/coverage and rejection flags are preserved; extrapolation is explicitly
+experimental. This does not create detections for unsupported screens or controls.
+Left buttons additionally require their measured region corners, transformed by
+the existing right-border registration, to agree with the recorded left corners
+within the unchanged 4 px tolerance. A mismatch disables left pressing and shows
+the reason; existing right-button mapping remains available. After correcting the
+view, explicitly stop/start the camera to establish a new session before trying again.
+The earlier office frame has a 20.24 px left-corner discrepancy, so left pressing
+would remain blocked for that view. The user has deferred checking it until the
+next hardware test; whole-monitor operation is not physically validated.
+Fields and information/icon boxes are not short-press buttons. Buttons outside their
+measured region, separated/TWIN geometry, movement after session registration
+(>4 native pixels), wrong resolution/rotation, inactive/uncertain controls, stale or changed
+selected targets, and uninitialized/faulted robots cannot authorize a test press.
+Direct evidence remains limited to 1.5 s; each single-use confirmation lasts 30 s.
+There is no automatic retry, return, sequence or physical five-second hold. DONE is
+protocol completion, not proof of contact or correct DMI input.
+
+Entering a custom calibration/context uses the previous guarded calibration path,
+including its unchanged 3 mm acceptance and independent-envelope requirements.
+Recorded test candidates are not enabled through that normal path. The saved model
+must remain available in the durable ignored `local/` directory; no recorded videos,
+per-frame files or test fixtures are required at runtime. No Pi Python update is
+needed for this coverage extension. Physical accuracy beyond the two reported keys
+remains for the office test.
+Restore this local model separately on a new clone: the default Hardware HTTP
+camera workflow loads it even for observation. It is not downloaded or regenerated.
+Camera registration compensates image framing; it does not measure changes in the
+monitor's position relative to the robot. Automatic setup correction is not implemented.
+
+**Robot initialization is visible above the camera controls.** The button
+**Initialize robot · sensor homing** is the former **Inizializza hardware** action.
+Open **Robot connection settings · connect / ACK first**, leave **Custom robot
+configuration (optional)** empty and click **Connetti / ACK**. The GUI automatically
+loads the saved `dmi_robot_config/local/gui_robot.json`. This checks communication
+without moving. Then click
+**Initialize robot · sensor homing**, complete the five safety checks and explicitly
+confirm homing. The Pi runs its existing sensor-based origin/travel setup and sends
+DONE or ERROR. After DONE, the GUI shows **Controller initialization complete**;
+this does not prove that a new sensor sweep occurred.
+The existing Pi routine skips the full sweep once autoscaling is already complete
+in that receiver process. Demo labels the operation as simulated homing.
+Camera viewing needs no initialization. Homing moves hardware; it does not validate
+pixel-to-mm calibration or by itself enable physical vision pressing. GUI Stop cannot interrupt
+a blocking receiver motor routine.
+
+The saved setup on this Mac uses the office addresses updated during testing:
+Mac `192.168.1.133:2001` (ID 48059), Pi `192.168.1.210:2000` (ID 43690).
+Its XY limits are 380 × 470 mm, copied from `DmiRobot._X` / `_Y`, with a 60-second
+command timeout. These code limits are not new physical measurements; the existing
+homing checks still require operator verification. The optional field overrides
+the saved file only when needed. Demo keeps its separate fake setup. Keep a backup
+of the ignored `local/` file; it is not included in Git or regenerated automatically.
+
+1. Select **SENSE TOUCHSCREEN**, **superiore** and **Hardware**. Under
+   **1. Camera and detection results**, choose **Bridge HTTP camera SENSE**,
+   enter the Pi URL in **Camera address**, then click **Start camera**.
+   Demo uses a recording path instead of a live camera.
+2. See the annotated monitor on the left. Expand **Live camera image** for the
+   latest raw picture. Expired results disappear; no old coordinates can authorize actions.
+3. Under **2. Select a detected key**, type **5** in **Find a detected key**,
+   then click **Key 5 · KEY_5** if it is detected. Searching only filters current
+   detections; it never adds a missing key. This click selects the key without moving.
+4. **3. Inspect and act** shows the selected native-pixel centre, predicted robot
+   XY and result age. Missing calibration gives no XY; an estimate is not verified
+   alignment. **Move and click selected key · 100 ms** opens the short-press confirmation
+   when a current target, initialized robot and existing movement limits are available.
+   Calibration and all action guards are validated before sending.
+5. For calibration, expand **Calibration · enter measured robot X / Y**. Supply
+   the independent context, start a collection, select a detected key and enter
+   independently measured values in **Measured robot X (mm)** / **Measured robot Y (mm)**.
+   Selecting a key also selects its measurement row. Every selection attempt,
+   including a failed one, clears previous entered XY and confirmation.
+   Never copy predicted XY as independent measurements. Collect
+   at least five different fit controls and one held-out control, compare fits and
+   save a new durable candidate. Stop/restart observation to load a model/context.
+6. Robot setup is in the visible initialization panel described above. Guarded alignment moves
+   are under **Movement limits and optional move-only test**, with the same adequate
+   fit, current evidence, independent bounds, homing and single-action confirmations
+   described below. A physical single press uses the same movement limits and the one
+   readiness confirmation above; the optional move-only test is not a prerequisite. The current experimental
+   recorded-map exception above uses configured robot travel directly. Demo press/hold
+   tests remain behind **Demo presses and mode holds · simulation only**.
+
+Legacy XML/photo tools and event logs are collapsed below the main view. XML uses
+stored reference positions and does not perform camera-calibrated pressing. Its
+run/stop footer appears when the XML section is opened or a sequence is busy.
+Do not use it to bypass the physical commissioning requirements. **Stop camera** ends
+observation; a GUI stop is not a physical motor emergency stop.
+Switching Demo/Hardware selects recording/HTTP respectively. Each source keeps
+its own address or path for this app session; changing a source does not open it.
+
 ## Start here: see the SENSE camera in the GUI
 
 Your **Mac runs the GUI**. The **Raspberry Pi sends the camera picture**.
@@ -50,12 +214,12 @@ Start without `--demo`: Demo accepts recordings, not a live camera.
 
 - Model: **SENSE TOUCHSCREEN**.
 - Panel: **superiore** (upper).
-- Under **Visione SENSE**, source: **Bridge HTTP camera SENSE**.
-- Address: `http://PI_IP:8080/frame.jpg`, replacing `PI_IP` with the address from step 1.
+- Under **1. Camera and detection results**, source: **Bridge HTTP camera SENSE**.
+- **Camera address**: `http://PI_IP:8080/frame.jpg`, replacing `PI_IP` with the address from step 1.
   For example, if the Pi reports `192.168.1.210`, enter
   `http://192.168.1.210:8080/frame.jpg`.
 - Leave the **calibration model** and **independent context** fields empty.
-- Click **Avvia osservazione**.
+- Click **Start camera**.
 
 You should see a recent camera picture and a separate annotated picture showing
 the detected monitor/buttons. The annotation may update more slowly than the camera.
@@ -64,7 +228,7 @@ This first check sends no robot commands. Leave **Connetti / ACK**,
 
 ### 4. Finish, or report what went wrong
 
-To finish, click **Ferma visione**, wait for it to stop, and close the GUI.
+To finish, click **Stop camera**, wait for it to stop, and close the GUI.
 In the Pi camera terminal, press **Ctrl+C**.
 
 If it fails, keep the exact error message:
@@ -78,8 +242,8 @@ If it fails, keep the exact error message:
 
 For this first check, **no robot JSON, calibration JSON or movement-limit JSON is
 needed**. Once the camera check works, proceed separately through robot connection,
-calibration and one guarded move using the details below. Physical vision pressing
-remains disabled in this version.
+calibration and movement limits using the details below. Then select a detected
+button and explicitly confirm one short press; move-only testing is optional.
 
 <details>
 <summary>Detailed setup and robot testing — open when needed</summary>
@@ -93,12 +257,13 @@ takes precedence where those sections still say that Steps 13/14 are deferred.
 Preparation and offline checks do not establish physical validation or authorize
 Step 16 changes. TWIN detection remains frozen; do not use a SENSE fit on TWIN.
 
-Current operating boundary: observation and calibration collection are available;
+The current office commissioning addition is documented above; the remaining
+milestone sections retain their historical scope. Observation and calibration collection are available;
 ordinary physical vision movement is unavailable. Restricted, independently bounded
 right-button commissioning MOVE is implemented but physically unverified. All
-vision-selected presses and box-16 holds are **fake-transport simulation only**.
-There is no office checkbox, config flag or supported command to unlock physical
-vision pressing. Existing recorded fits fail the unchanged 3 mm maximum and cannot
+box-16 holds are **fake-transport simulation only**. A real right-button press
+requires the new measured commissioning sequence above; connecting, checking a
+flag or loading a rejected fit cannot enable it. Existing recorded fits fail the unchanged 3 mm maximum and cannot
 authorize even commissioning. Legacy static XML can move/press real hardware under
 its separate confirmation; leave it unarmed throughout the vision trial.
 
@@ -158,7 +323,9 @@ No Pi installation, native GUI layout or actual device operation was verified he
 ### Set deployment values before starting hardware
 
 Copy these portable examples into ignored, durable `dmi_robot_config/local/`
-with unique session names. Never use `/tmp` as the only calibration copy:
+with unique session names when preparing a new setup. The robot connection file
+on this Mac is already configured and loads automatically; it needs no copying or
+path entry for normal use. Never use `/tmp` as the only calibration copy:
 
 - [gui_robot.example.json](../dmi_robot_config/gui_robot.example.json): GUI UDP
   `address=[PC IPv4, PC listen port, PC protocol ID]`,
@@ -222,8 +389,8 @@ increase bounds or edit motor code to get through this trial.
 3. Launch `python TapperWare_Flet/main.py` on the PC (without `--demo` or `--web`).
    Select **SENSE TOUCHSCREEN**, **superiore**, **Bridge HTTP camera SENSE**, enter
    `http://PI_LAN_IP:8080/frame.jpg`, leave model/context empty initially and press
-   **Avvia osservazione**. Starting observation sends no robot commands. Check
-   raw and matching annotated frames, independently measured monitor division,
+   **Start camera**. Starting observation sends no robot commands. Check
+   the annotated frame and, under **Live camera image**, the raw frame, monitor division,
    identities, native-pixel centers and age. Preview images are scaled for display;
    do not measure original pixels from their screen size. The GUI should remain
    responsive while analysis runs. No receiver is needed for this observation test.
@@ -234,8 +401,9 @@ increase bounds or edit motor code to get through this trial.
    during physical motion. A stale/lost target must never remain action authority.
 5. Once the independent physical preflight is complete, start the Pi receiver in
    another terminal: `python3 -m dmi_robot_rasp.DmiControllerSlave`. This claims GPIO;
-   it is hardware-capable. Enter the local robot JSON in **Configurazione robot
-   JSON**, press **Connetti / ACK**, then **Controlla ACK** and **Leggi XY controller**.
+   it is hardware-capable. Leave **Custom robot configuration (optional)** empty
+   to use the saved setup; enter a file only for an override. Press **Connetti / ACK**,
+   then **Controlla ACK** and **Leggi XY controller**.
    Connect checks communication only; confirm it does not home/move. No response:
    check endpoint reversal, IDs, firewall, bind permissions and sole UDP ownership.
    Do not repeatedly send motion to diagnose communication.
@@ -268,11 +436,13 @@ reassessment, not copied verification flags. Save complete candidates before
 changing context; incomplete drafts are memory-only.
 
 A numerical pass still saves `hardware_verified=false`, `action_usable=false` and
-no physical coverage. It does not unlock normal movement or pressing. Current
+no physical coverage. It does not unlock general ordinary movement. The limited
+initial-test press workflow above uses a numerical pass plus the existing action
+guards and explicit operator readiness; rejected fits stay blocked. Current
 recorded fits reject 3 mm; use them for inspection only. Out-of-hull left box-14/16
 XY estimates have unverified error and cannot authorize physical movement.
 
-Only after an adequate new fit **and independently measured envelope/start/path/
+For an optional move-only test, after an adequate new fit **and independently measured envelope/start/path/
 retraction/stop** are available, enable **Commissioning: solo allineamento con limiti
 indipendenti**, enter the envelope path and select one represented right button
 inside the fit hull. Fields, left targets, missing/uncertain/inactive controls are
@@ -285,14 +455,9 @@ physical tool alignment and record signed actual-minus-requested XY and measurem
 uncertainty before preparing another move. Requested Z=0 and DONE do not prove
 retraction or physical accuracy. Rejected fits or failed guards mean **no move**.
 
-Physical vision presses/holds remain locked even after good alignment. A future
-separately authorized Step 16 change would require independently validated fit
-coverage/held-out accuracy, installed-camera freshness, tool/origin conventions,
-travel/start/path bounds, physical Z/contact/retraction/sensors/stop checks and a
-reviewed single-action implementation before enabling them. A five-second physical
-hold also needs measured force/duration and new natural camera evidence of the same
-mode steadily replacing power in box 14 while box 16 is empty; blink-off or DONE
-alone cannot confirm acknowledgement. Do not use legacy XML to bypass this lock.
+For one physical short press, use the current workflow at the top of this README.
+No preceding move-only action or per-button alignment form is required. Physical
+five-second holds remain deferred; no mode acknowledgement is implemented here.
 
 ### Record the trial and finish safely
 
@@ -348,7 +513,7 @@ On any uncertain motion, sensor/contact or stop failure, use the independently
 established physical safe-stop/isolation procedure, record the fault and end motion
 testing. GUI **Arresta**, timeout, disconnect and Ctrl+C cannot guarantee stopping a
 blocking receiver motor routine. Never queue retries or a recovery return-to-origin.
-For normal shutdown, wait for the current bounded transaction, **Ferma visione**
+For normal shutdown, wait for the current bounded transaction, **Stop camera**
 and wait for workers, export logs/save complete candidates, **Disconnetti**, then
 close the GUI. A still-active operation can prevent normal close; do not start a
 second owner. With motion physically safe and no active command, Ctrl+C the Pi
@@ -382,12 +547,12 @@ do not turn any of these into physically validated results.
 
 ## Single press and mode hold (Step 14, offline implementation)
 
-The Vision card now provides explicitly confirmed **simulated** single-button
+Step 14 originally provided explicitly confirmed **simulated** single-button
 presses and five-second holds on eligible blinking modes in left `box_16`.
-The new vision-selected physical press path is unconditionally locked: neither
-readiness checkboxes nor typed verification flags enable it. Independent physical
-calibration, coverage, alignment, contact/retraction/sensors and stop checks remain
-for office validation. The pre-existing static XML workflow keeps its separate
+The current live short-press workflow at the top of this README supersedes that
+fake-only single-press restriction. Physical five-second holds remain deferred.
+Installed-camera calibration, alignment, contact/retraction/sensors and stop
+behavior remain unverified until the office test. The pre-existing static XML workflow keeps its separate
 accepted safety/observation controls; it does not consume vision calibration.
 
 Use Demo with the shared fake robot initialized, one SENSE upper-panel source,
@@ -512,17 +677,19 @@ fake master/slave transport, opens no UDP socket and declares synthetic 1000 ×
 Demo, inspect controller responses and disconnect to exercise ownership/cleanup.
 Ordinary Demo XML and photo-file viewing remain available.
 
-For office hardware, copy `dmi_robot_config/gui_robot.example.json` into ignored
-`dmi_robot_config/local/gui_robot.json` and replace every null with the deployed
-local/remote IPv4, UDP port and protocol ID, plus independently measured positive
-integer XY limits in mm. Upper bounds are exclusive. IDs must match the existing
+For a new office deployment, copy `dmi_robot_config/gui_robot.example.json` into
+ignored `dmi_robot_config/local/gui_robot.json` and configure the deployed local/
+remote IPv4, UDP port, protocol ID and positive integer XY limits in mm. The setup
+on this Mac has already been saved from the user-selected PC YAML and coded limits;
+verify those bounds independently before homing. Upper bounds are exclusive. IDs must match the existing
 Pi protocol (JSON uses decimal integers). Configure a finite timeout of at most
 120 seconds appropriate for homing. No deployed IP, port or travel limit is inferred.
 The legacy adjacent `pc_cfg.yaml` is no longer the Flet communication source.
 Do not run another robot-command client, including `run_robot.py`, alongside this
 GUI session. HTTP camera acquisition is a separate protocol and may keep running.
 
-Launch without `--demo`, enter the robot JSON path and press **Connetti / ACK**.
+Launch without `--demo`, leave the optional configuration path empty to use the
+saved local setup, and press **Connetti / ACK**. Enter a path only for an override.
 Connection sends ACK only; it does not home or move. **Controlla ACK** explicitly
 rechecks communication. **Leggi XY controller** queries the controller's internally
 calculated XY; that is not independent physical alignment or contact evidence and

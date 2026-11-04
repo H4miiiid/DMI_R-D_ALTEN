@@ -8,7 +8,9 @@ import flet as ft
 class ConnectionControls:
     def __init__(self, app):
         self.app = app
-        self.config = ft.TextField(label='Configurazione robot JSON (esplicita in hardware)', text_size=12)
+        self.config = ft.TextField(label='Custom robot configuration (optional)', text_size=12,
+            hint_text='Leave empty to use your saved robot setup.',
+            tooltip='Default file: dmi_robot_config/local/gui_robot.json')
         self.status = ft.Text('Disconnesso · nessuna prontezza fisica verificata', size=12, selectable=True)
         self.buttons = [ft.TextButton(text, on_click=callback) for text,callback in (
             ('Connetti / ACK', self.connect), ('Controlla ACK', self.ping),
@@ -72,8 +74,8 @@ class CalibrationControls:
         self.app = app
         self.target = ft.Dropdown(label='Centro attuale da misurare', options=[],on_select=self.measurement_changed)
         self._identity = None
-        self.x = ft.TextField(label='X assoluta misurata (mm)', width=180,on_change=self.measurement_changed)
-        self.y = ft.TextField(label='Y assoluta misurata (mm)', width=180,on_change=self.measurement_changed)
+        self.x = ft.TextField(label='Measured robot X (mm)', width=210,on_change=self.measurement_changed)
+        self.y = ft.TextField(label='Measured robot Y (mm)', width=210,on_change=self.measurement_changed)
         self.role = ft.Dropdown(label='Ruolo indipendente',value='fit',options=[
             ft.DropdownOption('fit','Punto di fit'),ft.DropdownOption('check','Controllo tenuto fuori dal fit')])
         self.confirm = ft.Checkbox(label='Confermo centro visibile e XY misurati indipendentemente, offset pannello/tool inclusi',value=False)
@@ -180,6 +182,17 @@ class CalibrationControls:
         self.confirm.value = False
         if not self.app.disposed:
             self.app.page.update(self.confirm)
+
+    def use_selected_target(self, session_id, screen, identity):
+        """Select the measurement row without inventing independent robot XY."""
+        self.target.value = None
+        self.x.value = self.y.value = ''
+        self.confirm.value = False
+        if self._identity != (session_id, screen):
+            return
+        if identity not in {option.key for option in self.target.options}:
+            return
+        self.target.value = identity
 
     def refresh(self):
         for control in [self.target,self.x,self.y,self.role,self.confirm,self.tolerance,self.basis,self.output,*self.buttons]:

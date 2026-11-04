@@ -320,6 +320,7 @@ class VisionObserver:
                 'visibility':view['projection']['visibility'],
                 'direct_screen':observed.direct_evidence.get('right_state'),
                 'direct_visibility':observed.direct_evidence.get('right_visibility'),
+                'direct_buttons':deepcopy(observed.direct_evidence.get(f"{target['display']}_buttons", {})),
                 'calibration_id':view['projection'].get('calibration_id'),
                 'calibration_error':view['calibration_error'],
                 'modes':deepcopy(self._mode),

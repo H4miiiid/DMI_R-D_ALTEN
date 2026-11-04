@@ -24,6 +24,8 @@ T9 = {
     "9": "9WXYZ", "0": "0 ",
 }
 MAX_XML_BYTES = 2 * 1024 * 1024
+DEFAULT_RECORDED_TEST_MAP = Path(__file__).resolve().parent.parent / 'dmi_robot_config/local/step10_sense_offline/driver03.candidate.json'
+DEFAULT_ROBOT_CONFIG = Path(__file__).resolve().parent.parent / 'dmi_robot_config/local/gui_robot.json'
 
 
 class ValidationError(ValueError):
@@ -209,9 +211,14 @@ class RealBackend:
     """Small adapter to the shared owner; no flat protocol copies or extra sockets."""
     def __init__(self, config_path=None, *, simulation=False):
         from dmi_robot_master.integration.robot_session import RobotSession, RobotSettings
-        if not simulation and not config_path:
-            raise ValueError("Select explicit robot JSON settings; no network/bounds defaults are inferred")
-        settings = RobotSettings.demo() if simulation and not config_path else RobotSettings.load(config_path)
+        if simulation and not config_path:
+            settings = RobotSettings.demo()
+        else:
+            path = Path(config_path).expanduser() if config_path else DEFAULT_ROBOT_CONFIG
+            try:
+                settings = RobotSettings.load(path)
+            except FileNotFoundError as exc:
+                raise ValueError(f'Robot configuration not found: {path}. Restore the saved setup or choose a custom file.') from exc
         self.session = RobotSession(settings, simulation=simulation)
 
     def connect(self):
@@ -281,7 +288,8 @@ class ObservationRuntime:
     def running(self):
         return self.observer is not None and self.observer.running
 
-    def start(self, kind, address, *, calibration_path=None, context_path=None, debug_jsonl=None):
+    def start(self, kind, address, *, calibration_path=None, context_path=None, debug_jsonl=None,
+              recorded_test=False, origin_epoch=None):
         with self._lifecycle:
             generation = self._generation
             if self.running:
@@ -308,6 +316,11 @@ class ObservationRuntime:
         context = read_json(context_path) if context_path else None
         observer = VisionObserver(source, info, calibration_path=calibration_path or None,
                                   context=context, debug_jsonl=debug_jsonl)
+        if recorded_test:
+            if calibration_path or context_path or kind != "remote_bridge":
+                raise ValueError("Experimental recorded mapping requires the live Pi camera and empty custom calibration fields")
+            from dmi_robot_master.integration.recorded_test import RecordedTestProjector
+            observer.projector = RecordedTestProjector(info, DEFAULT_RECORDED_TEST_MAP, origin_epoch)
         with self._lifecycle:
             if generation != self._generation or self.running:
                 raise RuntimeError("Vision start cancelled by session change")
@@ -361,6 +374,24 @@ class Runner:
                 # The bounded synchronous call still owns the robot until its outcome.
                 cancelled = True
 
+    async def jog(self, axis, direction, *, operator_confirmed=False, checks=None):
+        if self.busy or not self.initialized or self._shutdown or not isinstance(self.backend, RealBackend):
+            raise HardwareError('Connect and initialize the shared owner; finish the active action first')
+        self.discard_move()
+        backend = self.backend
+        self.busy, self.phase = True, 'manual_move'
+        try:
+            result, cancelled = await self._owned_transaction(lambda: backend.session.jog(
+                axis, direction, operator_confirmed=operator_confirmed, checks=checks))
+            if cancelled:
+                raise asyncio.CancelledError
+            return result
+        finally:
+            if not backend.session.status()['homed']:
+                self.initialized = False
+                self.emit('origin_changed')
+            self.busy, self.phase = False, 'idle'
+
     async def prepare_move(self, observer, selection, envelope_path):
         if self.busy or not self.initialized or not isinstance(self.backend,RealBackend):
             raise HardwareError('Connect/home the shared owner and wait for the active command')
@@ -412,9 +443,14 @@ class Runner:
         self.busy, self.phase = True, 'preparing_press'
         try:
             backend = self.backend
-            plan = await self._worker_call(lambda:prepare_press(observer,selection,envelope_path,kind=kind,
-                origin_epoch=backend.session.status()['origin_epoch'],
-                limits=backend.session.settings.xy_limits_mm,simulation=backend.session.simulation))
+            if backend.session.simulation:
+                plan = await self._worker_call(lambda:prepare_press(observer,selection,envelope_path,kind=kind,
+                    origin_epoch=backend.session.status()['origin_epoch'],
+                    limits=backend.session.settings.xy_limits_mm,simulation=True))
+            else:
+                if kind != 'single_press':
+                    raise ValueError('Physical vision pressing is disabled for mode holds; only one commissioned button is supported')
+                plan = await self._worker_call(lambda:backend.session.prepare_physical_press(observer,selection,envelope_path))
             if self._shutdown or self.backend is not backend or generation != self._move_generation:
                 raise HardwareError('Source/selection/robot changed during preparation')
             self._press_plan = (plan,observer,backend)
@@ -434,7 +470,10 @@ class Runner:
         self.busy, self.phase = True, 'pressing_once'
         result = None
         try:
-            result,cancelled = await self._owned_transaction(lambda:backend.session.press_once(plan,observer,
+            from dmi_robot_master.integration.physical_press import PhysicalPressPlan
+            from dmi_robot_master.integration.recorded_test import RecordedPressPlan
+            execute = backend.session.press_physical_once if type(plan) in (PhysicalPressPlan, RecordedPressPlan) else backend.session.press_once
+            result,cancelled = await self._owned_transaction(lambda:execute(plan,observer,
                 operator_confirmed=operator_confirmed,checks=checks))
             if cancelled:
                 result['verification_reason'] = 'UI task cancelled; wire outcome retained'

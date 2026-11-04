@@ -30,6 +30,9 @@ from dmi_activity import ExecutionActivity, motion
 from dmi_commissioning import ConnectionControls, CalibrationControls
 from dmi_move import MoveControls
 from dmi_press import PressControls
+from dmi_target import TargetInspector, target_name
+from dmi_physical_press import PhysicalPressControls
+from dmi_manual import ManualControls
 
 APP_DIR = Path(__file__).resolve().parent
 BG, SURFACE, FIELD = "#0B111B", "#121C2A", "#0D1521"
@@ -56,6 +59,14 @@ def panel(content, **kwargs):
     kwargs.setdefault("padding", 22)
     return ft.Container(content, bgcolor=SURFACE, border=ft.Border.all(1, LINE),
                         border_radius=18, **kwargs)
+
+
+def disclosure(title, controls, subtitle=None):
+    return ft.ExpansionTile(title=label(title, 14, weight=ft.FontWeight.W_600),
+        subtitle=label(subtitle, 11, MUTED) if subtitle else None,
+        controls=controls, maintain_state=True, expanded=False,
+        expanded_cross_axis_alignment=ft.CrossAxisAlignment.STRETCH,
+        controls_padding=16)
 
 
 def button_style(background=None, color=TEXT):
@@ -190,8 +201,8 @@ class DmiControlPanel:
                                  max_lines=2, overflow=ft.TextOverflow.ELLIPSIS)
         title = ft.Row([
             ft.Column([caption("POSTAZIONE DI COLLAUDO"),
-                       label("Console di collaudo", 29, weight=ft.FontWeight.W_600),
-                       label("Configurazione ed esecuzione delle sequenze di collaudo.", 13, MUTED)], spacing=5),
+                       label("Camera → key → robot", 25, weight=ft.FontWeight.W_600),
+                       label("Start the camera, select a detected key, inspect its coordinates.", 13, MUTED)], spacing=5),
             ft.Container(expand=True),
             ft.Container(ft.Row([self.status_dot, self.status_title], spacing=8),
                          padding=ft.Padding.symmetric(horizontal=14, vertical=10),
@@ -216,7 +227,7 @@ class DmiControlPanel:
         self.hardware_hint = label("Homing richiesto prima dell'esecuzione.", 12, MUTED)
         self.hw_icon = ft.Icon(ft.Icons.POWER_SETTINGS_NEW_ROUNDED, color=AMBER, size=23)
         self.init_button = ft.Button("Inizializza hardware", icon=ft.Icons.RESTART_ALT_ROUNDED,
-            style=button_style("#293528", ACCENT), height=45, expand=True, on_click=self.initialize)
+            style=button_style("#293528", ACCENT), width=320, height=45, on_click=self.initialize)
         self.demo_note = ft.Container(label("Ambiente simulato. Nessun movimento reale.", 12, AMBER),
             bgcolor="#30291F", border_radius=10, padding=12, visible=self.is_demo)
         self.axis_x, self.axis_y = label("—", 23, weight=ft.FontWeight.W_500), label("—", 23, weight=ft.FontWeight.W_500)
@@ -237,21 +248,23 @@ class DmiControlPanel:
                     ft.Container(expand=True),
                     ft.Column([self.button_count, caption("TASTI MAPPATI")], spacing=2)]),
         ], spacing=15), padding=18, bgcolor=FIELD, border_radius=12)
-        left = ft.Column([
-            panel(ft.Column([
-                ft.Row([badge("01", MUTED, "#233044"), label("Postazione", 16, weight=ft.FontWeight.W_600)]),
-                ft.Container(height=2), self.model, self.model_info,
-                self.panel_select, self.panel_info, visual,
-                ft.Divider(color=LINE, height=16), caption("AMBIENTE DI ESECUZIONE"), self.mode, self.demo_note,
-            ], spacing=15)),
-            panel(ft.Column([
-                ft.Row([self.hw_icon, self.hardware_title]), self.hardware_hint,
-                ft.Row([self.init_button]), ft.Divider(color=LINE, height=14), caption("COORDINATE RICHIESTE"),
+        self.model.width, self.panel_select.width = 240, 200
+        station = panel(ft.Column([
+            ft.Row([self.model, self.panel_select, self.mode], wrap=True), self.demo_note,
+            disclosure('Reference profile and panel offset', [self.model_info, self.panel_info, visual]),
+        ], spacing=8), padding=14)
+        hardware = ft.Column([
+                label('Robot initialization · sensor homing', 17, weight=ft.FontWeight.W_600),
+                label('Sets up the robot origin and sensor travel before movement. Camera viewing does not require homing.', 12, MUTED),
+                ft.Row([self.init_button, self.hw_icon, self.hardware_title], wrap=True), self.hardware_hint,
+                label('ACK checks the connection. DONE reports controller initialization completion; it does not validate camera calibration.', 12, MUTED),
+        ], spacing=10)
+        requested_position = ft.Column([
+                caption("COORDINATE RICHIESTE"),
                 ft.Row([ft.Column([caption("X / mm"), self.axis_x], spacing=3),
                         ft.Container(width=32), ft.Column([caption("Y / mm"), self.axis_y], spacing=3)]),
                 self.axis_note,
-            ], spacing=12)),
-        ], spacing=16, col={"xs": 12, "md": 12, "lg": 3.5})
+        ], spacing=12)
 
         self.file_title = label("Nessuno script caricato", 16, weight=ft.FontWeight.W_600,
                                max_lines=1, overflow=ft.TextOverflow.ELLIPSIS)
@@ -337,8 +350,19 @@ class DmiControlPanel:
             self.photo_preview, self.photo_info, self.photo_open_button,
         ], spacing=12))
         self.communication = ConnectionControls(self)
-        right = ft.Column([panel(self.communication.control), self.build_vision(), self.sequence_panel, photo_card, logs], spacing=16,
-                          col={"xs": 12, "md": 12, "lg": 8.5})
+        self.build_vision()
+        self.robot_tools.controls.append(self.communication.control)
+        self.manual_ui = ManualControls(self)
+        self.robot_initialization_card = panel(ft.Column([
+            hardware, self.robot_tools, ft.Divider(color=LINE), self.manual_ui.control,
+            disclosure('Controller initialization details', [
+                label('The existing Pi routine first establishes sensor-based travel and origin, then returns DONE or ERROR. '
+                      'Once autoscaling is complete, another INITIALIZE in the same receiver process can return DONE without a new sweep.', 12, MUTED),
+                label('Homing moves the axes. Confirm measured limits, retracted tool, clear area, physical stop and origin/mount before starting. '
+                      'GUI Stop cannot interrupt a blocking receiver motor routine.', 12, AMBER),
+                requested_position,
+            ]),
+        ], spacing=10))
         self.run_button = ft.Button("Avvia sequenza", icon=ft.Icons.PLAY_ARROW_ROUNDED,
             style=button_style(ACCENT, "#10251E"), height=46, on_click=self.run)
         self.stop_button = ft.Button("Arresta", icon=ft.Icons.STOP_ROUNDED,
@@ -360,8 +384,18 @@ class DmiControlPanel:
             label("Arresta blocca i comandi successivi e poi richiede il rientro. Non è un arresto di emergenza.", 10, MUTED),
         ], spacing=12), padding=ft.Padding.symmetric(horizontal=30, vertical=17), bgcolor=SURFACE,
             border=ft.Border.only(top=ft.BorderSide(1, LINE)))
-        body = ft.Container(ft.Column([title, ft.ResponsiveRow([left, right], columns=12,
-            spacing=18, run_spacing=18)], spacing=25), padding=ft.Padding.symmetric(horizontal=30, vertical=26))
+        self.legacy_dock = dock
+        self.xml_tools = disclosure('Legacy XML sequences and photos', [self.sequence_panel, photo_card],
+            'Stored reference coordinates; separate confirmation, stopped observation and homing required.')
+        self.xml_tools.on_change = lambda e: self.refresh()
+        body = ft.Container(ft.Column([title, station, self.robot_initialization_card,
+            ft.ResponsiveRow([
+                ft.Column([self.vision_card], col={"xs": 12, "md": 7}),
+                ft.Column([self.target_card], col={"xs": 12, "md": 5}),
+            ], columns=12, spacing=16, run_spacing=16),
+            self.calibration_tools, self.xml_tools,
+            disclosure('Event log', [logs]),
+        ], spacing=16), padding=ft.Padding.symmetric(horizontal=24, vertical=20))
         self.page.add(ft.Column([header, ft.Column([body], expand=True, scroll=ft.ScrollMode.AUTO), dock],
                                spacing=0, expand=True))
 
@@ -369,56 +403,104 @@ class DmiControlPanel:
         return ft.Container(ft.Column([value, caption(title)], spacing=4), expand=True)
 
     def build_vision(self):
-        self.vision_kind = ft.Dropdown(value="recorded_replay", label="Sorgente visione",
+        self.vision_kind = ft.Dropdown(value="recorded_replay" if self.is_demo else "remote_bridge", label="Camera source",
             options=[ft.DropdownOption("recorded_replay", "Registrazione offline"),
                      ft.DropdownOption("remote_bridge", "Bridge HTTP camera SENSE"),
-                     ft.DropdownOption("local_camera", "Camera locale")], **dropdown_border())
+                     ft.DropdownOption("local_camera", "Camera locale")], on_select=self.vision_source_changed, **dropdown_border())
         self.vision_address = ft.TextField(label="Percorso video / URL frame.jpg / indice camera",
             value="", text_size=12)
-        self.vision_calibration = ft.TextField(label="Modello calibrazione JSON (opzionale)", text_size=12)
-        self.vision_context = ft.TextField(label="Contesto camera/origine JSON indipendente (opzionale)", text_size=12)
+        self._vision_addresses = {}
+        self._vision_address_kind = self.vision_kind.value
+        self.vision_calibration = ft.TextField(label="Custom calibration JSON (optional; blank uses recorded test mapping)", text_size=12)
+        self.vision_context = ft.TextField(label="Custom calibration context JSON (only with a custom model)", text_size=12)
         self.vision_debug = ft.Checkbox(label="Log JSONL diagnostico (opzionale)", value=False)
-        self.vision_start = ft.Button("Avvia osservazione", on_click=self.start_vision)
-        self.vision_stop = ft.Button("Ferma visione", on_click=self.stop_vision, disabled=True)
+        self.vision_start = ft.Button("Start camera", on_click=self.start_vision)
+        self.vision_stop = ft.Button("Stop camera", on_click=self.stop_vision, disabled=True)
         self.vision_status = label("Visione ferma · selezionare SENSE TOUCHSCREEN / superiore", 12, MUTED)
         self.vision_cal_status = label("Nessuna calibrazione · azioni da visione disabilitate", 12, AMBER)
         self.vision_metrics = label("", 11, MUTED)
         self.vision_mode = label("Icone modalità: sconosciute", 12, MUTED)
         self.vision_raw = ft.Image(src=b"", height=230, visible=False)
-        self.vision_annotated = ft.Image(src=b"", height=230, visible=False)
+        self.vision_annotated = ft.Image(src=b"", height=300, fit=ft.BoxFit.CONTAIN, visible=False)
+        self.vision_empty = label('Start the camera to see analyzed frames here. Results clear when they expire.', 12, MUTED)
         self.vision_targets = ft.Column(spacing=4, height=150, scroll=ft.ScrollMode.AUTO)
+        self.target_search = ft.TextField(label='Find a detected key', hint_text='For example: 5, enter, close',
+            on_change=self.filter_vision_targets)
+        self.target_empty = label('Start the camera to see detected keys here.', 12, MUTED)
         self.vision_selection = label("Selezione solo per ispezione · nessun movimento", 12, AMBER, selectable=True)
         self.calibration_ui = CalibrationControls(self)
         self.move_ui = MoveControls(self)
         self.press_ui = PressControls(self)
+        self.target_ui = TargetInspector(self)
+        self.physical_press_ui = PhysicalPressControls(self)
+        self.target_ui.hardware_press.on_click = self.physical_press_ui.request
+        self.robot_tools = disclosure('Robot connection settings · connect / ACK first', [],
+            'Enter the robot JSON and connect here, then use Initialize robot above.')
+        self.calibration_tools = disclosure('Calibration · enter measured robot X / Y', [
+            self.vision_calibration, self.vision_context, self.calibration_ui.control],
+            'Required before camera-guided actions. Predicted XY are not independent measurements.')
         self.vision_card = panel(ft.Column([
-            label("Visione SENSE · osservazione", 16, weight=ft.FontWeight.W_600),
-            self.vision_kind, self.vision_address, self.vision_calibration, self.vision_context,
-            self.vision_debug, ft.Row([self.vision_start, self.vision_stop], wrap=True),
-            self.vision_status, self.vision_cal_status, self.vision_metrics,
-            caption("CAMERA · FOTOGRAMMA RECENTE"), self.vision_raw,
-            caption("RILEVAMENTO · ANNOTAZIONE DEL FOTOGRAMMA ANALIZZATO"), self.vision_annotated,
-            self.vision_mode, self.vision_targets, self.vision_selection,
-            self.move_ui.control,
-            self.press_ui.control,
-            ft.Divider(),self.calibration_ui.control,
+            label('1. Camera and detection results', 17, weight=ft.FontWeight.W_600),
+            label('Use SENSE TOUCHSCREEN / superiore. Viewing the camera does not require robot connection.', 12, MUTED),
+            self.vision_kind, self.vision_address,
+            ft.Row([self.vision_start, self.vision_stop], wrap=True), self.vision_status,
+            caption('DETECTED MONITOR · ORIGINAL FRAME ANNOTATIONS'), self.vision_empty, self.vision_annotated,
+            disclosure('Live camera image', [self.vision_raw]),
+            disclosure('Timing, calibration status and diagnostics', [self.vision_cal_status,
+                self.vision_metrics, self.vision_mode, self.vision_debug]),
+        ], spacing=10))
+        self.target_card = panel(ft.Column([
+            label('2. Select a detected key', 17, weight=ft.FontWeight.W_600),
+            label('Find 5, then click Key 5. Selection alone never sends a command.', 12, MUTED),
+            self.target_search, self.target_empty, self.vision_targets,
+            ft.Divider(), label('3. Inspect and act', 17, weight=ft.FontWeight.W_600),
+            self.target_ui.control, self.physical_press_ui.control,
+            disclosure('Movement limits and optional move-only test', [self.move_ui.control],
+                'An adequate fit and independently measured movement bounds are required.'),
+            disclosure('Demo presses and mode holds · simulation only', [self.press_ui.control]),
+            disclosure('Selected detection details', [self.vision_selection]),
         ], spacing=10))
         self._vision_signature = None
         self._vision_running = False
         self._vision_selection_key = None
+        self.vision_source_changed()
         return self.vision_card
+
+    def vision_source_changed(self, e=None):
+        kind = self.vision_kind.value
+        if kind != self._vision_address_kind:
+            self._vision_addresses[self._vision_address_kind] = self.vision_address.value or ''
+            self.vision_address.value = self._vision_addresses.get(kind, '')
+            self._vision_address_kind = kind
+        labels = {'remote_bridge': ('Camera address', 'http://PI_IP:8080/frame.jpg'),
+                  'recorded_replay': ('Recording path', '/absolute/path/to/recording.mp4'),
+                  'local_camera': ('Local camera index', '1')}
+        self.vision_address.label, self.vision_address.hint_text = labels[self.vision_kind.value]
+        if e is not None:
+            self.page.update(self.vision_address)
+
+    def filter_vision_targets(self, e=None):
+        if self.vision.observer:
+            self._vision_signature = None
+            self.render_vision(self.vision.observer.snapshot())
+        self.page.update(self.target_card)
 
     def clear_vision(self):
         self.legacy_xml_confirm.value = False
         self.calibration_ui.reset()
         self.move_ui.reset()
         self.press_ui.reset()
+        self.physical_press_ui.reset()
         self.vision_raw.visible = self.vision_annotated.visible = False
         self.vision_raw.src = self.vision_annotated.src = b""
+        self.vision_empty.visible = True
         self.vision_targets.controls.clear()
         self._vision_signature = self._vision_selection_key = None
         self.vision_selection.value = "Selezione solo per ispezione · nessun movimento"
         self.vision_mode.value = "Icone modalità: sconosciute"
+        self.target_ui.update()
+        self.target_empty.value = 'Start the camera to see detected keys here.'
+        self.target_empty.visible = True
 
     async def start_vision(self, e=None):
         if self.locked or self.vision_busy or self.vision.running:
@@ -436,8 +518,12 @@ class DmiControlPanel:
             await asyncio.to_thread(self.vision.start, self.vision_kind.value,
                 self.vision_address.value.strip(), calibration_path=self.vision_calibration.value.strip(),
                 context_path=self.vision_context.value.strip(),
+                recorded_test=(not self.is_demo and self.vision_kind.value == "remote_bridge"
+                    and not self.vision_calibration.value.strip() and not self.vision_context.value.strip()),
+                origin_epoch=self.runner.origin_epoch,
                 debug_jsonl=REPOSITORY / "dmi_robot_config/local/vision_debug.jsonl" if self.vision_debug.value else None)
-            self.vision_status.value = "Avvio visione…"
+            experimental = not self.is_demo and not self.vision_calibration.value.strip() and not self.vision_context.value.strip()
+            self.vision_status.value = "Avvio visione · experimental recorded homography (accuracy unverified)…" if experimental else "Avvio visione…"
             self.log("Visione", "Osservazione avviata; nessuna azione robot abilitata.")
         except Exception as exc:
             self.error(f"Avvio visione: {exc}")
@@ -462,6 +548,9 @@ class DmiControlPanel:
     async def select_vision_target(self, session_id, screen, target_label):
         self.move_ui.changed()
         self.press_ui.changed()
+        self.physical_press_ui.reset()
+        self._vision_selection_key = None
+        self.calibration_ui.use_selected_target(None, None, None)
         try:
             target = await asyncio.to_thread(self.vision.observer.inspect_target,
                                             session_id, screen, target_label)
@@ -470,15 +559,19 @@ class DmiControlPanel:
                     or current['capture_index'] != target['capture_index']):
                 raise ValueError("Osservazione cambiata durante la selezione")
             self._vision_selection_key = (session_id, screen, target_label)
+            self.calibration_ui.use_selected_target(session_id, screen, target_label)
             self.vision_selection.value = (f"{screen} · {target_label} · px {target['pixel']} · "
-                f"XY previsto {target.get('mm')} mm · età {target['age_seconds']:.2f} s · azioni disabilitate")
+                f"XY previsto {target.get('mm')} mm · età {target['age_seconds']:.2f} s · conferma separata richiesta")
             if target['kind']=='box':
                 self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
         except Exception as exc:
             self._vision_selection_key = None
             self.vision_selection.value = f"Selezione invalidata: {exc}"
+        current = self.vision.observer.snapshot()
+        self.target_ui.update(current)
+        self.physical_press_ui.update(current)
         if not self.disposed:
-            self.page.update(self.vision_selection)
+            self.page.update(self.target_card, self.calibration_tools)
 
     async def vision_clock(self):
         while not self.disposed:
@@ -490,7 +583,7 @@ class DmiControlPanel:
                     self._vision_running = running
                     self.refresh()
                 else:
-                    self.page.update(self.vision_card)
+                    self.page.update(self.vision_card, self.target_card, self.calibration_tools)
             await asyncio.sleep(.2)
 
     def render_vision(self, view):
@@ -502,12 +595,15 @@ class DmiControlPanel:
             control.visible = value is not None
             control.src = value or b""
         projection = view['projection']
+        self.vision_empty.visible = view['annotation_jpeg'] is None
         self.calibration_ui.update_targets(view)
         self.move_ui.update(view)
         self.press_ui.update(view)
         self.vision_cal_status.value = ("Calibrazione: " + (view['calibration_error'] or
-            ("solo ispezione · modello non verificato/non utilizzabile" if projection and not projection['calibration_valid']
-             else "solo ispezione")) + " · azioni disabilitate")
+            ("stima non verificata fisicamente" if projection and not projection['calibration_valid']
+             else "ispezione")) + " · test con conferma separata e controlli al comando")
+        if projection and projection.get('experimental_recorded_test') and not view.get('calibration_error'):
+            self.vision_cal_status.value = 'EXPERIMENTAL · saved homography + current measured borders · accuracy unverified; freshness/travel guards apply'
         if projection and projection.get('calibration_id'):
             self.vision_cal_status.value += f" · ID {projection['calibration_id'][:12]}"
         m = view['metrics']
@@ -525,7 +621,10 @@ class DmiControlPanel:
             if projection:
                 screen = projection['screen']
                 for name, target in projection['targets'].items():
-                    text = f"{screen} · {name} · px {target['pixel']} · XY previsto {target.get('mm')} mm"
+                    query = (self.target_search.value or '').strip().casefold()
+                    if query and query not in (target_name(name) + ' ' + name).casefold():
+                        continue
+                    text = f"{target_name(name)} · {name} · px {target['pixel']}"
                     if 'active' in target:
                         text += f" · active={target['active']}"
                     if target['kind']=='box':
@@ -533,17 +632,22 @@ class DmiControlPanel:
                     async def select(e, sid=view['session_id'], state=screen, identity=name):
                         await self.select_vision_target(sid, state, identity)
                     self.vision_targets.controls.append(ft.TextButton(text, on_click=select))
+            self.target_empty.visible = not bool(self.vision_targets.controls)
+            self.target_empty.value = ('No matching detected key. Try another name.' if projection
+                                       else 'Waiting for fresh detections. Old results cannot be selected.')
             selected = self._vision_selection_key
             if (selected and projection and selected[:2] == (view['session_id'], projection['screen'])
                     and selected[2] in projection['targets']):
                 target = projection['targets'][selected[2]]
                 self.vision_selection.value = (f"{selected[1]} · {selected[2]} · px {target['pixel']} · "
-                    f"XY previsto {target.get('mm')} mm · età {age} · azioni disabilitate")
+                    f"XY previsto {target.get('mm')} mm · età {age} · conferma separata richiesta")
                 if target['kind']=='box':
                     self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
             else:
                 self._vision_selection_key = None
                 self.vision_selection.value = "Seleziona un rilevamento attuale per ispezionarlo · azioni disabilitate"
+        self.target_ui.update(view)
+        self.physical_press_ui.update(view)
         self.vision_stop.disabled = self.vision_busy or not self.vision.running
         self.vision_start.disabled = self.vision_busy or self.vision.running or self.locked
 
@@ -584,9 +688,13 @@ class DmiControlPanel:
                         self.vision_context, self.vision_debug):
             control.disabled = observing
         self.communication.refresh()
+        self.manual_ui.refresh()
         self.calibration_ui.refresh()
         self.move_ui.refresh()
         self.press_ui.refresh()
+        self.target_ui.hardware_press.visible = not self.is_demo
+        self.physical_press_ui.refresh()
+        self.legacy_dock.visible = bool(self.xml_tools.expanded or self.runner.busy or self.started is not None)
         self.stop_button.disabled = self.runner.phase != "running" or self.runner.stop.is_set()
         self.mode_badge.content.value = "DEMO · SIMULAZIONE" if self.is_demo else "HARDWARE"
         self.mode_badge.content.color = AMBER if self.is_demo else BLUE
@@ -595,17 +703,25 @@ class DmiControlPanel:
         self.dock_spinner.visible = self.activity.active
         if not self.activity.active:
             self.status_dot.scale, self.status_dot.opacity = 1, 1
-        self.init_button.content = "Inizializza demo" if self.is_demo else "Inizializza hardware"
+        connected = (self.runner.backend is not None and (
+            not isinstance(self.runner.backend, RealBackend)
+            or self.runner.backend.session.status()['connection'] == 'connected'))
+        self.init_button.disabled = locked or (not self.is_demo and not connected)
+        self.init_button.content = 'Initialize demo · simulated homing' if self.is_demo else 'Initialize robot · sensor homing'
         if self.runner.initialized:
-            self.hardware_title.value = "Demo inizializzata" if self.is_demo else "Inizializzato"
-            self.hardware_hint.value = "Inizializzazione simulata." if self.is_demo else "Homing confermato dal controller."
+            self.hardware_title.value = 'Demo initialized' if self.is_demo else 'Controller initialization complete'
+            self.hardware_hint.value = ('Simulated initialization only.' if self.is_demo else
+                                        'INITIALIZE: DONE. A new sensor sweep is not guaranteed if the Pi was already initialized. Camera calibration remains separate.')
             self.hw_icon.icon, self.hw_icon.color = ft.Icons.CHECK_CIRCLE_OUTLINE_ROUNDED, ACCENT
-        elif locked:
-            self.hardware_title.value = "Inizializzazione…"
+        elif self.runner.phase == 'initializing':
+            self.hardware_title.value = 'Initializing…'
+            self.hardware_hint.value = 'Waiting for the controller outcome. Do not send another initialization.'
             self.hw_icon.icon, self.hw_icon.color = ft.Icons.SYNC_ROUNDED, BLUE
         else:
-            self.hardware_title.value = "Da inizializzare"
-            self.hardware_hint.value = "Homing richiesto prima dell'esecuzione."
+            self.hardware_title.value = 'Not initialized'
+            self.hardware_hint.value = ('Open Robot connection settings and use Connetti / ACK first.'
+                if not self.is_demo and not connected else
+                'Initialize before robot movement. Hardware homing requires explicit safety confirmation.')
             self.hw_icon.icon, self.hw_icon.color = ft.Icons.POWER_SETTINGS_NEW_ROUNDED, AMBER
         self.page.update()
 
@@ -982,6 +1098,8 @@ class DmiControlPanel:
         self.vision.invalidate()
         self.clear_vision()
         self.runner.set_mode(self.mode.selected[0])
+        self.vision_kind.value = 'recorded_replay' if self.is_demo else 'remote_bridge'
+        self.vision_source_changed()
         self.axis_x.value = self.axis_y.value = "—"
         if self.source is not None:
             self.activate(self.filename, self.source)
@@ -1028,7 +1146,7 @@ class DmiControlPanel:
                 active=False)
             self.status("Operativa", "Postazione inizializzata. " + ("Avvio della sequenza abilitato." if self.script else "Carica uno script XML."))
             if not self.is_demo:
-                self.status('Homing controller', 'DONE ricevuto; XML legacy richiede conferma separata. Azioni da visione non abilitate.', AMBER)
+                self.status('Initialization complete', 'INITIALIZE: DONE; a new sensor sweep is not guaranteed. Vision actions remain unverified.', AMBER)
             self.log("Hardware", "Homing simulato completato." if self.is_demo else "INITIALIZE completato: DONE ricevuto.")
         except Exception as exc:
             self.activity.set_phase("error", "Inizializzazione non riuscita", title="Postazione non inizializzata",
@@ -1130,7 +1248,7 @@ class DmiControlPanel:
             self.axis_x.value,self.axis_y.value = map(str,result['command_xy_mm'])
         elif kind == 'press_result':
             result = data['result']
-            self.log('Pressione simulata',str(result))
+            self.log('Pressione simulata' if result['simulation'] else 'Pressione fisica',str(result))
             self.axis_x.value,self.axis_y.value = map(str,result['command_xy_mm'])
         elif kind == "status":
             self.status_text.value = data["text"]
@@ -1202,15 +1320,17 @@ class DmiControlPanel:
     def help_dialog(self, e=None):
         self.page.show_dialog(ft.AlertDialog(title=label("Guida rapida", 22), bgcolor=SURFACE,
             content=ft.Container(ft.Column([
-                label("01  Seleziona il modello e l'ambiente.", 14),
-                label("02  Carica lo script XML e verifica l'anteprima.", 14),
-                label("03  Inizializza gli assi, poi avvia la sequenza.", 14),
+                label("1. Select SENSE TOUCHSCREEN / superiore and your environment.", 14),
+                label("2. Hardware: enter the Pi camera URL and Start camera. Demo: use a recording.", 14),
+                label("3. Search 5 and click Key 5 to inspect current camera pixels and estimated robot XY.", 14),
+                label("4. Open Calibration to enter independently measured X/Y and collect fit/check controls.", 14),
+                label("Select a fresh detected button, click Move and click, then confirm readiness for one 100 ms press. Calibration, robot readiness and movement limits are rechecked; no move-only test or alignment form is required.", 13, AMBER),
                 ft.Divider(color=LINE),
                 label("Demo", 14, ACCENT, ft.FontWeight.W_600),
                 label("La demo non apre connessioni e simula gli esiti dei comandi.", 13, MUTED),
                 label("Hardware", 14, ACCENT, ft.FontWeight.W_600),
-                label("Richiede i moduli originali YamlCfg, ComProtocol, Logger, DmiMessages, "
-                      "DmiControllerMaster e pc_cfg.yaml nella cartella del progetto.", 13, MUTED),
+                label("Open Robot connection and homing for the explicit robot JSON and ACK controls. "
+                      "A matching adequate calibration and independent bounds are required for one commissioning move.", 13, MUTED),
                 label("Arresto · tasto Esc", 14, AMBER, ft.FontWeight.W_600),
                 label("Interrompe la sequenza dopo il comando in corso e richiede MOVE [0,0,0]. "
                       "Non interrompe i motori a metà movimento. In caso di errore non viene "

@@ -1,6 +1,6 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-02. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-11-04. Read `AGENTS.md` for the new numbered roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
@@ -16,25 +16,36 @@ reviewed Step 10/Flet dependencies in `6189b98`. Step 12 is accepted offline
 in `806e532` for right-region commissioning moves. Step 14 is accepted for now as
 an offline implementation (2026-11-02): simulated pressing/box-16 hold verification
 and inspection-only box-14/16 XY estimates; published in `68196f6`. Step 15's office
-instructions and manual test record are accepted (2026-11-02), with commit/push
-explicitly authorized. Step 16 is not authorized. Physical hardware validation and
-calibration accuracy remain pending.
-No recorded fit meets the unchanged 3 mm limit. Physical vision pressing is locked;
-ordinary physical vision movement and general left-region actions remain unavailable.
-Unverified candidates are never promoted; box XY extrapolations are not actionable.
+instructions and manual test record were published in `bb25dce`. The subsequent
+office GUI/experimental short-press changes are accepted for now with commit/push
+authorized (2026-11-04), retaining the deferred hardware limits below. The earlier
+hardware integration dependencies are already in `d2f7569`. Step 16 is not authorized.
+No recorded fit meets the ordinary 3 mm limit; saved rejection/verification flags
+remain unchanged. The user explicitly authorized an experimental exception using
+the saved Driver 03 homography, and reports accurate physical presses on Key 1 and
+Key 4. This is location-specific user evidence, not whole-monitor validation.
+Detected buttons in both measured connected SENSE regions can use that experimental
+path; left presses additionally require registered left corners within 4 px of
+the saved geometry. The prior office frame has a 20.24 px residual and would still
+block left pressing. The user defers that test until robot access is available.
+Ordinary calibration/coverage checks remain unchanged; fields, icon boxes, TWIN,
+physical five-second holds and automatic retries/returns are not enabled by this
+exception. General physical vision movement remains unavailable.
 Step 8.A was published in `d360176`. Steps 1–3 were published in `f14e46c`,
 Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd`
 and Step 7 in `c07ecdc`.
 Step 8 remains unaccepted: its offline checks pass, but required raw transition/
 TRN footage and hardware are unavailable. The user deferred those checks while
 independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives.
-Further accuracy/performance work, additional left-region actions and Step 16
-need separate authorization.
-The user reports prior testing of the upper SENSE reference coordinates, including
-panel/setup offsets; this does
-not validate camera-to-robot calibration. Detection speed, installed-camera
-performance and vision-guided physical actions remain unverified. Keep reports in
-chat and preserve these limits in later work.
+Next: the user's office test of left-region geometry and additional button
+locations; investigate failures only when requested. Detection speed, full-surface
+accuracy, contact/retraction/stop behavior and setup repeatability remain open.
+Automatic marker-based setup correction and per-session reference alignment were
+discussed only; the user explicitly deferred implementation. No new calibration
+method, marker detection or setup automation is authorized by this publication.
+Further accuracy/performance work, extra action types and Step 16 need separate
+authorization. Keep reports in chat and preserve the distinction between user
+hardware observations, offline checks and independent physical measurements.
 
 Plan clarification (2026-10-26): Steps 5–7 on SENSE require visible titles and
 buttons only, including visible left Yes and right keypad/selector/navigation
@@ -73,6 +84,44 @@ separate permissions. Both reviewers returned PASS on the workflow instructions.
 The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
+
+Office GUI and experimental pressing — accepted for now; commit/push authorized
+(2026-11-04), with left hardware validation explicitly deferred by the user.
+The existing GUI now prioritizes camera/detected-button inspection, searchable
+selection, visible sensor homing and one confirmed 100 ms press; advanced tools
+remain expandable. The initialization button's oversized layout was corrected.
+Blank robot configuration uses durable ignored `dmi_robot_config/local/gui_robot.json`;
+custom overrides and Demo/fake behavior remain separate. Manual X/Y controls send
+one 5 mm Z=0 move per click after connection/homing/readiness, using the same owner
+and configured travel bounds. Pre-homing jog is not implemented: the existing Pi
+conversion requires sensor scaling. No motor rewrite is included.
+Hardware SENSE HTTP observation with blank custom calibration fields reuses
+`dmi_robot_config/local/step10_sense_offline/driver03.candidate.json` without changing
+its matrix, keypad reference data, rejection flags or 4.76 mm recorded error.
+Current measured right borders register each camera session; fresh original-pixel
+targets, matching direct evidence, activity where classified, current origin,
+robot readiness, movement bounds and single-use confirmation are rechecked before
+one MOVE_AND_CLICK. Left direct button evidence is captured before stabilization
+for connected SENSE only; TWIN detection/output behavior remains unchanged.
+Normal calibrated presses retain the 3 mm/envelope gates. Move-only tests and
+alignment forms are not prerequisites for this explicitly experimental path.
+User reports robot initialization and accurate Key 1/Key 4 presses. Their older
+Pi receiver needed `DmiRobot.click(..., x_y_return_to_zero=False)` rather than a
+nonexistent `move_and_click`; the repository receiver already uses `click`.
+Neither DONE nor controller XY independently proves contact or alignment.
+The prior full-monitor review was code_review PASS WITH WARNINGS / step_checker
+NOT VERIFIED for installed left-side use; its 20.24 px discrepancy remains open,
+not converted into a success by this acceptance/publication. Prior evidence:
+`runs/sense_full_monitor_press_20261104/` (source fingerprint `44d83f2c31c1`).
+Publication review entry point: `runs/office_gui_publication_20261104/`; local
+tests/evidence/configuration remain ignored and need separate supply in a clone.
+Publication checks: 393 integration passes plus 153 subtests; GUI 104 passes and
+the same three known runtime fixture failures. The changed vision file is
+hash-identical to the prior 272-pass/177-subtest vision run. Compilation and diff
+checks pass; offline GUI events distinguish physical from simulated press labels.
+No live robot commands were sent by the agent. An attempted read-only camera
+snapshot timed out; no new physical validation was obtained. Automatic setup
+correction, physical holds and return-home changes remain unimplemented.
 
 Step 15 — accepted documentation-only; commit/push authorized (2026-11-02).
 `TapperWare_Flet/README.md` provides a four-step Mac-first camera check, expandable
@@ -557,10 +606,10 @@ temporary review artifacts only. No additional OCR or physical action.
 
 ## Repository and hardware baseline
 
-- Current Step 4 implementation review base: `f14e46c`, branch main; Steps 1–3
-  were published there after workflow `b071752`, roadmap/activity `eb88729` and
-  Level/optional-controls/launcher/recorder `e95d707`. Accepted Step 4 publication
-  is explicitly authorized and included in the commit carrying this handoff.
+- Current publication base: `d2f7569`, branch main, already on origin/main before
+  this update. Step 15 was published in `bb25dce`; earlier accepted milestone
+  revisions remain listed above. This publication includes only the reviewed
+  remaining GUI/SENSE integration changes and this handoff, not local data/XML.
 - Original integration Phases 1–6 plus 3A were accepted offline, ending `15dabbd`.
   Monitor localization/shared analysis/stability are `27b085e`, `99f9aea`,
   `6ecdcc2`; Step 5 validation is `cf10c81`. Preserve these foundations; they do
@@ -572,10 +621,13 @@ temporary review artifacts only. No additional OCR or physical action.
   JPEG publication defaults to 10 FPS. Actual selected mode/cadence need checking.
 - Camera HTTP acquisition/reception has worked on hardware. Last known Pi URL:
   `http://192.168.1.210:8080/frame.jpg`; last known PC address `192.168.1.133`.
-  Root PC/Pi YAML still references Pi .100 and PC UDP port 50; TapperWare's local
-  YAML uses .210/port 50. Verify deployed IP/ports; do not silently change them.
-- Physical vision calibration, independently measured offsets, UDP robot trials
-  and successful vision-guided presses are not established by existing evidence.
+  Saved GUI JSON: Mac `.133:2001`, ID 48059; Pi `.210:2000`, ID 43690;
+  coded XY bounds 380 x 470 mm and timeout 60 s. Root Pi YAML was updated in
+  `d2f7569`; the old PC YAML is not the GUI's communication source. Local JSON
+  and calibration remain ignored; preserve/back them up separately.
+- User reports successful connection, robot initialization and accurate live
+  Key 1/Key 4 presses. Independent mm measurements, wider physical coverage,
+  repeatable placement and Z/contact/stop behavior remain unverified.
 
 ## Architecture and code to inspect
 
@@ -672,19 +724,20 @@ bypasses the old bad-anchor stabilizer; no blanket claim of zero jitter.
   KEY_1=[100,300], different spacing/axis direction, default 200 ms. Do not mix them.
 - Legacy executable calibration still uses the old file/right Driver ID keypad.
   Step 10 adds a separate intended-reference SENSE offline fit/inspection schema
-  and CLI; neither recorded candidate meets 3 mm or enables action support. Physical
+  and CLI; neither recorded candidate meets 3 mm or enables normal action support. Physical
   coverage, source/tool convention and direct-support validation still need work;
   a file-path change or typed verification flag cannot enable other controls.
 - Reuse planar homography; compare simpler affine fit against independent mm error.
   Need actual matched points distributed across the plane, held-out validation,
   reference/origin/panel/tool conventions and a measured acceptance tolerance.
   Do not apply the GUI Y offset again if already included in calibrated absolute XY.
-- Steps 12–13 provide offline guided fitting and independently bounded right-button
-  commissioning moves. Step 14 adds fake-only presses/box-16 holds and unverified
-  box-14/16 XY inspection. Rejected fits authorize none of those actions. Installed-
-  camera commissioning, physical accuracy/coverage/alignment and general left-region
-  movement remain pending; unverified fits never authorize ordinary physical moves,
-  and physical vision pressing remains locked. Simulation is not verification.
+- Steps 12–13 provide guided fitting and independently bounded right-button
+  commissioning moves. Step 14's fake-only presses/holds remain the simulation
+  baseline; the current office short-press exception is described at the top.
+  The saved rejected homography is reused only through that explicitly experimental
+  route; normal calibration gates and model flags are unchanged. Full physical
+  coverage, left geometry, setup repeatability and box-14/16 action validation remain
+  pending. Simulation is not verification; physical five-second holds stay disabled.
 - Review homing, measured limits, Z retraction/contact and physical stop first.
   Known slave concerns include contact success reporting and Z step accounting.
   Position feedback is internally calculated, not independent alignment evidence.
@@ -699,10 +752,13 @@ proof of concept; accuracy and physical validation remain pending. Step 11 is no
 accepted offline and published with reviewed Step 10/Flet dependencies. Step 12
 is accepted offline and published in `d78153a`; Step 13 in `806e532`. Step 14 is
 accepted for now offline (2026-11-02), retaining all restrictions and warnings above,
-and published in `68196f6`. Step 15's documentation is accepted with commit/push
-authorized (2026-11-02). Further accuracy/performance work, additional left-region
-actions and Step 16 require separate authorization. Do not start Step 16 from
-this publication approval.
+and published in `68196f6`. Step 15's documentation was published in `bb25dce`.
+On 2026-11-04 the user authorized updating this handoff and committing/pushing the
+implemented office GUI/experimental mapping changes, accepting their current limits
+while deferring the left-region hardware test. This does not validate that geometry
+or authorize automatic marker/reference alignment, return-home changes, extra action
+types, detection/performance work or Step 16. Await the user's next office feedback
+and an explicit request before starting another implementation.
 Detection speed remains an open limitation. Step 8 still awaits new raw footage
 and acceptance. POC acceptance does not validate a calibration or authorize actions.
 Continue one requested step at a time; do not infer next-step permission from
@@ -713,8 +769,8 @@ local deployment data and the legacy general copy. TapperWare source/reference/
 requirements and useful example XML are now eligible for version control; they
 were previously entirely ignored and still require deliberate staging/review.
 Ignored tests stay locally available; already tracked tests are not untracked.
-The roadmap rewrite itself deleted/moved no source files and changed no runtime;
-the separately accepted activity update above extends detection/output/action guards.
-No camera/UDP/motor calls were performed.
-Documentation paths, all 16 step numbers and representative ignore rules checked;
-152 runtime/support files remain hash-identical. `git diff --check` passes.
+Historical roadmap rewrite checks: no source files were deleted/moved, no runtime
+was changed and no camera/UDP/motor calls were performed during that rewrite.
+Documentation paths, all 16 step numbers and representative ignore rules were
+checked; its 152 runtime/support files were hash-identical. Later implementation
+and hardware observations are recorded in their own milestones above.
