@@ -14,6 +14,8 @@ from dmi_robot_common.command_validation import validate_command
 from dmi_robot_master.integration.action_transport import FakeTransport, RobotLink
 from dmi_robot_master.integration.calibration import read_json
 
+MANUAL_STEP_MM = 5
+
 HOMING_CHECKS = ('xy_limits_verified', 'z_retracted', 'stop_mechanism_available',
                  'homing_area_clear', 'origin_and_mount_verified')
 
@@ -64,8 +66,9 @@ class RobotSettings:
 class RobotSession:
     """Serialized bounded transactions. ACK is connection evidence, not readiness.
 
-    Vision-selected pressing awaits its later guarded interface. The existing
-    static-coordinate XML workflow requires its explicit legacy mode and homing.
+    Live single-button testing requires a valid current calibrated target,
+    movement limits and explicit readiness confirmation. Static-coordinate XML
+    requires its separate explicit legacy mode and homing.
     """
     def __init__(self, settings: RobotSettings, *, simulation=False, transport_factory=None):
         if type(simulation) is not bool:
@@ -177,12 +180,48 @@ class RobotSession:
         with self._exclusive():
             if self._link is None:
                 raise RuntimeError('Connect first')
-            xy = self._check(DmiMessages.GET_CURRENT_POSITION)
-            if any(type(v) is not int or not 0 <= v < limit for v, limit in zip(xy, self.settings.xy_limits_mm)):
-                self._invalidate('fault', 'INVALID_POSITION')
-                self._close()
-                raise ValueError('Controller position is outside configured XY bounds')
+            xy = self._checked_position()
             return {'xy_mm': xy, 'independent_measurement': False, 'simulation': self.simulation}
+
+    def jog(self, axis, direction, *, operator_confirmed=False, checks=None):
+        """One operator-requested 5 mm XY step, Z=0; no queue/retry/return."""
+        from dmi_robot_master.integration.move_only import MOVE_CHECKS
+        with self._exclusive():
+            if (axis not in ('x', 'y') or type(direction) is not int or direction not in (-1, 1)):
+                raise ValueError('Select X or Y and one positive/negative 5 mm step')
+            if (operator_confirmed is not True or not isinstance(checks, dict)
+                    or any(checks.get(key) is not True for key in MOVE_CHECKS)
+                    or any(self._state.get('operator_checks', {}).get(key) is not True for key in HOMING_CHECKS)):
+                raise ValueError('Confirm retraction, clear path, starting position, limits and physical stop')
+            if self._link is None or not self._state['homed'] or self._legacy:
+                raise ValueError('Connect/home the shared owner and leave legacy XML mode first')
+            self._check(DmiMessages.ACK)
+            start = self._checked_position()
+            target = list(start)
+            target[0 if axis == 'x' else 1] += direction * MANUAL_STEP_MM
+            # Reject a full step outside travel; never silently clamp its distance.
+            validate_command(DmiMessages.MOVE, [*target, 0], self.settings.xy_limits_mm)
+            try:
+                if not self._link.move(*target):
+                    raise RuntimeError(self._link.response or 'MOVE_FAILED')
+            except Exception as exc:
+                self._invalidate('fault', self._link.response or str(exc)); self._close()
+                raise
+            response = self._link.response
+            self._state = {**self._state, 'response': response, 'last_response_at': time.monotonic()}
+            reported = self._checked_position()
+            return {'command': 'MOVE', 'start_xy_mm': list(start), 'command_xy_mm': target,
+                    'xy_mm': list(reported), 'requested_z_mm': 0, 'response': response,
+                    'step_mm': MANUAL_STEP_MM, 'independent_measurement': False,
+                    'simulation': isinstance(self._link.transport, FakeTransport)}
+
+    def _checked_position(self):
+        xy = self._check(DmiMessages.GET_CURRENT_POSITION)
+        if (not isinstance(xy, (tuple, list)) or len(xy) != 2
+                or any(type(v) is not int or not 0 <= v < limit for v, limit in zip(xy, self.settings.xy_limits_mm))):
+            self._invalidate('fault', 'INVALID_POSITION'); self._close()
+            raise ValueError('Controller position is outside configured XY bounds')
+        return xy
 
     def legacy_action(self, name: str, args: tuple) -> bool:
         with self._exclusive():
@@ -248,8 +287,61 @@ class RobotSession:
         with self._exclusive():
             self._legacy = False
 
+    def prepare_physical_press(self, observer, selection, envelope_path):
+        from dmi_robot_master.integration.move_only import prepare_move
+        from dmi_robot_master.integration.physical_press import PhysicalPressPlan
+        from dmi_robot_master.integration.recorded_test import RecordedTestProjector, prepare_recorded_press
+        with self._exclusive():
+            if (self.simulation or self._link is None or not self._state['homed'] or self._legacy):
+                raise ValueError('Connect/home the hardware owner and leave legacy XML mode first')
+            if type(observer.projector) is RecordedTestProjector:
+                return prepare_recorded_press(observer, selection, origin_epoch=self._state['origin_epoch'],
+                                              limits=self.settings.xy_limits_mm)
+            target = prepare_move(observer, selection, envelope_path,
+                origin_epoch=self._state['origin_epoch'], limits=self.settings.xy_limits_mm, simulation=False)
+            return PhysicalPressPlan(target)
+
+    def press_physical_once(self, plan, observer, *, operator_confirmed, checks):
+        """One commissioned right-button click; no file/model is promoted."""
+        from dmi_robot_master.integration.physical_press import PhysicalPressPlan, PHYSICAL_PRESS_CHECKS
+        from dmi_robot_master.integration.recorded_test import RecordedPressPlan
+        with self._exclusive():
+            if (self.simulation or self._link is None or not self._state['homed'] or self._legacy
+                    or type(plan) not in (PhysicalPressPlan, RecordedPressPlan)):
+                raise ValueError('No initialized hardware owner for this physical press')
+            created_at = plan.created_at if type(plan) is RecordedPressPlan else plan.target.created_at
+            if created_at <= self._last_press_created_at:
+                raise ValueError('Physical press intent already consumed or superseded')
+            # Every confirmation attempt consumes its intent, even if a guard fails.
+            self._last_press_created_at = created_at
+            if (operator_confirmed is not True or not isinstance(checks, dict)
+                    or any(checks.get(k) is not True for k in PHYSICAL_PRESS_CHECKS)
+                    or any(self._state.get('operator_checks', {}).get(k) is not True for k in HOMING_CHECKS)):
+                raise ValueError('Confirm one physical press and all robot readiness checks')
+            plan.resolve(observer, origin_epoch=self._state['origin_epoch'], limits=self.settings.xy_limits_mm)
+            self._check(DmiMessages.ACK)
+            position = self._check(DmiMessages.GET_CURRENT_POSITION)
+            if (len(position) != 2 or any(type(v) is not int or not 0 <= v < lim
+                                         for v,lim in zip(position,self.settings.xy_limits_mm))):
+                self._invalidate('fault', 'INVALID_POSITION'); self._close()
+                raise ValueError('Invalid controller position before physical press')
+            xy = plan.resolve(observer, origin_epoch=self._state['origin_epoch'],
+                limits=self.settings.xy_limits_mm, position=position)
+            try:
+                if not self._link.press(*xy, plan.duration_ms):
+                    raise RuntimeError(self._link.response or 'PRESS_FAILED')
+            except Exception as exc:
+                self._invalidate('fault', self._link.response or str(exc)); self._close()
+                raise
+            done = time.monotonic()
+            self._state = {**self._state, 'response': self._link.response, 'last_response_at': done}
+            return {**plan.preview(), 'command': 'MOVE_AND_CLICK', 'response': self._link.response,
+                    'simulation': isinstance(self._link.transport, FakeTransport),
+                    'done_at_monotonic': done, 'physical_contact_verified': False,
+                    'ui_outcome': 'unconfirmed', 'verification_reason': 'DONE is protocol completion; inspect new DMI observations. No retry.'}
+
     def press_once(self, plan, observer, *, operator_confirmed: bool, checks: dict) -> dict:
-        """One fake MOVE_AND_CLICK; physical vision pressing stays disabled."""
+        """Simulation entry point; physical commissioning uses its separate guard."""
         from dmi_robot_master.integration.actions import check_hardware_readiness, SessionMode
         from dmi_robot_master.integration.pressing import PRESS_CHECKS, PressPlan
         with self._exclusive():
