@@ -23,7 +23,8 @@ class FakeRobot:
         self.calls.append(('move', x_mm, y_mm, z))
         return self.success
 
-    def click(self, x_mm: int, y_mm: int, duration_ms: int) -> bool:
+    def click(self, x_mm: int, y_mm: int, duration_ms: int, x_y_return_to_zero: bool = False) -> bool:
+        self.return_after_click = x_y_return_to_zero
         self.calls.append(('press', x_mm, y_mm, duration_ms))
         return self.success
 

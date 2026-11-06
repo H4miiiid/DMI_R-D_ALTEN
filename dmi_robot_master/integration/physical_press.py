@@ -9,7 +9,7 @@ from dataclasses import dataclass
 from dmi_robot_master.integration.move_only import MOVE_CHECKS, MovePlan
 
 PHYSICAL_PRESS_CHECKS = MOVE_CHECKS + ('contact_sensing_checked', 'contact_routine_reviewed')
-PRESS_DURATION_MS = 100
+PRESS_DURATION_MS = 300
 
 
 @dataclass(frozen=True)

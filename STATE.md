@@ -1,10 +1,16 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-04. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-11-06. Read `AGENTS.md` for the new numbered roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
+
+Latest office follow-up: experimental one-click pressing and the camera-before-
+homing mapping fix are implemented and checked offline; the latest hardware retest
+has not been reported. See the office follow-up below and
+`runs/experimental_one_click/` (source `457057bf1847`). This handoff update does not
+mark that retest passed or authorize publication or another implementation step.
 
 AGENTS Steps 1–7, the reusable SENSE optimization and Step 8.A are accepted
 offline/recorded-camera. Step 9's reference audit is also accepted (2026-10-28);
@@ -29,17 +35,34 @@ path; left presses additionally require registered left corners within 4 px of
 the saved geometry. The prior office frame has a 20.24 px residual and would still
 block left pressing. The user defers that test until robot access is available.
 Ordinary calibration/coverage checks remain unchanged; fields, icon boxes, TWIN,
-physical five-second holds and automatic retries/returns are not enabled by this
-exception. General physical vision movement remains unavailable.
+physical five-second holds and automatic retries are not enabled by this
+exception. Issue 3 below adds the user-approved return within a completed press.
+General physical vision movement remains unavailable.
 Step 8.A was published in `d360176`. Steps 1–3 were published in `f14e46c`,
 Step 4 in `0d26bd9`, Step 5 plus optimization in `0360b7b`, Step 6 in `bc727bd`
 and Step 7 in `c07ecdc`.
 Step 8 remains unaccepted: its offline checks pass, but required raw transition/
 TRN footage and hardware are unavailable. The user deferred those checks while
 independent Step 8.A was implemented. Resume Step 8 when new raw footage arrives.
-Next: the user's office test of left-region geometry and additional button
-locations; investigate failures only when requested. Detection speed, full-surface
-accuracy, contact/retraction/stop behavior and setup repeatability remain open.
+Hardware feedback Issue 2 is completed and accepted offline (2026-11-04): shared
+stable live preview for SENSE/TWIN, with independent fresh robot observations.
+Issue 3's original software was accepted offline (2026-11-05); a later Pi test
+returned ERROR after Z retracted, and physical return validation remains unresolved.
+The current local post-press check differs from its accepted version, as noted below.
+Issue 4 is completed and accepted offline
+(2026-11-05): read-only OCR field values beneath the preview. Issue 1 remains
+deferred. Issue 5 is completed and accepted offline (2026-11-05): rounded GUI
+coordinates and a display-only 2 mm live XY deadband. Issues 2–5 retain their
+office-validation limits; no commit/push is authorized. The user withdrew the new
+pre-initialization nudge extension (2026-11-05) to retain the existing raw-step
+workflow. Its GUI/API/UDP additions and X-helper changes have been removed.
+The original `_x_movement()` and commented manual test loop remain as provided;
+the GUI's existing 5 mm controls still require initialization. The extension was
+never accepted; `runs/prehome_x_nudge/` now records its withdrawal verification.
+Office checks of live preview, left-region geometry and additional button locations
+remain pending independently; the user reports fixing GUI flashing with gapless
+image playback. Detection speed, full-surface accuracy, contact/retraction/stop
+behavior and setup repeatability remain open.
 Automatic marker-based setup correction and per-session reference alignment were
 discussed only; the user explicitly deferred implementation. No new calibration
 method, marker detection or setup automation is authorized by this publication.
@@ -63,6 +86,9 @@ detections. Upcoming detection work targets SENSE only; leave TWIN code, tuning,
 pipeline behavior and outputs unchanged. Shared-module edits must be SENSE-only;
 TWIN checks are regressions, not a tuning/fix task. Existing limitations remain
 documented, and physical TWIN calibration/pressing validation is still deferred.
+Issue 2 exception (2026-11-04): the user authorized the shared GUI preview for
+TWIN as well as SENSE. This changes presentation only; TWIN detection, tuning,
+structured results and robot-coordinate/action logic retain their baseline.
 
 Accepted evidence entry point — `runs/accepted/` (curated 2026-10-26 at the
 user's request): `step01_level_accuracy`, `step02_level_speed`,
@@ -85,6 +111,132 @@ The workflow files (AGENTS.md, `.codex/config.toml` and both reviewer TOMLs) are
 included in `b071752`; models and concurrency are unchanged. Workflow approval
 itself did not authorize runtime work or hardware operations.
 
+Hardware feedback Issue 2 — completed; software accepted (2026-11-04).
+One `LivePreviewState` serves SENSE and TWIN in the existing Flet render worker:
+fresh camera backgrounds, the existing four-native-pixel display deadband, and
+button/title retention through at most two missed updates and 1.5 s from their
+last observation. Context/content changes, expiry and Stop invalidate history;
+independently measured regions remain available without inventing a partner.
+Robot targets still use current unmodified detections and direct evidence.
+`TWINS / inferiore` supports observation only, without SENSE calibration or pressing.
+Accepted evidence: `runs/issue02_preview_flicker_investigation/`, source fingerprint
+`932a1f879111` (immutable pre-acceptance snapshot); inspect `annotated.mp4` and
+`twin_preview.png`. Checks: 690 integration/vision passes plus 330 subtests;
+69 focused passes; GUI 107 passes with the same three historical fixture failures.
+Recorded validation covers all 25 native SENSE validation frames plus three cold
+TWIN samples and explicitly simulated misses. TWIN decoding yielded 233 frames
+against 263 reported by its container; no full TWIN-video validation is claimed.
+The user explicitly waived further subagent review; no final independent verdicts
+are asserted for this shared version. Native GUI/live-camera smoothness and physical
+behavior remain unverified. Tests/evidence remain local and ignored. Acceptance
+does not authorize commit/push, Issue 3 or any other next step.
+
+Hardware feedback Issue 3 — completed; software accepted (2026-11-05).
+The Pi receiver requests the existing `click(..., x_y_return_to_zero=True)`:
+contact, short hold, sensor-confirmed Z retraction, XY return to absolute `(0, 0)`,
+then DONE. Missing contact/retraction or incomplete XY motion yields ERROR without
+an automatic retry; failed contact/retraction does not start the XY return.
+The existing owner/GUI stays busy until completion. One Z contact-overtravel pulse
+is now counted as one step instead of 200; ordinary target/freshness/calibration
+guards remain unchanged, and the physical press also checks home/return distance
+against its declared bounds. This affects every receiver MOVE_AND_CLICK, including
+legacy XML presses; direct Python callers retain the optional return flag.
+Accepted evidence: `runs/issue03_return_home/`, source `f9b9fd4cd474` (immutable
+pre-acceptance snapshot); `results.jsonl` contains fake command traces. Checks:
+432 integration passes plus 153 subtests; 106 focused passes plus 19 subtests;
+GUI 107 passes with the same three historical fixture failures. The final two
+fake-Z pulse cases ran in the focused suite after the integration run, with the
+same production code. No subagents were invoked at the user's request; no
+independent reviewer verdict is claimed. Both Pi files must be updated and the
+idle receiver restarted before this behavior is available. Physical contact,
+retraction, origin accuracy, return and stop remain unverified; GUI Stop still
+cannot interrupt blocking motor code. Tests/evidence remain locally available
+under the existing ignore policy. No commit/push was authorized or performed.
+
+Hardware feedback Issue 4 — completed; software accepted (2026-11-05).
+One read-only OCR field-values section below the preview reuses existing compact
+field names and recognized values for SENSE/TWIN. Current direct field/state/
+visibility/value/center agreement is required; unreadable or unconfirmed reads,
+missing fields and expiry are explicit. Stop and screen/session changes remove
+old text. No extra OCR, detector, calibration or robot-target changes were made;
+previous titles/buttons-only exclusions and absent left-summary extraction remain.
+Accepted evidence: `runs/issue04_ocr_fields/`, source `ac974f48b3c2` (immutable
+pre-acceptance snapshot); `results.jsonl` contains three native cold readouts
+(SENSE Level 1, validation Yes, TWIN Driver ID 12) and seven headless Flet display
+states. Checks: 34 focused passes; 454 integration passes plus 153 subtests;
+GUI 110 passes with the same three historical fixture failures. The first broad
+run hit the existing 1.5-s move-only freshness expiry during overlapping checks;
+the isolated test and full rerun passed without changing limits. No subagents
+were invoked at the user's request; no independent verdict is claimed. Native
+GUI/live-camera readability remains unverified. Tests/evidence remain local and
+ignored. Acceptance authorizes no commit/push or additional recognition work.
+
+Hardware feedback Issue 5 — completed; software accepted (2026-11-05).
+GUI pixels use whole numbers and millimeter estimates one decimal. The selected
+live XY readout holds an independent unrounded pair until either axis changes by
+at least 2 mm from its last displayed baseline, then updates both axes. Target,
+screen/session and calibration identity/provenance changes, loss/expiry, Stop and
+unavailable mapping reset it. Current pixels remain independent of the mm hold.
+Live details share the baseline; action dialogs use current coordinates. Stored
+calibration points and robot plans/payloads keep their precision and validation.
+Accepted evidence: `runs/issue05_display_coordinates/`, source `0ddfa8b9ba1c`
+(immutable pre-acceptance snapshot); eight headless Flet cases in `results.jsonl`
+include cumulative jitter, threshold crossing, same-capture calibration change,
+fresh fake motion despite held display, expiry and Stop. Checks: 50 focused passes;
+454 integration passes plus 153 subtests; GUI 129 passes with the same three
+historical fixture failures. The GUI calibration test also verifies precise
+collected pixels/mm are unchanged. No subagents were invoked at the user's request;
+no independent reviewer verdict is claimed. Native GUI/live-camera readability
+remains an office check. Tests/evidence remain local and ignored. No commit/push
+was authorized or performed.
+
+Office follow-up — current implementation; hardware confirmation pending
+(recorded 2026-11-06).
+Both Flet preview images now use `gapless_playback=True`. The user reported a
+stable browser image but flashing raw/annotated GUI previews; reducing JPEG
+publication to 20/10 FPS did not help, and the user reported fixing the GUI issue.
+No camera exposure, capture-rate or TCP/HTTP changes were made for this fix.
+
+The experimental SENSE button now uses one click as the operator's confirmation,
+without another dialog. Selection persists through missed updates and temporary
+unknown/stale display state while the camera/session identity remains compatible.
+An available button requests validation; it is not a promise of motion. The backend
+resolves precise direct coordinates again after the controller-position query,
+preferring the newest detection and permitting at most two missed updates within
+the original 1.5-s evidence lifetime. Cached annotations/rounded GUI XY never
+authorize pressing. Missing/expired evidence, inactive/uncertain controls, changed
+screen/geometry/source, invalid mapping/origin or robot state still block dispatch;
+busy actions block duplicate clicks, with no queue or automatic retry. Ordinary
+calibrated pressing keeps its confirmation and calibration/envelope checks.
+
+The user's disabled-button screenshot showed the ordinary label and unavailable XY.
+Offline reproduction found that homing after camera start invalidated XY and lost
+the experimental mode in the GUI. Mode identity now persists through invalidation;
+successful operator-confirmed initialization rebinds only the experimental
+projector to the new origin and requires a newly captured detection before reuse. It preserves the
+camera geometry anchor; custom calibrations remain invalidated. The actual office
+calibration-status reply and post-fix hardware result are still unavailable.
+
+Current evidence: `runs/experimental_one_click/summary.json` and `results.jsonl`,
+source `457057bf1847` (supersedes the unaccepted `510df727451e` candidate). Eight
+synthetic/headless cases record actual fake command traces, misses, coordinate
+changes before dispatch and camera-before-homing recovery; no live devices were
+opened. Checks: 94 focused passes; full GUI 132 passes with four existing failures
+(one ordinary 100/300-ms expectation mismatch and three legacy runtime fixtures).
+Earlier broad-run results/timing-test rerun remain explicit in the summary.
+No subagents were used under the user's continuing waiver; no independent PASS
+is claimed. No Pi update is needed for these PC changes; tests/evidence are local
+and ignored. Native GUI and physical pressing/return checks remain pending.
+
+Current local variants must not be confused with the accepted Issue 3 snapshot:
+ordinary `physical_press.PRESS_DURATION_MS` is 300, while experimental pressing and
+its label remain 100 ms; ordinary GUI labels still say 100 ms. Pi `_z_click()`
+still attempts retraction in `finally`, but now returns `clicked` rather than
+`clicked and retracted`, so its post-press result no longer confirms retraction
+before XY return. The initial Z guard remains. This variant has not received new
+physical validation; the accepted Issue 3 evidence is unchanged and does not
+validate this altered post-press check. This documentation update changes no runtime.
+
 Office GUI and experimental pressing — accepted for now; commit/push authorized
 (2026-11-04), with left hardware validation explicitly deferred by the user.
 The existing GUI now prioritizes camera/detected-button inspection, searchable
@@ -93,8 +245,9 @@ remain expandable. The initialization button's oversized layout was corrected.
 Blank robot configuration uses durable ignored `dmi_robot_config/local/gui_robot.json`;
 custom overrides and Demo/fake behavior remain separate. Manual X/Y controls send
 one 5 mm Z=0 move per click after connection/homing/readiness, using the same owner
-and configured travel bounds. Pre-homing jog is not implemented: the existing Pi
-conversion requires sensor scaling. No motor rewrite is included.
+and configured travel bounds. Pre-homing jogging is not exposed in the GUI;
+existing raw-step helpers/manual test code remain separate. Millimeter conversion
+still requires sensor scaling. No motor rewrite is included.
 Hardware SENSE HTTP observation with blank custom calibration fields reuses
 `dmi_robot_config/local/step10_sense_offline/driver03.candidate.json` without changing
 its matrix, keypad reference data, rejection flags or 4.76 mm recorded error.
@@ -121,7 +274,8 @@ hash-identical to the prior 272-pass/177-subtest vision run. Compilation and dif
 checks pass; offline GUI events distinguish physical from simulated press labels.
 No live robot commands were sent by the agent. An attempted read-only camera
 snapshot timed out; no new physical validation was obtained. Automatic setup
-correction, physical holds and return-home changes remain unimplemented.
+correction and physical holds remain unimplemented. Return-home changes were
+unimplemented at that milestone; see the later Issue 3 and local-variant notes.
 
 Step 15 — accepted documentation-only; commit/push authorized (2026-11-02).
 `TapperWare_Flet/README.md` provides a four-step Mac-first camera check, expandable
@@ -606,10 +760,11 @@ temporary review artifacts only. No additional OCR or physical action.
 
 ## Repository and hardware baseline
 
-- Current publication base: `d2f7569`, branch main, already on origin/main before
-  this update. Step 15 was published in `bb25dce`; earlier accepted milestone
-  revisions remain listed above. This publication includes only the reviewed
-  remaining GUI/SENSE integration changes and this handoff, not local data/XML.
+- Current local HEAD: `f2597ae` on main, matching the local origin/main reference
+  (no remote query or push performed for this update). It contains the earlier
+  office GUI/SENSE pressing work; hardware integration is `d2f7569`, Step 15
+  `bb25dce`. Later feedback/follow-up changes remain uncommitted. Preserve unrelated
+  local XML/settings/calibrations; no publication is authorized for this update.
 - Original integration Phases 1–6 plus 3A were accepted offline, ending `15dabbd`.
   Monitor localization/shared analysis/stability are `27b085e`, `99f9aea`,
   `6ecdcc2`; Step 5 validation is `cf10c81`. Preserve these foundations; they do
@@ -755,10 +910,14 @@ accepted for now offline (2026-11-02), retaining all restrictions and warnings a
 and published in `68196f6`. Step 15's documentation was published in `bb25dce`.
 On 2026-11-04 the user authorized updating this handoff and committing/pushing the
 implemented office GUI/experimental mapping changes, accepting their current limits
-while deferring the left-region hardware test. This does not validate that geometry
-or authorize automatic marker/reference alignment, return-home changes, extra action
-types, detection/performance work or Step 16. Await the user's next office feedback
-and an explicit request before starting another implementation.
+while deferring the left-region hardware test. That approval alone did not validate
+that geometry or authorize automatic marker/reference alignment, return-home changes,
+extra action types, detection/performance work or Step 16; later feedback approvals
+are recorded separately above. Next: await the user's office retest of the latest
+experimental button/mapping recovery and unresolved contact/retraction/return case.
+If still blocked, inspect the displayed calibration/robot-state reason before
+changing another guard. No new runtime work or commit/push is authorized by this
+2026-11-06 documentation request.
 Detection speed remains an open limitation. Step 8 still awaits new raw footage
 and acceptance. POC acceptance does not validate a calibration or authorize actions.
 Continue one requested step at a time; do not infer next-step permission from

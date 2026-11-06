@@ -287,7 +287,7 @@ class RobotSession:
         with self._exclusive():
             self._legacy = False
 
-    def prepare_physical_press(self, observer, selection, envelope_path):
+    def prepare_physical_press(self, observer, selection, envelope_path, *, experimental_one_click=False):
         from dmi_robot_master.integration.move_only import prepare_move
         from dmi_robot_master.integration.physical_press import PhysicalPressPlan
         from dmi_robot_master.integration.recorded_test import RecordedTestProjector, prepare_recorded_press
@@ -296,7 +296,9 @@ class RobotSession:
                 raise ValueError('Connect/home the hardware owner and leave legacy XML mode first')
             if type(observer.projector) is RecordedTestProjector:
                 return prepare_recorded_press(observer, selection, origin_epoch=self._state['origin_epoch'],
-                                              limits=self.settings.xy_limits_mm)
+                                              limits=self.settings.xy_limits_mm, one_click=experimental_one_click)
+            if experimental_one_click:
+                raise ValueError('One-click testing requires the experimental SENSE mapping')
             target = prepare_move(observer, selection, envelope_path,
                 origin_epoch=self._state['origin_epoch'], limits=self.settings.xy_limits_mm, simulation=False)
             return PhysicalPressPlan(target)
@@ -325,8 +327,21 @@ class RobotSession:
                                          for v,lim in zip(position,self.settings.xy_limits_mm))):
                 self._invalidate('fault', 'INVALID_POSITION'); self._close()
                 raise ValueError('Invalid controller position before physical press')
-            xy = plan.resolve(observer, origin_epoch=self._state['origin_epoch'],
-                limits=self.settings.xy_limits_mm, position=position)
+            resolved = {}
+            if type(plan) is RecordedPressPlan and plan.one_click:
+                xy, sample = plan.resolve(observer, origin_epoch=self._state['origin_epoch'],
+                    limits=self.settings.xy_limits_mm, position=position, with_sample=True)
+                resolved = {'pixel': list(sample['target']['pixel']),
+                    'predicted_xy_mm': list(sample['target']['mm']),
+                    'evidence_capture_index': sample['capture_index'],
+                    'missed_detection_updates': sample.get('missed_updates', 0)}
+            else:
+                xy = plan.resolve(observer, origin_epoch=self._state['origin_epoch'],
+                    limits=self.settings.xy_limits_mm, position=position)
+            envelope = plan.preview()['independent_envelope']
+            if (any(not lo <= 0 <= hi for lo, hi in zip(envelope['minimum_xy_mm'], envelope['maximum_xy_mm']))
+                    or math.hypot(*xy) > envelope['maximum_move_mm']):
+                raise ValueError('Home or return distance exceeds the confirmed movement limits')
             try:
                 if not self._link.press(*xy, plan.duration_ms):
                     raise RuntimeError(self._link.response or 'PRESS_FAILED')
@@ -335,7 +350,8 @@ class RobotSession:
                 raise
             done = time.monotonic()
             self._state = {**self._state, 'response': self._link.response, 'last_response_at': done}
-            return {**plan.preview(), 'command': 'MOVE_AND_CLICK', 'response': self._link.response,
+            return {**plan.preview(), **resolved, 'command_xy_mm': list(xy),
+                    'command': 'MOVE_AND_CLICK', 'response': self._link.response,
                     'simulation': isinstance(self._link.transport, FakeTransport),
                     'done_at_monotonic': done, 'physical_contact_verified': False,
                     'ui_outcome': 'unconfirmed', 'verification_reason': 'DONE is protocol completion; inspect new DMI observations. No retry.'}

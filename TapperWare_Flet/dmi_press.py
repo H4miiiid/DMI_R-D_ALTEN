@@ -1,5 +1,6 @@
 """One explicitly confirmed simulated press/hold; physical pressing is locked."""
 import flet as ft
+from dmi_target import format_pixels, format_mm
 
 
 class PressControls:
@@ -84,8 +85,8 @@ class PressControls:
         checks = [ft.Checkbox(label=text,value=False) for text in labels]
         notice = ft.Text('Solo trasporto simulato. Queste dichiarazioni non abilitano hardware fisico.',size=12)
         bounds = intent['independent_envelope']
-        details = (f"{intent['selection'][1:]} · px {intent['pixel']}\n"
-            f"XY stimato {intent['predicted_xy_mm']} mm · comando {intent['command_xy_mm']}\n"
+        details = (f"{intent['selection'][1:]} · px {format_pixels(intent['pixel'])}\n"
+            f"XY stimato {format_mm(intent['predicted_xy_mm'])} mm · comando {intent['command_xy_mm']}\n"
             f"MOVE_AND_CLICK · {intent['duration_ms']} ms · modalità {intent['mode_identity'] or 'pulsante'}\n"
             f"Limiti {bounds['minimum_xy_mm']} → {bounds['maximum_xy_mm']} mm; distanza ≤{bounds['maximum_move_mm']} mm\n"
             'Calibrazione non verificata fisicamente. DONE non prova contatto o conferma DMI.')

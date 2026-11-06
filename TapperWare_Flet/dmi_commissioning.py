@@ -3,6 +3,7 @@ from pathlib import Path
 import asyncio
 
 import flet as ft
+from dmi_target import format_pixels, format_mm
 
 
 class ConnectionControls:
@@ -173,7 +174,7 @@ class CalibrationControls:
             self.confirm.value = False
         self._identity = identity
         targets = {k:v for k,v in projection['targets'].items() if v['kind'] in ('button','field')} if projection else {}
-        self.target.options = [ft.DropdownOption(k,f"{k} · px {v['pixel']}") for k,v in targets.items()]
+        self.target.options = [ft.DropdownOption(k,f"{k} · px {format_pixels(v['pixel'])}") for k,v in targets.items()]
         if self.target.value not in targets:
             self.target.value = None
             self.confirm.value = False
@@ -208,7 +209,7 @@ class CalibrationControls:
             self.message.value = f'Raccolta {len(draft.points())} punti · nessun fit corrente · azioni disabilitate'
         for index,point in enumerate(draft.points()):
             key = str(tuple(point[k] for k in ('screen','display','kind','label')))
-            text = f"{point['role']} · {point['screen']} / {point['label']} · px {point['pixel']} → {point['mm']} mm"
+            text = f"{point['role']} · {point['screen']} / {point['label']} · px {format_pixels(point['pixel'])} → {format_mm(point['mm'])} mm"
             if document:
                 for name,model in document['models'].items():
                     errors = model['leave_one_control_out_mm'] if point['role']=='fit' else model['held_out_control_error_mm']

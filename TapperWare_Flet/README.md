@@ -2,6 +2,24 @@
 
 ## Using the camera → key → robot view
 
+### Shared live preview for SENSE and TWIN
+
+Select **SENSE TOUCHSCREEN / superiore** or **TWINS / inferiore**, then start the
+chosen camera or recording. Both use the same live overlay: up to two missed
+button/title updates, at most 1.5 seconds from the last observation, with the
+existing four-pixel display deadband. Changed or lost geometry clears the affected
+region; Stop clears the preview. Display history never authorizes robot actions.
+TWIN viewing is observation-only: leave calibration/context fields empty. SENSE
+calibration and experimental pressing are not loaded for the TWIN profile.
+
+Displayed camera coordinates use whole pixels; millimeter estimates use one
+decimal. The selected live XY readout holds its last displayed pair until either
+axis differs by at least 2 mm from that baseline, then shows the current pair.
+Target, screen/session or calibration changes, loss/expiry, Stop and unavailable
+mapping reset the baseline. Pixel readouts stay current; without mm mapping only
+pixel rounding applies. Action dialogs show current coordinates without this hold.
+Calibration data and robot commands keep their original precision and validation.
+
 ### Manual movement: 5 mm per click
 
 After **Connetti / ACK** and **Initialize robot · sensor homing**, use the visible
@@ -17,8 +35,10 @@ no movement is queued, retried or followed by an automatic return. Reported XY i
 read again after completion and is internally calculated, not physical metrology.
 **Read controller XY** is also available without moving. Camera/calibration are not
 required for manual movement; they remain required for vision-guided actions.
-Pre-initialization jogging is not supported: the existing Pi conversion needs
-the sensor-based travel scaling established during homing.
+The GUI's 5 mm controls require the sensor-based travel scaling established by
+initialization. Pre-initialization raw-step movement remains in the original Pi
+helpers and commented manual test loop, separate from the GUI. The additional
+nudge method, GUI mode and protocol command were withdrawn and removed.
 
 A new connection/origin, reinitialization or communication failure clears manual
 readiness. A failure requires checking the setup and reconnecting/initializing as
@@ -28,6 +48,13 @@ verification. No Pi code update is needed for this panel; it uses the existing M
 and position commands.
 
 ### Current office test: reuse the recorded homography
+
+**OCR field values** appears below the camera preview for both SENSE and TWIN.
+It displays the existing recognized input field name/value, without extra OCR or
+robot connection. Missing fields, unreadable/unconfirmed reads and expired results
+are indicated explicitly; Stop and screen/session changes remove previous values.
+Fields excluded by the accepted detection scope remain unavailable. This section
+is read-only and does not change target coordinates or authorize robot actions.
 
 At the user's request, **Hardware / SENSE TOUCHSCREEN / superiore** can reuse the
 saved `dmi_robot_config/local/step10_sense_offline/driver03.candidate.json`
@@ -41,14 +68,28 @@ mark the model verified, change its saved rejection flags or validate physical c
 2. In **Camera and detection results**, choose **Bridge HTTP camera SENSE** and
    enter `http://192.168.1.210:8080/frame.jpg`. Leave both custom calibration fields
    empty. **Start camera** automatically loads the saved experimental homography.
-   If camera observation was started before connection/initialization, stop/start it
-   afterward so its origin binding is current.
+   If camera observation was started before connection/initialization, successful
+   homing now rebinds this experimental mapping to the new robot origin and waits
+   for a newly captured detection. Camera Stop/Start is no longer required for
+   that case. Custom calibrations still require a new matching origin/context.
 3. Select a currently detected button on either the **right or left SENSE region**,
    on any recognized screen. The GUI shows its latest native pixels and predicted robot XY, labelled
    unverified. **Experimental move and click · 100 ms** becomes available.
-4. Click it, inspect the predicted XY and accept the experimental-accuracy/readiness
-   statement. **Press once · 100 ms** sends exactly one MOVE_AND_CLICK. Observe the
-   actual DMI result yourself before another action.
+4. Inspect the predicted XY, then click **Experimental move and click · 100 ms**.
+   That click confirms readiness and sends one MOVE_AND_CLICK, without a second
+   dialog. Observe the actual DMI result yourself before another action.
+
+The experimental selection survives individual missed updates. The button stays
+available for an initialized, connected robot in the same camera/screen context;
+availability is a request to check coordinates, not proof that a press is allowed.
+On click, the backend prefers the latest direct detection and can use a button
+from the preceding two detection updates only while its original evidence is at
+most 1.5 s old. It never uses retained annotations or GUI-rounded XY. Missing or
+expired evidence produces a message without sending a press. Stop, screen/title,
+source, geometry and calibration/origin changes invalidate reuse. New direct
+coordinates are resolved again after the controller position check, immediately
+before sending. Duplicate clicks are blocked while the action is busy; nothing
+is queued or retried. Ordinary calibrated pressing keeps its confirmation dialog.
 
 The initial camera view is registered to the recording using all four currently
 measured right-region corners. Current native pixel centres are transformed into
@@ -64,7 +105,7 @@ movement-envelope file is required for this experimental path. It uses the exist
 configured robot XY limits confirmed during homing, checks the actual controller
 start and target, and bounds movement by that configured travel. Retraction, clear
 path/contact area, physical stop and contact-sensor/routine readiness still require
-operator confirmation. Controller position is internally calculated, not independent
+operator confirmation through the experimental press button itself. Controller position is internally calculated, not independent
 metrology. GUI Stop cannot interrupt blocking Pi motors.
 
 At the user's request, this experimental path uses the **same unchanged homography
@@ -85,10 +126,20 @@ next hardware test; whole-monitor operation is not physically validated.
 Fields and information/icon boxes are not short-press buttons. Buttons outside their
 measured region, separated/TWIN geometry, movement after session registration
 (>4 native pixels), wrong resolution/rotation, inactive/uncertain controls, stale or changed
-selected targets, and uninitialized/faulted robots cannot authorize a test press.
+selected identities, and uninitialized/faulted robots cannot authorize a test press.
 Direct evidence remains limited to 1.5 s; each single-use confirmation lasts 30 s.
-There is no automatic retry, return, sequence or physical five-second hold. DONE is
-protocol completion, not proof of contact or correct DMI input.
+After contact and confirmed Z retraction, `MOVE_AND_CLICK` uses the existing
+return-to-zero option before replying DONE. Keep the path back to absolute robot
+home `(0, 0)` clear and within the confirmed travel limits. The GUI stays busy
+through the return; a missing contact or failed retraction returns ERROR without
+an XY return or retry. DONE is controller completion, not independent proof of
+correct DMI input or alignment. Physical five-second holds remain disabled.
+This Issue 3 fix requires updating both `dmi_robot_rasp/DmiRobot.py` and
+`dmi_robot_rasp/DmiControllerSlave.py` on the Pi and restarting its receiver while
+idle. An older receiver will retain its old behavior. This applies to every
+`MOVE_AND_CLICK`, including legacy XML presses; their existing final park remains.
+Direct Python callers retain the existing optional return flag. Verify contact,
+Z retraction and return on hardware before relying on the new behavior.
 
 Entering a custom calibration/context uses the previous guarded calibration path,
 including its unchanged 3 mm acceptance and independent-envelope requirements.
@@ -581,7 +632,9 @@ The existing command owner checks ACK and internally calculated controller XY,
 reloads/revalidates the fit and independent bounds, checks current direct evidence
 and sends exactly one `MOVE_AND_CLICK [X,Y,100]` or `[X,Y,5000]` to fake hardware.
 Both floating/rounded destination, start point and displacement must fit the bounds.
-No retry, return motion or multi-screen sequence follows. Busy input is rejected.
+No additional command or multi-screen sequence follows. The receiver requests the
+press's built-in return-to-zero; the simple fake only records the request and does
+not simulate physical motion. Busy input is rejected.
 Cancellation retains ownership until the bounded command outcome; detection and
 rendering continue while the command and read-only verification are pending.
 The fake robot acknowledges immediately: checking a 5000 ms payload does not prove

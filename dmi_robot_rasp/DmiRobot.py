@@ -348,7 +348,7 @@ class DmiRobot:
                         sleep(velocity*5)
                         self._z_motor.write_pulse(0)
                         sleep(self._VELOCITY)
-                        eff_steps += add_step
+                        eff_steps += 1
                     break
                 elif abs(eff_steps) >= self._MAX_Z_STEPS:
                     logger.warning("Button not clicked")
@@ -392,11 +392,17 @@ class DmiRobot:
 
 
     
-    def _z_click(self, time: float, velocity: float)->None:
-        clicked = self._z_movement(numpy.inf, self._VELOCITY)
-        if clicked:
-            sleep(time)
-        self._z_movement(-self._z_steps, self._VELOCITY)        
+    def _z_click(self, time: float, velocity: float)->bool:
+        try:
+            clicked = self._z_movement(numpy.inf, velocity)
+            if clicked:
+                sleep(time)
+        finally:
+            self._z_movement(-self._z_steps, velocity)
+        retracted = self._z_sensor.contact and not self._button.pressed
+        if retracted:
+            self._z_steps = 0
+        return clicked
         
 
     def _click_in_range(self, x: int,y)->bool:
@@ -461,21 +467,29 @@ class DmiRobot:
             # 1. SICUREZZA: Assicuriamoci che la Z sia ritirata prima di partire
             if self._z_steps > 0:
                 self._z_movement(-self._z_steps, velocity)
+            if not self._z_sensor.contact or self._button.pressed:
+                logger.error("Z retraction not confirmed; no XY movement")
+                return False
+            self._z_steps = 0
 
             # 2. MOVIMENTO ANDATA
             dx_steps = self._x_millimeters_to_steps(x) - self._x_steps
             dy_steps = self._y_millimeters_to_steps(y) - self._y_steps
-            self._xy_linear_movement_steps(dx_steps, dy_steps, velocity)
+            if self._xy_linear_movement_steps(dx_steps, dy_steps, velocity) != (dx_steps, dy_steps):
+                return False
             
             # 3. ESECUZIONE CLICK (z_click include già il ritorno della Z a 0)
-            self._z_click(duration, velocity)
+            if not self._z_click(duration, velocity):
+                logger.error("Contact not confirmed; no XY return")
+                return False
             ret = True
             
             # 4. MOVIMENTO RITORNO (Sempre con Z a zero grazie a z_click)
             if x_y_return_to_zero:
                 back_dx = -self._x_steps
                 back_dy = -self._y_steps
-                self._xy_linear_movement_steps(back_dx, back_dy, velocity)
+                ret = (self._xy_linear_movement_steps(back_dx, back_dy, velocity) == (back_dx, back_dy)
+                       and self._x_steps == 0 and self._y_steps == 0)
         else:
             logger.error(f"Click out of range: ({x}, {y})")
         

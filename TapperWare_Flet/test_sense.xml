@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<sequence>
+    <command action="PRESS" target="KEY_1" />
+	<command action="PRESS" target="KEY_CONF_DRIVER" />
+	<command action="PRESS" target="LEVEL_1" />
+	<command action="PRESS" target="LEVEL_CONF" />
+	<command action="PRESS" target="TRAIN_DATA" />
+	<command action="PRESS" target="KEY_YES_1" />
+	<command action="PRESS" target="KEY_YES_2" />
+	<command action="PRESS" target="END_OF_DATA_ENTRY" />
+	<command action="PRESS" target="NBR_1" />
+	<command action="PRESS" target="KEY_CONF_TRAIN_NBR" />
+	<command action="PRESS" target="START" />
+	<command action="PRESS" target="ACK" />
+</sequence>

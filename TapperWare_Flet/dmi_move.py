@@ -1,5 +1,6 @@
 """Operator confirmation for one bounded commissioning move, without pressing."""
 import flet as ft
+from dmi_target import format_pixels, format_mm
 
 CHECK_LABELS = ('Utensile verificato fisicamente retratto; Z richiesto = 0',
                 'Traiettoria sgombra e area di lavoro controllata',
@@ -73,8 +74,8 @@ class MoveControls:
         bounds = intent['independent_envelope']
         checks = [ft.Checkbox(label=text,value=False) for text in CHECK_LABELS]
         notice = ft.Text('Conferma valida per 30 s; evidenza diretta ricontrollata entro 1,5 s al comando.',size=12)
-        details = (f"{intent['selection'][1:]} · px {intent['pixel']}\n"
-            f"XY previsto {intent['predicted_xy_mm']} mm · comando {intent['command_xy_mm']} · Z=0\n"
+        details = (f"{intent['selection'][1:]} · px {format_pixels(intent['pixel'])}\n"
+            f"XY previsto {format_mm(intent['predicted_xy_mm'])} mm · comando {intent['command_xy_mm']} · Z=0\n"
             f"Limiti {bounds['minimum_xy_mm']} → {bounds['maximum_xy_mm']} mm; "
             f"distanza massima {bounds['maximum_move_mm']} mm\n{bounds['measurement_basis']}\n"
             f"Modello {intent['calibration_id'][:12]}: errore numerico massimo "

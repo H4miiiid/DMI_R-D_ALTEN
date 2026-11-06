@@ -30,7 +30,7 @@ from dmi_activity import ExecutionActivity, motion
 from dmi_commissioning import ConnectionControls, CalibrationControls
 from dmi_move import MoveControls
 from dmi_press import PressControls
-from dmi_target import TargetInspector, target_name
+from dmi_target import TargetInspector, target_name, format_pixels, format_mm, experimental_selection
 from dmi_physical_press import PhysicalPressControls
 from dmi_manual import ManualControls
 
@@ -405,7 +405,7 @@ class DmiControlPanel:
     def build_vision(self):
         self.vision_kind = ft.Dropdown(value="recorded_replay" if self.is_demo else "remote_bridge", label="Camera source",
             options=[ft.DropdownOption("recorded_replay", "Registrazione offline"),
-                     ft.DropdownOption("remote_bridge", "Bridge HTTP camera SENSE"),
+                     ft.DropdownOption("remote_bridge", "Bridge HTTP camera"),
                      ft.DropdownOption("local_camera", "Camera locale")], on_select=self.vision_source_changed, **dropdown_border())
         self.vision_address = ft.TextField(label="Percorso video / URL frame.jpg / indice camera",
             value="", text_size=12)
@@ -416,13 +416,14 @@ class DmiControlPanel:
         self.vision_debug = ft.Checkbox(label="Log JSONL diagnostico (opzionale)", value=False)
         self.vision_start = ft.Button("Start camera", on_click=self.start_vision)
         self.vision_stop = ft.Button("Stop camera", on_click=self.stop_vision, disabled=True)
-        self.vision_status = label("Visione ferma · selezionare SENSE TOUCHSCREEN / superiore", 12, MUTED)
+        self.vision_status = label("Visione ferma · SENSE/superiore oppure TWINS/inferiore", 12, MUTED)
         self.vision_cal_status = label("Nessuna calibrazione · azioni da visione disabilitate", 12, AMBER)
         self.vision_metrics = label("", 11, MUTED)
         self.vision_mode = label("Icone modalità: sconosciute", 12, MUTED)
-        self.vision_raw = ft.Image(src=b"", height=230, visible=False)
-        self.vision_annotated = ft.Image(src=b"", height=300, fit=ft.BoxFit.CONTAIN, visible=False)
-        self.vision_empty = label('Start the camera to see analyzed frames here. Results clear when they expire.', 12, MUTED)
+        self.vision_raw = ft.Image(src=b"", height=230, visible=False, gapless_playback=True)
+        self.vision_annotated = ft.Image(src=b"", height=300, fit=ft.BoxFit.CONTAIN, visible=False, gapless_playback=True)
+        self.vision_empty = label('Start the camera to see the live preview here.', 12, MUTED)
+        self.vision_fields = label('Waiting for fresh OCR values.', 13, selectable=True)
         self.vision_targets = ft.Column(spacing=4, height=150, scroll=ft.ScrollMode.AUTO)
         self.target_search = ft.TextField(label='Find a detected key', hint_text='For example: 5, enter, close',
             on_change=self.filter_vision_targets)
@@ -441,10 +442,11 @@ class DmiControlPanel:
             'Required before camera-guided actions. Predicted XY are not independent measurements.')
         self.vision_card = panel(ft.Column([
             label('1. Camera and detection results', 17, weight=ft.FontWeight.W_600),
-            label('Use SENSE TOUCHSCREEN / superiore. Viewing the camera does not require robot connection.', 12, MUTED),
+            label('SENSE TOUCHSCREEN / superiore or TWINS / inferiore. TWIN preview is observation-only. Camera viewing needs no robot connection.', 12, MUTED),
             self.vision_kind, self.vision_address,
             ft.Row([self.vision_start, self.vision_stop], wrap=True), self.vision_status,
-            caption('DETECTED MONITOR · ORIGINAL FRAME ANNOTATIONS'), self.vision_empty, self.vision_annotated,
+            caption('LIVE CAMERA · DETECTION OVERLAY'), self.vision_empty, self.vision_annotated,
+            caption('OCR FIELD VALUES'), self.vision_fields,
             disclosure('Live camera image', [self.vision_raw]),
             disclosure('Timing, calibration status and diagnostics', [self.vision_cal_status,
                 self.vision_metrics, self.vision_mode, self.vision_debug]),
@@ -498,6 +500,7 @@ class DmiControlPanel:
         self._vision_signature = self._vision_selection_key = None
         self.vision_selection.value = "Selezione solo per ispezione · nessun movimento"
         self.vision_mode.value = "Icone modalità: sconosciute"
+        self.vision_fields.value = 'Waiting for fresh OCR values.'
         self.target_ui.update()
         self.target_empty.value = 'Start the camera to see detected keys here.'
         self.target_empty.visible = True
@@ -505,8 +508,13 @@ class DmiControlPanel:
     async def start_vision(self, e=None):
         if self.locked or self.vision_busy or self.vision.running:
             return
-        if self.model.value != "SENSE TOUCHSCREEN" or self.panel_select.value != "superiore":
-            self.error("La visione richiede SENSE TOUCHSCREEN e pannello superiore.")
+        sense = self.model.value == 'SENSE TOUCHSCREEN' and self.panel_select.value == 'superiore'
+        twin = self.model.value == 'TWINS' and self.panel_select.value == 'inferiore'
+        if not (sense or twin):
+            self.error("La visione richiede SENSE TOUCHSCREEN/superiore oppure TWINS/inferiore.")
+            return
+        if twin and (self.vision_calibration.value.strip() or self.vision_context.value.strip()):
+            self.error('TWIN preview is observation-only. Clear the SENSE calibration and context fields before starting.')
             return
         if (self.is_demo or self.page.web) and self.vision_kind.value != "recorded_replay":
             self.error("In demo/browser usare una registrazione offline; nessuna camera reale viene aperta.")
@@ -518,12 +526,13 @@ class DmiControlPanel:
             await asyncio.to_thread(self.vision.start, self.vision_kind.value,
                 self.vision_address.value.strip(), calibration_path=self.vision_calibration.value.strip(),
                 context_path=self.vision_context.value.strip(),
-                recorded_test=(not self.is_demo and self.vision_kind.value == "remote_bridge"
+                recorded_test=(sense and not self.is_demo and self.vision_kind.value == "remote_bridge"
                     and not self.vision_calibration.value.strip() and not self.vision_context.value.strip()),
                 origin_epoch=self.runner.origin_epoch,
                 debug_jsonl=REPOSITORY / "dmi_robot_config/local/vision_debug.jsonl" if self.vision_debug.value else None)
-            experimental = not self.is_demo and not self.vision_calibration.value.strip() and not self.vision_context.value.strip()
-            self.vision_status.value = "Avvio visione · experimental recorded homography (accuracy unverified)…" if experimental else "Avvio visione…"
+            experimental = sense and not self.is_demo and not self.vision_calibration.value.strip() and not self.vision_context.value.strip()
+            self.vision_status.value = ('Avvio visione TWIN · sola osservazione…' if twin else
+                'Avvio visione · experimental recorded homography (accuracy unverified)…' if experimental else 'Avvio visione…')
             self.log("Visione", "Osservazione avviata; nessuna azione robot abilitata.")
         except Exception as exc:
             self.error(f"Avvio visione: {exc}")
@@ -560,8 +569,9 @@ class DmiControlPanel:
                 raise ValueError("Osservazione cambiata durante la selezione")
             self._vision_selection_key = (session_id, screen, target_label)
             self.calibration_ui.use_selected_target(session_id, screen, target_label)
-            self.vision_selection.value = (f"{screen} · {target_label} · px {target['pixel']} · "
-                f"XY previsto {target.get('mm')} mm · età {target['age_seconds']:.2f} s · conferma separata richiesta")
+            self.target_ui.update(current)
+            self.vision_selection.value = (f"{screen} · {target_label} · px {format_pixels(target['pixel'])} · "
+                f"XY previsto {format_mm(self.target_ui.display_mm)} mm · età {target['age_seconds']:.2f} s · conferma separata richiesta")
             if target['kind']=='box':
                 self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
         except Exception as exc:
@@ -593,8 +603,17 @@ class DmiControlPanel:
         for control, value in ((self.vision_raw, view['raw_jpeg']),
                                (self.vision_annotated, view['annotation_jpeg'])):
             control.visible = value is not None
-            control.src = value or b""
+            if control.src != (value or b""):
+                control.src = value or b""
         projection = view['projection']
+        fields = view.get('ocr_fields', {})
+        if not view['fresh']:
+            self.vision_fields.value = ('OCR values stale — waiting for fresh detections.'
+                if view['state'] == 'stale' else 'Waiting for fresh OCR values.')
+        else:
+            self.vision_fields.value = '\n'.join(
+                f"{target_name(name)}: {value if value is not None and str(value).strip() else '— unreadable / awaiting confirmation'}"
+                for name, value in fields.items()) or 'No OCR fields available in the latest detection.'
         self.vision_empty.visible = view['annotation_jpeg'] is None
         self.calibration_ui.update_targets(view)
         self.move_ui.update(view)
@@ -614,6 +633,7 @@ class DmiControlPanel:
         self.vision_mode.value = f"Icone modalità: {modes.get('state', 'unknown')} · {modes.get('mode') or '—'}"
         if modes.get('replacement_verified'):
             self.vision_mode.value += " · stessa icona lampeggiante ora stabile al posto di power (solo osservazione)"
+        self.target_ui.update(view)
         signature = (view['session_id'], view['capture_index'])
         if signature != self._vision_signature:
             self._vision_signature = signature
@@ -624,7 +644,7 @@ class DmiControlPanel:
                     query = (self.target_search.value or '').strip().casefold()
                     if query and query not in (target_name(name) + ' ' + name).casefold():
                         continue
-                    text = f"{target_name(name)} · {name} · px {target['pixel']}"
+                    text = f"{target_name(name)} · {name} · px {format_pixels(target['pixel'])}"
                     if 'active' in target:
                         text += f" · active={target['active']}"
                     if target['kind']=='box':
@@ -635,18 +655,21 @@ class DmiControlPanel:
             self.target_empty.visible = not bool(self.vision_targets.controls)
             self.target_empty.value = ('No matching detected key. Try another name.' if projection
                                        else 'Waiting for fresh detections. Old results cannot be selected.')
-            selected = self._vision_selection_key
-            if (selected and projection and selected[:2] == (view['session_id'], projection['screen'])
-                    and selected[2] in projection['targets']):
-                target = projection['targets'][selected[2]]
-                self.vision_selection.value = (f"{selected[1]} · {selected[2]} · px {target['pixel']} · "
-                    f"XY previsto {target.get('mm')} mm · età {age} · conferma separata richiesta")
-                if target['kind']=='box':
-                    self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
-            else:
-                self._vision_selection_key = None
-                self.vision_selection.value = "Seleziona un rilevamento attuale per ispezionarlo · azioni disabilitate"
-        self.target_ui.update(view)
+        selected = self._vision_selection_key
+        if (view['fresh'] and selected and projection
+                and selected[:2] == (view['session_id'], projection['screen'])
+                and selected[2] in projection['targets']):
+            target = projection['targets'][selected[2]]
+            self.vision_selection.value = (f"{selected[1]} · {selected[2]} · px {format_pixels(target['pixel'])} · "
+                f"XY previsto {format_mm(self.target_ui.display_mm)} mm · età {age} · "
+                + ('one-click experimental test' if experimental_selection(view, selected) else 'conferma separata richiesta'))
+            if target['kind']=='box':
+                self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
+        elif experimental_selection(view, selected):
+            self.vision_selection.value = f'{selected[1]} · {selected[2]} · selection retained; direct coordinates checked on click'
+        else:
+            self._vision_selection_key = None
+            self.vision_selection.value = "Seleziona un rilevamento attuale per ispezionarlo · azioni disabilitate"
         self.physical_press_ui.update(view)
         self.vision_stop.disabled = self.vision_busy or not self.vision.running
         self.vision_start.disabled = self.vision_busy or self.vision.running or self.locked
@@ -1240,6 +1263,13 @@ class DmiControlPanel:
             self.press_ui.reset()
             if self.vision.observer:
                 self.vision.observer.invalidate_calibration()
+        elif kind == 'initialized':
+            backend = self.runner.backend
+            if (not self.is_demo and self.runner.initialized and hasattr(backend, 'session')
+                    and self.vision.observer and hasattr(self.vision.observer, 'bind_experimental_origin')):
+                status = backend.session.status()
+                if status.get('homed') and status.get('connection') == 'connected':
+                    self.vision.observer.bind_experimental_origin(status['origin_epoch'])
         elif kind == 'robot_status':
             self.log('Robot',str(data['status']))
         elif kind == 'move_only_result':
@@ -1320,7 +1350,7 @@ class DmiControlPanel:
     def help_dialog(self, e=None):
         self.page.show_dialog(ft.AlertDialog(title=label("Guida rapida", 22), bgcolor=SURFACE,
             content=ft.Container(ft.Column([
-                label("1. Select SENSE TOUCHSCREEN / superiore and your environment.", 14),
+                label("1. Select SENSE TOUCHSCREEN / superiore or TWINS / inferiore (preview only), then your environment.", 14),
                 label("2. Hardware: enter the Pi camera URL and Start camera. Demo: use a recording.", 14),
                 label("3. Search 5 and click Key 5 to inspect current camera pixels and estimated robot XY.", 14),
                 label("4. Open Calibration to enter independently measured X/Y and collect fit/check controls.", 14),

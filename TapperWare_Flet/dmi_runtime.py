@@ -315,7 +315,7 @@ class ObservationRuntime:
         info.update(rotation_clockwise=0, mirror_horizontal=False)
         context = read_json(context_path) if context_path else None
         observer = VisionObserver(source, info, calibration_path=calibration_path or None,
-                                  context=context, debug_jsonl=debug_jsonl)
+                                  context=context, debug_jsonl=debug_jsonl, stable_preview=True)
         if recorded_test:
             if calibration_path or context_path or kind != "remote_bridge":
                 raise ValueError("Experimental recorded mapping requires the live Pi camera and empty custom calibration fields")
@@ -434,7 +434,8 @@ class Runner:
                 self.emit('origin_changed')
             self.busy, self.phase = False, 'idle'
 
-    async def prepare_press(self, observer, selection, envelope_path, *, kind: str) -> dict:
+    async def prepare_press(self, observer, selection, envelope_path, *, kind: str,
+                            experimental_one_click=False) -> dict:
         if self.busy or not self.initialized or not isinstance(self.backend,RealBackend):
             raise HardwareError('Initialize the shared owner and wait for the active action')
         from dmi_robot_master.integration.pressing import prepare_press
@@ -450,7 +451,8 @@ class Runner:
             else:
                 if kind != 'single_press':
                     raise ValueError('Physical vision pressing is disabled for mode holds; only one commissioned button is supported')
-                plan = await self._worker_call(lambda:backend.session.prepare_physical_press(observer,selection,envelope_path))
+                plan = await self._worker_call(lambda:backend.session.prepare_physical_press(observer,selection,envelope_path,
+                    experimental_one_click=experimental_one_click))
             if self._shutdown or self.backend is not backend or generation != self._move_generation:
                 raise HardwareError('Source/selection/robot changed during preparation')
             self._press_plan = (plan,observer,backend)

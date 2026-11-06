@@ -32,6 +32,8 @@ def _covered(document, target, recorded_pixel):
 
 class RecordedTestProjector(TargetProjector):
     """Same observation interface and detector; a visibly unverified XY projector."""
+    experimental_recorded_test = True  # Stable mode identity, including while XY is invalidated.
+
     def __init__(self, source_info, calibration_path, origin_epoch):
         super().__init__(source_info=source_info, calibration_path=calibration_path, geometry_tolerance_px=4.)
         self.origin_epoch = origin_epoch
@@ -180,6 +182,7 @@ class RecordedPressPlan:
     max_error_mm: float
     kind: str = 'single_press'
     duration_ms: int = 100
+    one_click: bool = False
 
     def preview(self):
         return {'token': self.token, 'selection': list(self.selection),
@@ -194,7 +197,7 @@ class RecordedPressPlan:
                 'maximum_move_mm': math.hypot(*(v-1 for v in self.limits))},
             'bounds_basis': 'Existing configured robot limits, confirmed by operator; not fit-derived'}
 
-    def resolve(self, observer, *, origin_epoch, limits, position=None):
+    def resolve(self, observer, *, origin_epoch, limits, position=None, with_sample=False):
         if (type(observer.projector) is not RecordedTestProjector or origin_epoch != self.origin_epoch
                 or tuple(limits) != self.limits or not 0 <= time.monotonic()-self.created_at <= 30
                 or self.kind != 'single_press' or self.duration_ms != 100):
@@ -202,16 +205,18 @@ class RecordedPressPlan:
         document, digest = observer.projector.load()
         if str(observer.projector.calibration_path) != self.calibration_path or digest != self.calibration_sha256:
             raise ValueError('Recorded mapping changed after preview')
-        sample = observer.calibration_sample(*self.selection)
+        sample = (observer.experimental_press_sample(*self.selection) if self.one_click
+                  else observer.calibration_sample(*self.selection))
         anchor = json.loads(self.anchor_json)
         if (sample['source_info'] != anchor['source_info']
                 or sample['target'].get('active') != anchor['target'].get('active')
-                or max(abs(a-b) for a,b in zip(sample['target']['pixel'], anchor['target']['pixel'])) > 4
+                or (not self.one_click and max(abs(a-b) for a,b in zip(sample['target']['pixel'], anchor['target']['pixel'])) > 4)
                 or any(np.max(np.abs(np.asarray(sample['geometry'][s])-anchor['geometry'][s])) > 4 for s in ('left','right'))):
             raise ValueError('Selected target/source/geometry changed after preview')
         xy = _xy(observer, sample, document, origin_epoch)
         command = tuple(rounded_mm(v) for v in xy)
-        if command != self.command_xy or any(not 0 <= v < limit for v,limit in zip(xy, limits)):
+        if ((not self.one_click and command != self.command_xy)
+                or any(not 0 <= v < limit for v,limit in zip(xy, limits))):
             raise ValueError('Current destination changed or exceeds configured robot travel')
         from dmi_robot_common.command_validation import validate_command
         from dmi_robot_common.DmiMessages import DmiMessages
@@ -223,18 +228,21 @@ class RecordedPressPlan:
         age = time.monotonic()-sample['received_at']+sample['upstream_age_seconds']
         current = observer.snapshot()
         if (not 0 <= age <= 1.5 or not current['fresh'] or current['session_id'] != self.selection[0]
-                or current['capture_index'] != sample['capture_index']
+                or current['capture_index'] != sample.get('latest_capture_index', sample['capture_index'])
+                or current.get('calibration_error')
                 or current['projection']['screen'] != self.selection[1]):
             raise ValueError('Direct target evidence expired before experimental press')
-        return command
+        return (command, sample) if with_sample else command
 
 
-def prepare_recorded_press(observer, selection, *, origin_epoch, limits):
+def prepare_recorded_press(observer, selection, *, origin_epoch, limits, one_click=False):
     document, digest = observer.projector.load()
-    sample = observer.calibration_sample(*selection)
+    sample = (observer.experimental_press_sample(*selection) if one_click
+              else observer.calibration_sample(*selection))
     xy = _xy(observer, sample, document, origin_epoch)
     plan = RecordedPressPlan(uuid4().hex, time.monotonic(), origin_epoch, tuple(selection),
         str(observer.projector.calibration_path), digest, json.dumps(sample, allow_nan=False),
-        tuple(rounded_mm(v) for v in xy), tuple(xy), tuple(limits), document['models']['homography']['max_error_mm'])
+        tuple(rounded_mm(v) for v in xy), tuple(xy), tuple(limits), document['models']['homography']['max_error_mm'],
+        one_click=one_click)
     plan.resolve(observer, origin_epoch=origin_epoch, limits=limits)
     return plan

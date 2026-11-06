@@ -1,5 +1,6 @@
-"""One confirmation for a short live-camera press through the shared owner."""
+"""One-click experimental requests and confirmed ordinary live-camera presses."""
 import flet as ft
+from dmi_target import format_pixels, experimental_selection
 
 
 class PhysicalPressControls:
@@ -23,7 +24,8 @@ class PhysicalPressControls:
         selected = app._vision_selection_key
         view = self._view or {}
         projection = view.get('projection') or {}
-        experimental = projection.get('experimental_recorded_test') is True
+        experimental = (projection.get('experimental_recorded_test') is True
+                        or experimental_selection(view, selected))
         target = projection.get('targets', {}).get(selected[2]) if selected else None
         eligible = (not app.is_demo and app.runner.initialized and status.get('homed')
                     and status.get('connection') == 'connected' and not status.get('legacy_xml_armed')
@@ -33,14 +35,28 @@ class PhysicalPressControls:
                     and target['kind'] == 'button'
                     and target['display'] in (('left', 'right') if experimental else ('right',))
                     and target.get('mm') is not None and target.get('active', True) is True)
+        if experimental:
+            # Availability is independent of individual missed detections. The
+            # backend still checks direct evidence, mapping and limits on click.
+            eligible = (not app.is_demo and app.runner.initialized and status.get('homed')
+                        and status.get('connection') == 'connected' and not status.get('legacy_xml_armed')
+                        and experimental_selection(view, selected))
         app.target_ui.hardware_press.disabled = bool(app.locked or not eligible or (not experimental and not app.move_ui.envelope.value))
         if not app.is_demo:
             app.target_ui.hardware_press.content = ('Experimental move and click · 100 ms' if experimental else 'Move and click selected key · 100 ms')
         if eligible and experimental:
-            app.target_ui.reason.value = 'Experimental SENSE mapping · both regions · accuracy beyond tested keys is unverified. Review XY and confirm one press.'
+            app.target_ui.reason.value = ('One click requests one experimental press using the latest direct coordinates '
+                '(at most two missed updates / 1.5 s old). Clicking confirms the tool and return path are clear and the physical stop is ready. No second dialog.')
+            if view.get('calibration_error'):
+                app.target_ui.reason.value = 'Mapping currently blocked: ' + view['calibration_error']
         elif eligible:
             app.target_ui.reason.value = ('Review and confirm one short press. Current detection, calibration and limits are checked before sending.'
                 if app.move_ui.envelope.value else 'Set the existing movement limits under Movement limits and optional move-only test below; no move-only test is required.')
+        elif selected and not app.is_demo:
+            if not app.runner.initialized or not status.get('homed'):
+                app.target_ui.reason.value = 'Connect and initialize the robot first; camera detection alone does not initialize it.'
+            elif view.get('calibration_error'):
+                app.target_ui.reason.value = 'Mapping blocked: ' + view['calibration_error']
 
     async def request(self, e=None):
         app = self.app
@@ -48,29 +64,37 @@ class PhysicalPressControls:
         if app.locked or app.is_demo or not app._vision_selection_key or app.target_ui.hardware_press.disabled:
             return
         app.ui_busy = True; app.refresh()
+        experimental = experimental_selection(self._view, app._vision_selection_key)
+        from dmi_robot_master.integration.physical_press import PHYSICAL_PRESS_CHECKS
         try:
             preview = await app.runner.prepare_press(app.vision.observer, app._vision_selection_key,
-                                                   app.move_ui.envelope.value, kind='single_press')
+                app.move_ui.envelope.value, kind='single_press', experimental_one_click=experimental)
+            if experimental:
+                result = await app.runner.confirm_press(preview['token'], operator_confirmed=True,
+                    checks={key: True for key in PHYSICAL_PRESS_CHECKS})
+                self.message.value = f"{result['response']} · inspect the DMI to check the result."
+                app.log('Physical press', str(result))
+                return
         except Exception as exc:
-            self.message.value = f'Press blocked: {exc}'
+            self.message.value = f'Press not completed: {exc}'
             app.log('Physical press', str(exc)); return
         finally:
             app.ui_busy = False; app.refresh()
-        from dmi_robot_master.integration.physical_press import PHYSICAL_PRESS_CHECKS
         bounds = preview['independent_envelope']
         experimental = preview.get('experimental_recorded_test') is True
-        details = ft.Text(f"{preview['selection'][1:]} · camera centre {preview['pixel']} px\n"
+        details = ft.Text(f"{preview['selection'][1:]} · camera centre {format_pixels(preview['pixel'])} px\n"
             f"Robot XY {preview['command_xy_mm']} mm · one 100 ms press\n"
             f"Movement limits {bounds['minimum_xy_mm']} → {bounds['maximum_xy_mm']} mm; "
             f"maximum move {bounds['maximum_move_mm']} mm\n"
             f"Calibration sample maximum error: {preview['numerical_max_error_mm']:.3f} mm\n"
             'Latest coordinates are rechecked before sending. A changed or stale target blocks the press. '
-            'No automatic retry or return. Inspect the DMI result yourself.', size=12)
+            'After contact and Z retraction, the robot returns to home (0, 0) before completing. '
+            'No automatic retry. Inspect the DMI result yourself.', size=12)
         if experimental:
             details.value = ('EXPERIMENTAL: the same homography is used across both SENSE regions. Accuracy outside tested keys is unverified; '
                 f"recorded error {preview['numerical_max_error_mm']:.2f} mm exceeded the earlier 3 mm limit and does not bound full-monitor error.\n" + details.value)
         readiness = ft.Text('Before confirming: tool retracted; path and contact area clear; '
-            'starting position and independent movement limits verified; physical stop available; '
+            'starting position, movement limits and the return path to (0, 0) verified; physical stop available; '
             'contact sensor, retraction and 100 ms contact routine checked. GUI Stop cannot interrupt motors.', size=12)
         confirmed = ft.Checkbox(label=('I accept the experimental accuracy and confirm readiness for this one test press.'
             if experimental else 'I confirm these readiness checks for this one press.'), value=False)

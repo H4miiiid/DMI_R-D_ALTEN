@@ -33,7 +33,8 @@ class FakeRobot:
         self.calls.append(('move', args))
         return self.success
 
-    def click(self, *args):
+    def click(self, *args, x_y_return_to_zero=False):
+        self.return_after_click = x_y_return_to_zero
         self.calls.append(('press', args))
         return self.success
 
@@ -79,6 +80,7 @@ class CommandTests(unittest.TestCase):
         self.assertEqual(self.commands.press(120, 320, 250), (True, []))
         self.assertEqual(self.robot.calls, [('move', (100, 300, 0)), ('press', (120, 320, 250))])
         self.assertEqual(self.sent, [[3, 100, 300, 0], [1, 120, 320, 250]])
+        self.assertTrue(self.robot.return_after_click)
 
     def test_existing_control_commands(self):
         self.assertEqual(self.action(Message.ACK, [], Message.ACK), (True, []))
@@ -226,9 +228,11 @@ class StartupTests(unittest.TestCase):
         robot = cls.__new__(cls)
         robot._x_steps, robot._y_steps, robot._z_steps = 10, 20, 0
         robot._x_total_steps, robot._y_total_steps = 3800, 4700
-        robot._xy_linear_movement_steps = Mock()
-        robot._z_click = Mock()
+        robot._xy_linear_movement_steps = Mock(side_effect=lambda dx, dy, velocity: (dx, dy))
+        robot._z_click = Mock(return_value=True)
         robot._z_movement = Mock()
+        robot._z_sensor = types.SimpleNamespace(contact=True)
+        robot._button = types.SimpleNamespace(pressed=False)
         with patch.object(cls, '__repr__', return_value='offline fake hardware'):
             self.assertTrue(robot.live_movement(100, 200, 0))
             robot._xy_linear_movement_steps.assert_called_with(990, 1980, robot._VELOCITY)
