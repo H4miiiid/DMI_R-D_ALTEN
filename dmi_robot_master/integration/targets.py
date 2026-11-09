@@ -68,13 +68,15 @@ def validate_camera_source(camera: dict, source_info: dict) -> None:
 class TargetProjector:
     """Use the current detector result/evidence, never a historical log record."""
     def __init__(self, *, source_info: dict, calibration_path: str | Path | None = None,
-                 context: dict | None = None, geometry_tolerance_px: float | None = None) -> None:
+                 context: dict | None = None, geometry_tolerance_px: float | None = None,
+                 origin_epoch: str | None = None) -> None:
         if geometry_tolerance_px is not None and (not math.isfinite(geometry_tolerance_px) or geometry_tolerance_px <= 0):
             raise ValueError('Evidence geometry tolerance must be finite and positive')
         self.source_info = deepcopy(source_info)
         self.simulation = bool(source_info.get('simulation', source_info.get('kind') == 'recorded_replay'))
         self.calibration_path = Path(calibration_path).expanduser().resolve() if calibration_path is not None else None
         self.context = deepcopy(context)
+        self._origin_epoch = origin_epoch
         self.geometry_tolerance = geometry_tolerance_px
         self._file_stat = None
         self._document = None
@@ -104,6 +106,9 @@ class TargetProjector:
             if self._guided:
                 from dmi_robot_master.integration.guided_calibration import validate_guided
                 validate_guided(self._document)
+                if (self._origin_epoch is not None
+                        and self._document['request']['origin_epoch'] != self._origin_epoch):
+                    raise ValueError('Robot origin changed since collection; load a guided calibration for the current origin')
             else:
                 from dmi_robot_master.integration.sense_calibration import validate_offline
                 if not self.simulation:
@@ -126,7 +131,7 @@ class TargetProjector:
         if self._offline:
             from dmi_robot_master.integration.sense_calibration import REFERENCE_PATH as sense_reference
             reference = sense_reference
-        key = (size, json.dumps(self.context, sort_keys=True),
+        key = (size, self._origin_epoch, json.dumps(self.context, sort_keys=True),
                json.dumps(self.source_info, sort_keys=True),
                fingerprint(self.calibration_path) if self.calibration_path else None,
                fingerprint(reference))

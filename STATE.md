@@ -1,10 +1,56 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-06. Read `AGENTS.md` for the new numbered roadmap and working rules.
+Updated 2026-11-09. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
+
+Phase V — GUI Version 1 / Version 2 selector accepted offline; commit/push
+authorized (2026-11-09). Version 1 is the launch default; both choices currently
+use the Phase 0 detector. Switching requires stopped observation and idle execution,
+clears previous evidence/selections/drafts/confirmations and requires explicit
+restart. Guided mapping now rejects a different known live origin epoch even with
+unchanged model/context files. Saved verification flags and the authorized
+experimental recorded-map origin handling remain unchanged; no detector, numerical
+fit, motor or protocol change, new action permission or Phase 1 work is included.
+Accepted source fingerprint
+`2545cf5be8ec6127417520c050343809fd0211a9a93ac7393749cfab8c92e1cd`;
+candidate `5eb8cdc8b5f1bd52962fe4a60e3c7336728ec7ca4fc5789a93b034b7c218fda7`.
+Canonical evidence: `runs/phase_v_version_selector/` (immutable pre-acceptance
+snapshot); inspect `summary.json` and `baseline_equality.png`. Both final reviewers
+returned PASS WITH WARNINGS after correcting the guided-origin invalidation gap.
+Checks: 197 focused passes plus 66 subtests; the same pre-existing ordinary-press
+100-ms expectation versus 300-ms implementation failure remains. All 446 native
+full/direct/compact comparisons match Phase 0 (223 per version; TWIN sampled),
+maximum one source owner, and nine headless Flet/fake-owner evidence records.
+Native GUI rendering, live timing and physical comparison remain unverified.
+Operator comparison procedure: `TapperWare_Flet/README.md`, "Compare Version 1 and
+Version 2". New tests/evidence remain local/ignored and require separate supply in
+a clean clone; runtime has no dependency on them. Next proposed phase: Phase 1,
+lighting-robust localization, awaiting separate authorization.
+
+Phase 0 / G0 — Version 1 baseline accepted offline (2026-11-09).
+Frozen HEAD `835556da6441d83792d766b267ef3a61c7ba097a`, source fingerprint
+`c44696f4d50a43c35ae58c4fbc93cbd1a09c4d001eb136c4fd13979184334578`;
+accepted candidate `e81b223b35e1f1f2783f69fa2094ab8fbb4f18507dbd3873b14a4df17051efd0`.
+Canonical evidence: `runs/phase0_version1_baseline/`, an immutable pre-acceptance
+snapshot; inspect `summary.json` and `level_contact.png` (native frames 0/19/21).
+No runtime changes. Validated 730 SENSE and 495 decodable TWIN frames, 21 simulated
+lighting cases and two receipt-paced replays; 75 focused tests passed. Level
+state/value: 53/53; TBL1+ omitted at 19/21. Level analysis mean/P95: 525/556 ms;
+local receipt replay: 1.87 processed FPS, P95 age including recorded upstream
+age 0.840 s. These are offline measurements, not live performance or physical proof.
+Both final reviewers returned PASS WITH WARNINGS. Corrected field scoring separates
+six Main negative frames (zero false positives) from six contract-excluded numbered
+train-page samples (zero excluded outputs). Existing recognition failures remain.
+Limits: newer-office failure/post-movement footage and raw Driver ID captures absent;
+manual pixel references approximate; one raw Level context; TWIN container/decode
+counts differ; physical accuracy and live timing unverified. New tests/harness and
+evidence remain local/ignored and require separate supply in a clean clone.
+Phase 0 acceptance initially authorized only its record update; Phase V and its
+publication were subsequently authorized separately, as recorded above.
+Prior hardware limits below remain.
 
 Latest office follow-up: experimental one-click pressing and the camera-before-
 homing mapping fix are implemented and checked offline; the latest hardware retest
@@ -758,9 +804,9 @@ Compact JSONL reconstructs all 53 frames without semantic mismatches. Preview/vi
 JSONL and last rich JSON are under `/tmp/dmi_robot/level_activity_20261022_01/`;
 temporary review artifacts only. No additional OCR or physical action.
 
-## Repository and hardware baseline
+## Historical repository and hardware baseline (2026-11-06)
 
-- Current local HEAD: `f2597ae` on main, matching the local origin/main reference
+- Local HEAD at that handoff: `f2597ae` on main, matching the local origin/main reference
   (no remote query or push performed for this update). It contains the earlier
   office GUI/SENSE pressing work; hardware integration is `d2f7569`, Step 15
   `bb25dce`. Later feedback/follow-up changes remain uncommitted. Preserve unrelated

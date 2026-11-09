@@ -96,9 +96,10 @@ class DmiControlPanel:
         self.page = page
         self.runner = Runner(APP_DIR, self.on_runtime,observation_active=lambda:self.vision.running)
         self.runner.set_mode("demo" if demo or page.web else "hardware")
-        self.vision = ObservationRuntime()
+        self.vision = ObservationRuntime(execution_active=lambda: self.locked)
         self.calibration = GuidedCalibrationRuntime()
         self.vision_busy = False
+        self._version_change_generation = 0
         self.script: Script | None = None
         self.source: bytes | None = None
         self.filename = ""
@@ -161,7 +162,7 @@ class DmiControlPanel:
 
     @property
     def locked(self):
-        return self.ui_busy or self.runner.busy
+        return self.ui_busy or self.runner.busy or self.vision_busy
 
     def setup_page(self):
         p = self.page
@@ -403,6 +404,11 @@ class DmiControlPanel:
         return ft.Container(ft.Column([value, caption(title)], spacing=4), expand=True)
 
     def build_vision(self):
+        self.vision_version = ft.Dropdown(value=self.vision.version, label="Detection version",
+            options=[ft.DropdownOption("1", "Version 1 · frozen baseline"),
+                     ft.DropdownOption("2", "Version 2 · baseline (no improvements yet)")],
+            on_select=self.change_vision_version, **dropdown_border())
+        self.vision_version.tooltip = 'Stop camera and finish execution before switching. Restart the camera explicitly. TWIN uses its baseline in both versions.'
         self.vision_kind = ft.Dropdown(value="recorded_replay" if self.is_demo else "remote_bridge", label="Camera source",
             options=[ft.DropdownOption("recorded_replay", "Registrazione offline"),
                      ft.DropdownOption("remote_bridge", "Bridge HTTP camera"),
@@ -443,7 +449,7 @@ class DmiControlPanel:
         self.vision_card = panel(ft.Column([
             label('1. Camera and detection results', 17, weight=ft.FontWeight.W_600),
             label('SENSE TOUCHSCREEN / superiore or TWINS / inferiore. TWIN preview is observation-only. Camera viewing needs no robot connection.', 12, MUTED),
-            self.vision_kind, self.vision_address,
+            self.vision_version, self.vision_kind, self.vision_address,
             ft.Row([self.vision_start, self.vision_stop], wrap=True), self.vision_status,
             caption('LIVE CAMERA · DETECTION OVERLAY'), self.vision_empty, self.vision_annotated,
             caption('OCR FIELD VALUES'), self.vision_fields,
@@ -467,6 +473,28 @@ class DmiControlPanel:
         self._vision_selection_key = None
         self.vision_source_changed()
         return self.vision_card
+
+    def change_vision_version(self, e=None):
+        try:
+            if self.locked or self.vision_busy:
+                raise RuntimeError('Wait for the current operation before changing version')
+            changed = self.vision.set_version(self.vision_version.value)
+        except (ValueError, RuntimeError) as exc:
+            self.vision_version.value = self.vision.version
+            self.error(str(exc))
+            self.refresh()
+            return
+        if changed:
+            self._version_change_generation += 1
+            self.clear_vision()
+            self.calibration_ui.use_selected_target(None, None, None)
+            self.target_search.value = ''
+            self._vision_running = False
+            self.vision_metrics.value = ''
+            self.vision_cal_status.value = 'Restart camera to revalidate source, origin and calibration.'
+            self.vision_status.value = f'Version {self.vision.version} selected · camera stopped; click Start camera'
+            self.log('Visione', f'Version {self.vision.version} selected; baseline behavior, no Version 2 improvements enabled. Explicit camera restart required.')
+        self.refresh()
 
     def vision_source_changed(self, e=None):
         kind = self.vision_kind.value
@@ -502,6 +530,9 @@ class DmiControlPanel:
         self.vision_mode.value = "Icone modalità: sconosciute"
         self.vision_fields.value = 'Waiting for fresh OCR values.'
         self.target_ui.update()
+        self.move_ui.update({})
+        self.press_ui.update({})
+        self.physical_press_ui.update({})
         self.target_empty.value = 'Start the camera to see detected keys here.'
         self.target_empty.visible = True
 
@@ -529,11 +560,15 @@ class DmiControlPanel:
                 recorded_test=(sense and not self.is_demo and self.vision_kind.value == "remote_bridge"
                     and not self.vision_calibration.value.strip() and not self.vision_context.value.strip()),
                 origin_epoch=self.runner.origin_epoch,
+                comparison_context={'model': self.model.value, 'panel': self.panel_select.value,
+                                    'execution_mode': self.runner.mode},
                 debug_jsonl=REPOSITORY / "dmi_robot_config/local/vision_debug.jsonl" if self.vision_debug.value else None)
             experimental = sense and not self.is_demo and not self.vision_calibration.value.strip() and not self.vision_context.value.strip()
             self.vision_status.value = ('Avvio visione TWIN · sola osservazione…' if twin else
                 'Avvio visione · experimental recorded homography (accuracy unverified)…' if experimental else 'Avvio visione…')
             self.log("Visione", "Osservazione avviata; nessuna azione robot abilitata.")
+            if self.vision.comparison:
+                self.log('Visione', f'Version {self.vision.version} · source {self.vision.comparison["source_fingerprint"]} · enabled improvements: none')
         except Exception as exc:
             self.error(f"Avvio visione: {exc}")
         finally:
@@ -555,15 +590,20 @@ class DmiControlPanel:
             self.refresh()
 
     async def select_vision_target(self, session_id, screen, target_label):
+        observer = self.vision.observer
+        if observer is None:
+            return
         self.move_ui.changed()
         self.press_ui.changed()
         self.physical_press_ui.reset()
         self._vision_selection_key = None
         self.calibration_ui.use_selected_target(None, None, None)
         try:
-            target = await asyncio.to_thread(self.vision.observer.inspect_target,
+            target = await asyncio.to_thread(observer.inspect_target,
                                             session_id, screen, target_label)
-            current = self.vision.observer.snapshot()
+            if observer is not self.vision.observer:
+                return
+            current = observer.snapshot()
             if (not current['fresh'] or current['session_id'] != session_id
                     or current['capture_index'] != target['capture_index']):
                 raise ValueError("Osservazione cambiata durante la selezione")
@@ -575,9 +615,11 @@ class DmiControlPanel:
             if target['kind']=='box':
                 self.vision_selection.value += ' · stima non verificata; pressione fisica bloccata'
         except Exception as exc:
+            if observer is not self.vision.observer:
+                return
             self._vision_selection_key = None
             self.vision_selection.value = f"Selezione invalidata: {exc}"
-        current = self.vision.observer.snapshot()
+        current = observer.snapshot()
         self.target_ui.update(current)
         self.physical_press_ui.update(current)
         if not self.disposed:
@@ -698,6 +740,7 @@ class DmiControlPanel:
             self.drop_area.disabled = locked
         self.run_button.disabled = locked or not self.runner.initialized or not self.script
         observing = self.vision.running or self.vision_busy
+        self.vision_version.disabled = locked or observing
         # Legacy static-coordinate XML shares this owner but cannot compete with vision/photos.
         if self.runner.hardware_actions_blocked:
             self.run_button.disabled = True
@@ -1137,6 +1180,7 @@ class DmiControlPanel:
             from dmi_robot_master.integration.robot_session import HOMING_CHECKS
             confirmed_backend = self.runner.backend
             confirmed_epoch = self.runner.origin_epoch
+            confirmed_version_generation = self._version_change_generation
             titles = ('Limiti XY misurati e configurati','Tool Z retratto','Arresto fisico disponibile',
                       'Area homing libera','Origine, montaggio e convenzioni verificati dall’operatore')
             boxes = {key:ft.Checkbox(label=text,value=False) for key,text in zip(HOMING_CHECKS,titles)}
@@ -1144,8 +1188,9 @@ class DmiControlPanel:
                 if not all(box.value for box in boxes.values()):
                     return
                 self.page.pop_dialog()
-                if self.runner.backend is not confirmed_backend or self.runner.origin_epoch != confirmed_epoch:
-                    self.error('Connessione/origine cambiata: richiedere una nuova conferma di homing')
+                if (self.runner.backend is not confirmed_backend or self.runner.origin_epoch != confirmed_epoch
+                        or self._version_change_generation != confirmed_version_generation):
+                    self.error('Connessione/origine/versione cambiata: richiedere una nuova conferma di homing')
                     return
                 await self.initialize(operator_confirmed=True,checks={key:box.value for key,box in boxes.items()})
             self.page.show_dialog(ft.AlertDialog(title=label('Confermare homing hardware',20),

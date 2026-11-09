@@ -53,13 +53,15 @@ class VisionObserver:
     """
     def __init__(self, source, source_info: dict, *, calibration_path=None,
                  context=None, geometry_tolerance_px=4., debug_jsonl=None,
-                 session_factory=VisionSession, stable_preview=False):
+                 session_factory=VisionSession, stable_preview=False, comparison=None,
+                 origin_epoch=None):
         self.source, self.source_info = source, deepcopy(source_info)
         self.projector = TargetProjector(source_info=source_info, calibration_path=calibration_path,
-            context=context, geometry_tolerance_px=geometry_tolerance_px)
+            context=context, geometry_tolerance_px=geometry_tolerance_px, origin_epoch=origin_epoch)
         self.session_factory = session_factory
         self.stable_preview = stable_preview
         self.debug_jsonl = Path(debug_jsonl) if debug_jsonl else None
+        self._comparison = deepcopy(comparison)
         self._condition = Condition()
         self._project_lock = Lock()
         self._calibration_epoch = 0
@@ -145,6 +147,10 @@ class VisionObserver:
             if self.debug_jsonl:
                 self.debug_jsonl.parent.mkdir(parents=True, exist_ok=True)
                 stream = self.debug_jsonl.open('a', encoding='utf-8')
+                if self._comparison is not None:
+                    stream.write(json.dumps({'type': 'session_start', 'comparison': self._comparison},
+                                            allow_nan=False) + '\n')
+                    stream.flush()
             with self.session_factory(str(self.source_info)) as session:
                 while not self._stop.is_set():
                     with self._condition:

@@ -17,6 +17,8 @@ from pathlib import Path
 from typing import Callable
 import xml.etree.ElementTree as ET
 
+from dmi_versions import comparison_diagnostics, file_fingerprint, validate_version
+
 MODELS = ("SENSE TOUCHSCREEN", "SENSE SOFTKEY", "TWINS", "STEN")
 T9 = {
     "1": "1.-+", "2": "2ABC", "3": "3DEF", "4": "4GHI",
@@ -279,21 +281,58 @@ class GuidedCalibrationRuntime:
 
 class ObservationRuntime:
     """GUI owner of the reusable observation workers, separate from command Runner."""
-    def __init__(self):
+    def __init__(self, *, execution_active: Callable[[], bool] = lambda: False):
         self.observer = None
         self._lifecycle = RLock()
         self._generation = 0
+        self._starting = False
+        self._version = "1"
+        self.execution_active = execution_active
+        self.comparison = None
+
+    @property
+    def version(self):
+        return self._version
+
+    def set_version(self, version: str) -> bool:
+        """Discard a stopped session; changing a choice never starts acquisition."""
+        validate_version(version)
+        with self._lifecycle:
+            if self._starting or self.running or self.execution_active():
+                raise RuntimeError("Stop the camera and wait for execution to finish before changing version")
+            if version == self._version:
+                return False
+            if self.observer is not None:
+                self.observer.close()
+            self.observer = None
+            self._generation += 1
+            self._version = version
+            self.comparison = None
+            return True
 
     @property
     def running(self):
         return self.observer is not None and self.observer.running
 
     def start(self, kind, address, *, calibration_path=None, context_path=None, debug_jsonl=None,
-              recorded_test=False, origin_epoch=None):
+              recorded_test=False, origin_epoch=None, comparison_context=None):
         with self._lifecycle:
             generation = self._generation
-            if self.running:
+            if self.running or self._starting:
                 raise RuntimeError("Stop the current vision session first")
+            self._starting = True
+            version = self._version
+        try:
+            self._start(kind, address, calibration_path=calibration_path, context_path=context_path,
+                        debug_jsonl=debug_jsonl, recorded_test=recorded_test,
+                        origin_epoch=origin_epoch, generation=generation, version=version,
+                        comparison_context=comparison_context)
+        finally:
+            with self._lifecycle:
+                self._starting = False
+
+    def _start(self, kind, address, *, calibration_path, context_path, debug_jsonl,
+               recorded_test, origin_epoch, generation, version, comparison_context):
         # Imported only on explicit observation start; demo startup needs no CV.
         from dmi_robot_master.integration.camera import ReplayCamera, RemoteCamera, RobotCamera
         from dmi_robot_master.integration.calibration import read_json
@@ -314,8 +353,20 @@ class ObservationRuntime:
             raise ValueError("Unsupported vision source")
         info.update(rotation_clockwise=0, mirror_horizontal=False)
         context = read_json(context_path) if context_path else None
+        comparison = comparison_diagnostics(version)
+        mapping_path = calibration_path or (DEFAULT_RECORDED_TEST_MAP if recorded_test else None)
+        comparison.update(source=info.copy(), origin_epoch=origin_epoch,
+                          calibration_path=str(mapping_path) if mapping_path else None,
+                          calibration_sha256=file_fingerprint(mapping_path),
+                          context_path=str(context_path) if context_path else None,
+                          context_sha256=file_fingerprint(context_path),
+                          operator_context=dict(comparison_context or {}),
+                          recorded_test=recorded_test)
+        comparison['settings'].update(request_fps=10. if kind == 'remote_bridge' else None,
+                                      replay_rate='native source FPS' if kind == 'recorded_replay' else None)
         observer = VisionObserver(source, info, calibration_path=calibration_path or None,
-                                  context=context, debug_jsonl=debug_jsonl, stable_preview=True)
+                                  context=context, debug_jsonl=debug_jsonl, stable_preview=True,
+                                  comparison=comparison, origin_epoch=origin_epoch)
         if recorded_test:
             if calibration_path or context_path or kind != "remote_bridge":
                 raise ValueError("Experimental recorded mapping requires the live Pi camera and empty custom calibration fields")
@@ -325,6 +376,7 @@ class ObservationRuntime:
             if generation != self._generation or self.running:
                 raise RuntimeError("Vision start cancelled by session change")
             self.observer = observer
+            self.comparison = comparison
             observer.start()
 
     def invalidate(self):

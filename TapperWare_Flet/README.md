@@ -2,6 +2,48 @@
 
 ## Using the camera → key → robot view
 
+### Compare Version 1 and Version 2
+
+**Detection version** starts at **Version 1** every time the GUI launches. Version 1
+preserves the accepted Phase 0 baseline, including its known recognition limits.
+Version 2 currently uses that same baseline: no later detector improvements are
+enabled yet. Future Version 2 improvements apply only to image-evidenced connected
+SENSE geometry; TWIN retains its accepted detector in both choices.
+
+Finish any robot, photo or XML operation and click **Stop camera** before switching.
+The selector rejects changes while observation is starting/running/stopping or
+another operation is busy. Switching clears observations, target selections,
+coordinate display history, calibration drafts and pending action confirmations.
+It leaves the camera stopped. Saved calibration files and verification flags are
+unchanged; restart reloads the source and mapping context with the existing checks.
+When the current robot origin epoch is known, a guided model from a different
+epoch cannot supply XY, even if the context JSON is unchanged. The existing
+experimental recorded-map origin handling remains separate and unchanged.
+Selecting a version grants no physical-action permission.
+
+For a matched hardware comparison:
+
+1. Keep the camera, monitor, lighting, robot origin, source, calibration and settings
+   fixed. Start with Version 1 and explicitly click **Start camera**. For an offline
+   comparison, use exactly the same recording in each version.
+2. Inspect the same supported screen and controls. Record recognized values,
+   omissions, coordinate variation and the existing timing/overwrite readout. Enable
+   the optional diagnostic JSONL before starting if detailed evidence is needed.
+3. Stop observation, finish execution, select Version 2, and explicitly restart.
+   Re-select a freshly detected target; previous selections and confirmations are
+   invalid. Repeat the same screen/test under the same conditions. If the UI state
+   changed, restore that state manually before comparison; no navigation is automatic.
+4. Compare the two sessions. Activity logs identify the version and implementation
+   fingerprint. Optional diagnostic JSONL adds one session header with version,
+   baseline/current source fingerprints, enabled improvements, settings, source,
+   origin and calibration/context hashes. The public detection/target schemas are
+   unchanged. Copy the relevant diagnostics if retaining hardware results.
+
+Phase V is validated offline with fake hardware. Native GUI operation and physical
+comparison results remain operator checks. Any already authorized experimental
+button test retains its existing freshness, mapping, readiness and bounds guards;
+each action still requires its normal explicit request/confirmation.
+
 ### Shared live preview for SENSE and TWIN
 
 Select **SENSE TOUCHSCREEN / superiore** or **TWINS / inferiore**, then start the
