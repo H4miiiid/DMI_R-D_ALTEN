@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import sys
 import unittest
+from unittest.mock import patch
 
 import cv2
 import numpy as np
@@ -520,6 +521,122 @@ class RightDisplayTest(unittest.TestCase):
                     self.assertAlmostEqual(
                         reading_edges[0][0] * 50 + reading_edges[0][1], initial, delta=2,
                     )
+
+class SenseFieldContrastTest(unittest.TestCase):
+    @staticmethod
+    def scene(color=(60, 65, 70), boxes=((30, 150, 570, 250),)):
+        image = np.full((960, 600, 3), (35, 12, 5), np.uint8)
+        for x1, y1, x2, y2 in boxes:
+            cv2.rectangle(image, (x1, y1), (x2, y2), color, -1)
+        return image
+
+    def detect(self, image, enabled=True):
+        from dmi_computer_vision.src.dmi.detection.right_display import _detect_data_field
+        return _detect_data_field(image, contrast_fallback=enabled)
+
+    def test_valid_primary_is_preserved_exactly(self):
+        image = self.scene((200, 210, 220))
+        old, current = self.detect(image, False), self.detect(image)
+        self.assertEqual(old[0], current[0])
+        np.testing.assert_array_equal(old[1], current[1])
+
+    def test_dim_blank_field_is_measured_without_modifying_pixels(self):
+        image = self.scene()
+        original = image.copy()
+        self.assertIsNone(self.detect(image, False))
+        found = self.detect(image)
+        self.assertIsNotNone(found)
+        np.testing.assert_allclose(found[0], [30, 150, 571, 251], atol=1)
+        self.assertEqual(len(found), 2)  # Existing bbox/contour interface.
+        np.testing.assert_array_equal(image, original)
+
+    def test_partial_hsv_region_requires_its_missing_side_to_be_measured(self):
+        image = self.scene((145, 150, 155))
+        image[150:251, 30:100] = (150, 150, 20)
+        old = self.detect(image, False)
+        self.assertGreater(old[0][0], 90)
+        found = self.detect(image)
+        self.assertIsNotNone(found)
+        np.testing.assert_allclose(found[0], [30, 150, 571, 251], atol=1)
+
+    def test_wrong_size_position_blank_and_clipped_rectangles_are_rejected(self):
+        boxes = [(), ((30, 20, 570, 80),), ((30, 150, 300, 250),),
+                 ((30, 150, 570, 175),), ((30, 100, 570, 410),),
+                 ((0, 150, 570, 250),)]
+        for shape in boxes:
+            with self.subTest(boxes=shape):
+                self.assertIsNone(self.detect(self.scene(boxes=shape)))
+
+    def test_competing_pale_bars_are_ambiguous_for_hsv_and_contrast(self):
+        for color in ((60, 65, 70), (200, 210, 220)):
+            with self.subTest(color=color):
+                self.assertIsNone(self.detect(self.scene(color,
+                    ((30, 130, 570, 200), (30, 270, 570, 340)))))
+
+    def test_only_border_strokes_cannot_supply_a_filled_field(self):
+        image = self.scene(boxes=())
+        cv2.rectangle(image, (30, 150), (570, 250), (70, 70, 70), 2)
+        self.assertIsNone(self.detect(image))
+
+    @staticmethod
+    def camera_scene(title):
+        image = RightDisplayTest._base_screen(title)
+        cv2.rectangle(image, (20, 180), (575, 270), (60, 65, 70), -1)
+        camera = cv2.copyMakeBorder(image, 40, 40, 40, 40, cv2.BORDER_CONSTANT, value=(35, 12, 5))
+        q = np.float32([[40, 40], [639, 40], [639, 999], [40, 999]])
+        return camera, DisplayGeometry(q, q, (40, 40, 639, 999))
+
+    def test_menu_or_unknown_title_cannot_publish_a_new_contrast_field(self):
+        module = 'dmi_computer_vision.src.dmi.detection.right_display.'
+        for title in ('Main', None):
+            with self.subTest(title=title):
+                image, geometry = self.camera_scene('Main')
+                with patch(module+'right_display_obstructed', return_value=False), patch(
+                        module+'read_title', return_value=title), patch(module+'_read_digits') as read:
+                    result = analyze_right_display(image, geometry, connected=True, contrast_fallback=True)
+                self.assertIsNone(result['data_field'])
+                read.assert_not_called()
+
+    def test_fallback_keeps_empty_value_unknown_and_original_pixel_center(self):
+        from dmi_computer_vision.src.dmi.detection.right_display import _read_digits
+        module = 'dmi_computer_vision.src.dmi.detection.right_display.'
+        image, geometry = self.camera_scene('Driver ID')
+        with patch(module+'right_display_obstructed', return_value=False), patch(
+                module+'read_title', return_value='Driver ID'), patch(module+'_read_digits', wraps=_read_digits) as read:
+            result = analyze_right_display(image, geometry, connected=True, contrast_fallback=True)
+        self.assertIsNotNone(result['data_field'])
+        self.assertIsNone(result['data_field']['value'])
+        np.testing.assert_allclose(result['data_field']['center'], [337, 265], atol=2)
+        read.assert_called_once()
+
+    def test_separated_geometry_bypasses_new_field_evidence(self):
+        image, geometry = self.camera_scene('Driver ID')
+        with patch('dmi_computer_vision.src.dmi.detection.right_display._field_evidence',
+                   side_effect=AssertionError('TWIN must not enter the fallback')), patch(
+                'dmi_computer_vision.src.dmi.detection.right_display.right_display_obstructed', return_value=False):
+            result = analyze_right_display(image, geometry, connected=False, contrast_fallback=True)
+        self.assertIsNone(result['data_field'])
+
+    def test_other_states_keep_primary_field_and_title_search(self):
+        module = 'dmi_computer_vision.src.dmi.detection.right_display.'
+        image, geometry = self.camera_scene('Main')
+        cv2.rectangle(image, (60, 220), (615, 310), (180, 190, 200), -1)
+        for title in ('Main', 'Train Running Number', None):
+            with self.subTest(title=title), patch(module+'right_display_obstructed', return_value=False), patch(
+                    module+'read_title', return_value=title), patch(module+'_read_digits', return_value=None):
+                baseline = analyze_right_display(image, geometry, connected=True)
+                current = analyze_right_display(image, geometry, connected=True, contrast_fallback=True)
+            self.assertEqual(baseline, current)
+
+    def test_occluded_display_cannot_enter_fallback(self):
+        module = 'dmi_computer_vision.src.dmi.detection.right_display.'
+        image, geometry = self.camera_scene('Driver ID')
+        with patch(module+'right_display_obstructed', return_value=True), patch(
+                module+'_field_evidence', side_effect=AssertionError('Occluded')):
+            result = analyze_right_display(image, geometry, connected=True, contrast_fallback=True)
+        self.assertIsNone(result['data_field'])
+        self.assertEqual(result['visibility'], 'occluded')
+
 
 if __name__ == "__main__":
     unittest.main()

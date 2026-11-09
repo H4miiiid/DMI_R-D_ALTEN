@@ -63,13 +63,16 @@ class VisionSession:
     Lifecycle/process calls must be serialized; concurrent calls raise immediately.
     """
     def __init__(self, source_id: str, *, max_gap_seconds: float = 1.0,
-                 optimize: bool = True) -> None:
+                 optimize: bool = True, contrast_fallback: bool = False) -> None:
         self._source_id = _source_name(source_id)
         gap = _nonnegative(max_gap_seconds, "max_gap_seconds")
         if gap == 0:
             raise ValueError("max_gap_seconds must be positive")
         self._max_gap = gap
         self._optimize = optimize
+        if type(contrast_fallback) is not bool:
+            raise ValueError('contrast_fallback must be a boolean')
+        self._contrast_fallback = contrast_fallback
         self._operation = Lock()
         self._snapshot = Lock()
         self._state = LatestState()
@@ -95,7 +98,8 @@ class VisionSession:
 
     def _start(self) -> None:
         processor = FrameProcessor(max_gap_seconds=self._max_gap,
-                                   collect_target_evidence=True, optimize=self._optimize)
+                                   collect_target_evidence=True, optimize=self._optimize,
+                                   **({'contrast_fallback': True} if self._contrast_fallback else {}))
         with self._snapshot:
             self._state.__enter__()
             self._processor = processor

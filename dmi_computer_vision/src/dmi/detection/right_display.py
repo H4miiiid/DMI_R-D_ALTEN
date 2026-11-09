@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import lru_cache
+import logging
 from typing import Any
 
 import cv2
@@ -13,6 +14,7 @@ from dmi_computer_vision.src.dmi.detection.display_geometry import DisplayGeomet
 from dmi_computer_vision.src.dmi.detection.title_ocr import read_field, read_title, read_titles, title_state
 from dmi_computer_vision.src.dmi.detection.train_controls import train_button_cells
 from dmi_computer_vision.src.dmi.detection.visibility import right_display_obstructed
+from dmi_computer_vision.src.dmi.detection.field_contrast import supported_field, detect_contrast_field
 from dmi_computer_vision.src.dmi.detection.right_layout import (
     detect_border_lines,
     detect_button_quads,
@@ -21,11 +23,12 @@ from dmi_computer_vision.src.dmi.detection.right_layout import (
 )
 
 RECTIFIED_SIZE = (600, 960)
+LOGGER = logging.getLogger(__name__)
 
 
 def analyze_right_display(
     frame: Frame, geometry: DisplayGeometry, state_hint: str | None = None,
-    *, connected: bool = False,
+    *, connected: bool = False, contrast_fallback: bool = False,
 ) -> dict[str, Any]:
     """Recognize the visible right-display structure and original-frame boxes."""
     rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
@@ -38,11 +41,22 @@ def analyze_right_display(
     validation = connected and state_hint == "Validate Train Data"
     buttons_only = numbered_page or validation
     border_lines = ([], []) if buttons_only else detect_border_lines(rectified)
-    field_detection = None if buttons_only else _detect_data_field(rectified)
+    field_evidence = (_field_evidence(frame, geometry)
+                     if contrast_fallback and connected and state_hint is None else None)
+    field_diagnostics = {}
+    if buttons_only:
+        field_detection = None
+    elif field_evidence is not None:
+        field_detection = _detect_data_field(rectified, contrast_fallback=True,
+            evidence_frame=field_evidence, diagnostics=field_diagnostics)
+    else:
+        field_detection = _detect_data_field(rectified)
     field_box = field_detection[0] if field_detection is not None else None
+    primary = field_diagnostics.get('primary', field_detection)
+    primary_box = primary[0] if primary is not None else None
     # Train workflow titles belong to the left display. Pale summary rows on
     # the right can otherwise be mistaken for a right-hand title band.
-    title_box = (_detect_title_box(rectified, field_box)
+    title_box = (_detect_title_box(rectified, primary_box)
                  if state_hint is None else None)
     title_crop = _title_crop(frame, geometry, title_box)
     title_text = (read_title(title_crop, (0, 0, title_crop.shape[1], title_crop.shape[0]))
@@ -52,7 +66,7 @@ def analyze_right_display(
     if state == "unknown" and state_hint is None:
         # An active-area crop can put the title above the legacy bezel band.
         # Search above the observed field, without using a field to infer state.
-        upper_title = _detect_title_box(rectified, field_box, upper=True)
+        upper_title = _detect_title_box(rectified, primary_box, upper=True)
         if upper_title is not None and upper_title != title_box:
             crop = _title_crop(frame, geometry, upper_title)
             text = read_title(crop, (0, 0, crop.shape[1], crop.shape[0]))
@@ -61,6 +75,10 @@ def analyze_right_display(
                 upper_title_used = True
     if state == "unknown" and state_hint is not None:
         state = state_hint
+    if field_evidence is not None and state not in {"Driver ID", "Level"}:
+        # Other states retain their primary behavior, including title search.
+        field_detection = primary
+        field_box = primary_box
     title = None
     if title_box is not None:
         x1, y1, x2, y2 = title_box
@@ -509,7 +527,66 @@ def _detect_title_box(
 
 def _detect_data_field(
     frame: Frame,
+    *, contrast_fallback: bool = False, evidence_frame: Frame | None = None,
+    diagnostics: dict | None = None,
 ) -> tuple[tuple[int, int, int, int], NDArray[np.int32]] | None:
+    if not contrast_fallback:
+        return _detect_data_field_hsv(frame)
+    if evidence_frame is None:
+        evidence_frame = frame
+    if diagnostics is not None:
+        diagnostics['method'] = 'none'
+    proposals = []
+    primary = _detect_data_field_hsv(frame, candidates_out=proposals)
+    if diagnostics is not None:
+        diagnostics['primary'] = primary
+    margin = (evidence_frame.shape[1] - RECTIFIED_SIZE[0]) // 2
+    gray = cv2.cvtColor(evidence_frame, cv2.COLOR_BGR2GRAY)
+    supported = [p for p in proposals if supported_field(gray, p[1] + margin, RECTIFIED_SIZE)]
+    if len(supported) > 1:
+        LOGGER.debug('SENSE field detector: ambiguous HSV rectangles')
+        return None
+    if primary is not None and any(p is primary for p in supported):
+        LOGGER.debug('SENSE field detector: HSV primary')
+        if diagnostics is not None:
+            diagnostics['method'] = 'hsv'
+        return primary
+    detected = detect_contrast_field(gray, size=RECTIFIED_SIZE, margin=margin)
+    if detected is None:
+        LOGGER.debug('SENSE field detector: no supported contrast rectangle')
+        return None
+    box, contour = detected
+    x1, y1, x2, y2 = box
+    box = (max(0, x1-margin), max(0, y1-margin),
+           min(RECTIFIED_SIZE[0], x2-margin), min(RECTIFIED_SIZE[1], y2-margin))
+    LOGGER.debug('SENSE field detector: contrast fallback')
+    if diagnostics is not None:
+        diagnostics['method'] = 'contrast'
+    return box, contour - margin
+
+
+def _field_evidence(frame: Frame, geometry: DisplayGeometry) -> Frame | None:
+    """A small measured native-pixel margin supplies field sides clipped by rectification."""
+    width, height = RECTIFIED_SIZE
+    margin = 16
+    destination = np.float32([[margin, margin], [width-1+margin, margin],
+                              [width-1+margin, height-1+margin], [margin, height-1+margin]])
+    matrix = cv2.getPerspectiveTransform(geometry.corners, destination)
+    if not np.isfinite(matrix).all() or abs(np.linalg.det(matrix)) < 1e-12:
+        return None
+    enclosure = np.float32([[[0, 0], [width-1+2*margin, 0],
+                             [width-1+2*margin, height-1+2*margin], [0, height-1+2*margin]]])
+    native = cv2.perspectiveTransform(enclosure, np.linalg.inv(matrix))[0]
+    if (not np.isfinite(native).all() or np.min(native) < 0
+            or native[:, 0].max() >= frame.shape[1]-1 or native[:, 1].max() >= frame.shape[0]-1):
+        return None  # Warp fill outside the camera must never supply a field edge.
+    return cv2.warpPerspective(frame, matrix, (width+2*margin, height+2*margin))
+
+
+def _detect_data_field_hsv(
+    frame: Frame, *, candidates_out: list | None = None,
+) -> tuple[tuple[int, int, int, int], NDArray[np.int32]] | None:
+    """Unchanged Version 1 neutral/cyan HSV searches and candidate ordering."""
     width, height = RECTIFIED_SIZE
     hsv = cv2.cvtColor(frame, cv2.COLOR_BGR2HSV)
     mask = cv2.inRange(hsv, (0, 0, 90), (179, 110, 255))
@@ -537,6 +614,8 @@ def _detect_data_field(
                 candidates.append(((x, y, x + box_width, y + box_height), contour))
         if not candidates:
             return None
+    if candidates_out is not None:
+        candidates_out.extend(candidates)
     return max(
         candidates,
         key=lambda item: (item[0][2] - item[0][0]) * (item[0][3] - item[0][1]),

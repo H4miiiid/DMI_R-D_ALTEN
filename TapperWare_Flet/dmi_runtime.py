@@ -366,7 +366,8 @@ class ObservationRuntime:
                                       replay_rate='native source FPS' if kind == 'recorded_replay' else None)
         observer = VisionObserver(source, info, calibration_path=calibration_path or None,
                                   context=context, debug_jsonl=debug_jsonl, stable_preview=True,
-                                  comparison=comparison, origin_epoch=origin_epoch)
+                                  comparison=comparison, origin_epoch=origin_epoch,
+                                  contrast_fallback=version == '2')
         if recorded_test:
             if calibration_path or context_path or kind != "remote_bridge":
                 raise ValueError("Experimental recorded mapping requires the live Pi camera and empty custom calibration fields")

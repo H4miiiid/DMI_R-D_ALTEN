@@ -54,7 +54,7 @@ class VisionObserver:
     def __init__(self, source, source_info: dict, *, calibration_path=None,
                  context=None, geometry_tolerance_px=4., debug_jsonl=None,
                  session_factory=VisionSession, stable_preview=False, comparison=None,
-                 origin_epoch=None):
+                 origin_epoch=None, contrast_fallback=False):
         self.source, self.source_info = source, deepcopy(source_info)
         self.projector = TargetProjector(source_info=source_info, calibration_path=calibration_path,
             context=context, geometry_tolerance_px=geometry_tolerance_px, origin_epoch=origin_epoch)
@@ -62,6 +62,7 @@ class VisionObserver:
         self.stable_preview = stable_preview
         self.debug_jsonl = Path(debug_jsonl) if debug_jsonl else None
         self._comparison = deepcopy(comparison)
+        self._contrast_fallback = contrast_fallback
         self._condition = Condition()
         self._project_lock = Lock()
         self._calibration_epoch = 0
@@ -151,7 +152,8 @@ class VisionObserver:
                     stream.write(json.dumps({'type': 'session_start', 'comparison': self._comparison},
                                             allow_nan=False) + '\n')
                     stream.flush()
-            with self.session_factory(str(self.source_info)) as session:
+            options = {'contrast_fallback': True} if self._contrast_fallback else {}
+            with self.session_factory(str(self.source_info), **options) as session:
                 while not self._stop.is_set():
                     with self._condition:
                         self._condition.wait_for(lambda: self._stop.is_set() or (

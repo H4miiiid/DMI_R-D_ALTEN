@@ -6,9 +6,44 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
+Phase 1 / G1 — offline implementation accepted **for now** by the user, with
+commit/push explicitly authorized (2026-11-09). The held-out real-SENSE improvement
+gate remains **NOT VERIFIED**; this acceptance does not establish that gate or
+physical validation. Version 1 remains the launch default and frozen baseline.
+Version 2 enables only the measured contrast/border fallback for Driver ID / Level
+fields on image-detected connected SENSE geometry. Existing primary title search,
+OCR, control detection/activity, freshness, calibration and action guards remain
+unchanged; TWIN uses the accepted path in both versions.
+Accepted runtime source fingerprint
+`17df5286f444ccfeec651a0dc0ad988bccdbce34e622b25f473a0dfa77ffb895`;
+candidate `74d3034ee85c8894fbf5848a013af642467811f49c09408bb7ee691c484b1399`,
+based on HEAD `173b4126f493cd0ecd67585d960761f27c417201`.
+Canonical evidence: `runs/phase1_lighting/` (immutable pre-acceptance snapshot);
+inspect `summary.json` and `native_field.png`. Final code_review: PASS WITH WARNINGS;
+step_checker: NOT VERIFIED for the independent held-out gate. The user accepted
+the disclosed offline implementation and remaining evidence gap after these reviews.
+Checks: 155 tests plus 94 subtests passed; 280 Version 1 full/direct comparisons
+match the frozen baseline. Version 2 checked 984 unique native frames, including
+all 495 decodable TWIN frames unchanged; non-field content remained unchanged.
+The reproduced Driver03 frame120 partial field now yields the full measured field
+and direct value `23`; approximate reference-center error improves from 79.3 to
+1.9 px. This frame guided development and is not independent held-out evidence.
+Measured added field-stage mean cost is about 1–4 ms. Simulated field-stage recall
+improves 31/36 to 36/36, but full-pipeline recall remains 22/36; geometry/title
+failures, existing Level dropouts and other documented limitations remain.
+An independent real SENSE failure recording must still be evaluated without
+retuning. Screening first/middle/last frames from nine additional annotated
+sessions produced 54 unknown observations across both versions, not a new positive.
+Native GUI/live lighting and physical accuracy remain unverified. New local tests,
+harness and evidence remain ignored and require separate supply in a clean clone;
+already tracked field tests remain tracked. Runtime has no development-data dependency.
+Operator comparison procedure: `TapperWare_Flet/README.md`, "Compare Version 1 and
+Version 2". Next proposed implementation phase: Phase 2, acquisition/locking,
+awaiting separate authorization; acceptance/publication of Phase 1 does not start it.
+
 Phase V — GUI Version 1 / Version 2 selector accepted offline; commit/push
-authorized (2026-11-09). Version 1 is the launch default; both choices currently
-use the Phase 0 detector. Switching requires stopped observation and idle execution,
+authorized (2026-11-09). At that acceptance, both choices
+used the Phase 0 detector. Switching requires stopped observation and idle execution,
 clears previous evidence/selections/drafts/confirmations and requires explicit
 restart. Guided mapping now rejects a different known live origin epoch even with
 unchanged model/context files. Saved verification flags and the authorized
@@ -27,8 +62,8 @@ maximum one source owner, and nine headless Flet/fake-owner evidence records.
 Native GUI rendering, live timing and physical comparison remain unverified.
 Operator comparison procedure: `TapperWare_Flet/README.md`, "Compare Version 1 and
 Version 2". New tests/evidence remain local/ignored and require separate supply in
-a clean clone; runtime has no dependency on them. Next proposed phase: Phase 1,
-lighting-robust localization, awaiting separate authorization.
+a clean clone; runtime has no dependency on them. Phase 1 was subsequently
+authorized and accepted with the limits recorded above.
 
 Phase 0 / G0 — Version 1 baseline accepted offline (2026-11-09).
 Frozen HEAD `835556da6441d83792d766b267ef3a61c7ba097a`, source fingerprint

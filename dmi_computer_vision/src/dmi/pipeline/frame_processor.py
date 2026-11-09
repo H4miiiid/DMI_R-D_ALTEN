@@ -33,12 +33,15 @@ class FrameProcessor:
     """
 
     def __init__(self, *, max_gap_seconds: float | None = None, collect_target_evidence: bool = False,
-                 optimize: bool = True) -> None:
+                 optimize: bool = True, contrast_fallback: bool = False) -> None:
         if max_gap_seconds is not None and (
             not math.isfinite(max_gap_seconds) or max_gap_seconds <= 0
         ):
             raise ValueError("max_gap_seconds must be finite and positive")
         self.collect_target_evidence = collect_target_evidence
+        if type(contrast_fallback) is not bool:
+            raise ValueError('contrast_fallback must be a boolean')
+        self.contrast_fallback = contrast_fallback
         self.target_evidence: dict = {}
         self.max_gap_seconds = max_gap_seconds
         self._analysis = AnalysisSession() if optimize else None
@@ -85,8 +88,9 @@ class FrameProcessor:
             arguments = (frame, self._index, timestamp, self._geometry, self._right,
                          self._left, self._left_workflow)
             with self._analysis.frame() if self._analysis is not None else nullcontext():
-                result = (process_frame(*arguments, target_evidence=self.target_evidence)
-                          if self.collect_target_evidence else process_frame(*arguments))
+                features = {'contrast_fallback': True} if self.contrast_fallback else {}
+                result = (process_frame(*arguments, target_evidence=self.target_evidence, **features)
+                          if self.collect_target_evidence else process_frame(*arguments, **features))
             if self.last_reset_reason is None:
                 self.last_reset_reason = self._geometry.last_reset_reason
         except Exception:
@@ -107,7 +111,7 @@ def process_frame(
     right_display_stabilizer: RightDisplayStabilizer | None = None,
     left_display_stabilizer: LeftDisplayStabilizer | None = None,
     left_workflow_stabilizer: LeftWorkflowStabilizer | None = None,
-    *, target_evidence: dict | None = None,
+    *, target_evidence: dict | None = None, contrast_fallback: bool = False,
 ) -> FrameResult:
     """Process one source-independent BGR frame.
 
@@ -148,7 +152,8 @@ def process_frame(
                   if left_geometry is not None else None)
     train_state = train_left[0] if train_left is not None else None
     right_content = (
-        analyze_right_display(frame, right_geometry, train_state, connected=connected)
+        analyze_right_display(frame, right_geometry, train_state, connected=connected,
+                              **({'contrast_fallback': True} if connected and contrast_fallback else {}))
         if right_geometry is not None
         else {
             "visibility": "unknown",

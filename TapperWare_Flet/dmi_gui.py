@@ -406,7 +406,7 @@ class DmiControlPanel:
     def build_vision(self):
         self.vision_version = ft.Dropdown(value=self.vision.version, label="Detection version",
             options=[ft.DropdownOption("1", "Version 1 · frozen baseline"),
-                     ft.DropdownOption("2", "Version 2 · baseline (no improvements yet)")],
+                     ft.DropdownOption("2", "Version 2 · SENSE field contrast fallback")],
             on_select=self.change_vision_version, **dropdown_border())
         self.vision_version.tooltip = 'Stop camera and finish execution before switching. Restart the camera explicitly. TWIN uses its baseline in both versions.'
         self.vision_kind = ft.Dropdown(value="recorded_replay" if self.is_demo else "remote_bridge", label="Camera source",
@@ -493,7 +493,7 @@ class DmiControlPanel:
             self.vision_metrics.value = ''
             self.vision_cal_status.value = 'Restart camera to revalidate source, origin and calibration.'
             self.vision_status.value = f'Version {self.vision.version} selected · camera stopped; click Start camera'
-            self.log('Visione', f'Version {self.vision.version} selected; baseline behavior, no Version 2 improvements enabled. Explicit camera restart required.')
+            self.log('Visione', f'Version {self.vision.version} selected. Explicit camera restart required; no new action permission.')
         self.refresh()
 
     def vision_source_changed(self, e=None):
@@ -568,7 +568,8 @@ class DmiControlPanel:
                 'Avvio visione · experimental recorded homography (accuracy unverified)…' if experimental else 'Avvio visione…')
             self.log("Visione", "Osservazione avviata; nessuna azione robot abilitata.")
             if self.vision.comparison:
-                self.log('Visione', f'Version {self.vision.version} · source {self.vision.comparison["source_fingerprint"]} · enabled improvements: none')
+                enabled = ', '.join(self.vision.comparison['enabled_improvements']) or 'none'
+                self.log('Visione', f'Version {self.vision.version} · source {self.vision.comparison["source_fingerprint"]} · enabled improvements: {enabled}')
         except Exception as exc:
             self.error(f"Avvio visione: {exc}")
         finally:

@@ -1,4 +1,4 @@
-"""GUI comparison provenance; both choices currently use the existing detector."""
+"""GUI comparison provenance and the implemented Version 2 feature selection."""
 from hashlib import sha256
 import json
 from pathlib import Path
@@ -50,8 +50,8 @@ def comparison_diagnostics(version: str) -> dict:
             "source_files_sha256": hashes,
             "source_fingerprint_complete": all(value is not None for value in hashes.values()),
             "baseline_source_fingerprint": BASELINE_SOURCE_FINGERPRINT,
-            "enabled_improvements": [],
+            "enabled_improvements": ["sense_field_contrast_fallback"] if version == '2' else [],
             "improvement_scope": "SENSE connected geometry only; TWIN retains baseline in both versions",
             "settings": {"optimize": True, "max_gap_seconds": 1.0, "stable_preview": True,
                          "processing": "full detection per consumed frame", "rotation_clockwise": 0,
-                         "mirror_horizontal": False}}
+                         "mirror_horizontal": False, "contrast_fallback": version == '2'}}

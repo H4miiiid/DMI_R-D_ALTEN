@@ -6,9 +6,11 @@
 
 **Detection version** starts at **Version 1** every time the GUI launches. Version 1
 preserves the accepted Phase 0 baseline, including its known recognition limits.
-Version 2 currently uses that same baseline: no later detector improvements are
-enabled yet. Future Version 2 improvements apply only to image-evidenced connected
-SENSE geometry; TWIN retains its accepted detector in both choices.
+Version 2 adds a measured contrast/border fallback for SENSE Driver ID and Level
+fields when the primary HSV region is absent or unsupported. It uses the existing
+OCR and leaves an unreadable value unknown. Other roadmap improvements are not
+enabled. The fallback applies only to image-evidenced connected SENSE geometry;
+TWIN retains its accepted detector in both choices.
 
 Finish any robot, photo or XML operation and click **Stop camera** before switching.
 The selector rejects changes while observation is starting/running/stopping or
