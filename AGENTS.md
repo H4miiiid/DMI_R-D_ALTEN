@@ -1,15 +1,24 @@
-# SENSE DMI vision, calibration and robot integration
+# SENSE DMI Version 1 / Version 2 improvement workflow
 
-## Objective and scope
+## Goal and scope
 
-Improve the upper SENSE monitor detector, validate pixel-to-robot millimeter
-conversion, then integrate live vision and operator-controlled actions into the
-existing TapperWare Flet GUI. Keep implementation small, readable and measurable.
+Improve upper SENSE Driver ID / Level recognition under lighting variation,
+reduce repeated full-screen detection and OCR, stabilize measured screen geometry
+and pixel centers, and validate reusable monitor-plane pixel-to-robot mapping.
+Provide an operator-selected Version 1 / Version 2 comparison in the existing
+TapperWare Flet GUI so hardware tests can measure whether improvements help.
+Keep implementation small, readable and measurable.
 
-This is the new roadmap, replacing the earlier numbered integration plan. Those
-phases remain historical accepted work; do not restart them. Read `STATE.md` for
-the actual baseline, approvals, limitations and next authorized step. This document
-is a plan, not authorization to implement every step in one session.
+Follow `PLAN.md` for the detailed improvement phases, technical decisions, test
+matrix and exit criteria. The roadmap below replaces the previous numbered
+implementation roadmap; completed work remains historical in `STATE.md` and must
+not be restarted. Read `STATE.md` for accepted scope, limitations and approvals,
+then verify current HEAD and code rather than assuming the handoff describes it.
+Read `TEST_FEEDBACK.md` for operator feedback; deferred issues stay deferred unless
+explicitly authorized. This document and `PLAN.md` are instructions, not permission
+to implement every phase, accept work, update acceptance records or publish.
+If PLAN.md conflicts with these working rules or accepted runtime contracts,
+preserve the contract and report the conflict before proceeding.
 
 - SENSE: upper connected monitor, camera 1, one physical screen with two logical regions.
 - TWIN/TWINS: lower separated displays, camera 0; existing detections are accepted
@@ -32,7 +41,8 @@ pressing validation; existing documented limitations remain historical facts.
 
 ## Read and reuse
 
-Before edits, inspect Git status/diffs, this file, `STATE.md` and the owning code.
+Before edits, inspect Git status/diffs, this file, `STATE.md`, `PLAN.md`,
+`TEST_FEEDBACK.md` and the owning code.
 Preserve unrelated edits. Do not assume that a historical report describes HEAD.
 Read local vision `docs/UI_SPEC.md`, `OUTPUT_SPEC.md` and relevant workflow guidance
 when available; they are references, not runtime dependencies. Do not restore
@@ -80,7 +90,9 @@ documentation-only unless runtime implementation is explicitly requested. At eac
    only reviewed changes; report commit ID/destination and actual push result.
    Never force-push, silently include local files or infer publication approval.
 
-For Steps 11–15, you are is responsible for software implementation, offline validation and clear hardware operating instructions. Physical hardware validation is performed later by the user.
+For each authorized improvement phase, the main agent owns software implementation,
+offline validation and clear hardware operating instructions. Physical hardware
+validation is performed later by the user.
 
 Do not block completion of an offline implementation solely because hardware is unavailable, but explicitly distinguish implemented, simulated, unverified and physically validated functionality.
 
@@ -97,7 +109,11 @@ and corrections, and must automatically request both configured reviewers:
 Use `.codex/agents/code_review.toml` and `step_checker.toml` for their duties.
 The workflow delivery must include those two files and `.codex/config.toml`
 alongside this guidance; do not publish instructions that depend on omitted local
-agent definitions. Include only reviewed configuration, not unrelated local files.
+agent definitions. Include only reviewed configuration, not unrelated local files. Because this
+guidance depends on `PLAN.md`, any later authorized publication must also include
+the reviewed `PLAN.md`; do not publish instructions whose required roadmap is
+missing from the destination. This requirement does not authorize staging or
+publishing either file now.
 The user authorizes this delegation for requested steps; do not ask permission
 again for each reviewer invocation or ordinary in-scope correction. This workflow
 does not authorize starting an unrequested step or implementing a plan-only edit.
@@ -193,8 +209,8 @@ or rejection of previously accepted evidence.
 Keep `STATE.md` short: one current status, baseline, evidence map, open issues,
 next step and compact accepted milestones. Preserve the difference between code
 implemented offline, recorded-camera validation and actual physical validation.
-This requested documentation rewrite may record the baseline now; it does not
-accept any future implementation step. Do not rewrite history to hide failures.
+Documentation-only roadmap changes do not accept implementation work or authorize
+changes to acceptance records in `STATE.md`. Do not rewrite history to hide failures.
 
 ## Detection and performance requirements
 
@@ -249,7 +265,9 @@ contain an upper-left HUD. Exclude overlay pixels from measurement; use unaffect
 monitor pixels and record any overlap. Continue with these inputs; obtain genuinely
 unannotated replacements only where overlays prevent trustworthy measurement.
 Read first/middle/last frames and sidecars. Use receipt times for replay evaluation;
-5-FPS encoding is not capture cadence. Test variants/held-out recordings separately
+5-FPS encoding is not capture cadence. Preserve original video FPS and resolution
+for full-video validation; reduced-FPS clips are only for focused tests, not
+evidence of real-time performance. Test variants/held-out recordings separately
 from samples used for tuning. Never overwrite source or accepted output files.
 
 Keep `dmi_computer_vision/data/videos/dev/dmi_capture_quality_01` through `_04`
@@ -257,232 +275,170 @@ Keep `dmi_computer_vision/data/videos/dev/dmi_capture_quality_01` through `_04`
 regressions. Old output annotations are not ground truth. Local evidence absence
 is an explicit coverage gap, not permission to claim support or block unrelated work.
 
-## Small implementation steps
-
-### 1. Refine Level accuracy on SENSE
-
-Recheck the current measured-cell implementation on raw Level evidence. Inspect
-weak/disabled-looking text, TBL1+, individual outline gaps, Close/More and native
-centers. Omit uncertain controls. Measure center/border error and jitter against
-independent reviewed examples. Exercise direct startup, loss/recovery and changed
-values; obtain missing real variants when needed. Preserve TWIN corrections.
-User-confirmed SENSE Level view: Level 0/1/2, KVB, X (`close`) and ... (`more`)
-are active; Level 3, MEMOR, ATC-2 (`atc_2`, user wrote ACT-2), SCMT and TBL1+
-are inactive. Keep detected inactive controls visible/exported with their centers.
-Report `active: true/false/null` per Level button from current glyph appearance;
-null means uncertain. This list is validation evidence for this view, not a fixed
-label-to-activity rule or a rule for TWIN. Preserve center-only compact button
-entries and add a parallel `button_activity` map in JSONL; include `active` in
-rich results and robot target JSON. Activity changes bypass pixel jitter tolerance.
-Annotate active green, inactive gray, uncertain amber, with status text. Inactive
-or uncertain activity must not become actionable just because calibration is valid;
-active alone does not establish freshness, calibration, hardware readiness or
-successful contact. Do not add OCR work or retain activity after target loss.
-Done when remaining defects and supported conditions are explicit and reviewed;
-do not replace the already working correction without reproducing a defect.
-
-### 2. Reduce Level processing cost
-
-Profile the Step 1 baseline, then reduce redundant OCR/warps/searches with small
-shared changes. Preserve exact-label requirements and current-image border checks.
-Compare accuracy and age under regular/selective policies, including same-title
-changes and loss/recovery. Demonstrate cost reduction without stale results.
-Some existing Level results exceed the evidence lifetime: solve processing cost,
-not by extending expiry. Report any jitter/recognition tradeoff.
-
-### 3. Make SENSE localization independent of screen layout
-
-Review `display_geometry.py` using all five sources. Remove the dependency on
-Driver ID's field/keypad or Main's menu as mandatory split evidence. Fit persistent
-outer/internal structure with conservative image validation, not a fixed midpoint.
-Check left train titles/summaries and right controls after rectification. Address
-incompatible geometry-history reuse and re-anchoring generically; no hardcoded
-transition pairs. Preserve Main/Driver/Level and separated regression behavior.
-
-### 4. Support Train Data on SENSE
-
-Use observation_08 and separated Train Data examples. Recognize left title/summary
-and completion Yes, right train-type field and Gamma/Lambda, Close/Enter data and
-other controls only where actually visible. Preserve existing identities; navigation
-appearance alone does not prove enabled state. Validate positions, text, direct
-startup and cost separately; no screen-order shortcut.
-
-### 5. Support Train Data (1/2) on SENSE
-
-Scope for Steps 5–7: detect and annotate only visible screen titles and buttons
-in both logical regions, with existing identities and original-pixel centers.
-Keep monitor/region localization; omit left summaries and noninteractive right
-information text, row labels, field values and confirmation text from OCR,
-annotations and optional exports for these three SENSE states. Clear omitted
-optional information instead of retaining cached text; preserve output schemas.
-Button labels, including numbers and selector choices, still require current image
-evidence. Preserve accepted Step 4 and TWIN behavior; this is not a global removal
-of summary/field support. Profile the reduced work on equal clips and measure
-accuracy, OCR cost, latency and freshness; do not assume a speed gain in advance.
-
-Use observation_09 and separated page-1 examples. Recognize the visible Train
-Data (1/2) title, left completion Yes where present, and measured right keypad,
-Delete/decimal and navigation/action buttons. Max speed, Train category, Length,
-Brake percentage and the selected-field value are outside this step's scope.
-Do not fabricate a whole keypad from one detected line. Check exact button labels,
-centers, direct startup, same-title button/layout changes and loss/recovery;
-recognition must not depend on reading the summary or selected value.
-
-### 6. Support Train Data (2/2) on SENSE
-
-Apply the titles/buttons-only scope above. Use level_raw_02 and separated page-2
-examples. Recognize the visible Train Data (2/2) title, left completion Yes where
-present, and measured right selector buttons G1, GA, GB, GC, Out of GC plus visible
-navigation/actions. Exclude Loading gauge, Axle load category and Airtight
-information rows/values; these are distinct from the selectable buttons.
-The footage demonstrates loading-gauge selection only; other button layouts need
-evidence before claiming coverage. Reuse page/navigation helpers without assuming
-every mode has that grid. Test direct startup, changed button layouts, exact labels,
-centers and loss/recovery without summary/value OCR or screen-order assumptions.
-
-### 7. Support Validate Train Data on SENSE
-
-Apply the titles/buttons-only scope above. Use level_raw_03 and separated validation examples. Recognize the visible Validate Train Data title and measured Yes/No/Close buttons, retaining their existing region-qualified identities. Exclude the left summary. The visible gray right confirmation rectangle is a button: measure its center and OCR its current Yes/No value using the existing validation field output. This is an exception to the Steps 5–7 confirmation-text exclusion above. Verify the left completion button is absent when not visible; never invent a second Yes. Test direct startup, changed button appearance/layout and loss/recovery without using confirmation content to infer the separate Yes/No/Close buttons or requiring the previous page. Recognition or an exported Yes is not a press, proof of enabled state or confirmation that the robot changed the DMI.
-
-Avoid unnecessary computation, but prioritize detection correctness. Preserve original video FPS and resolution for full-video validation; reduced-FPS clips may be used only for focused tests, not as evidence of real-time performance.
-
-### 8. Validate SENSE workflow and preserve TWIN
-
-Run representative cold/steady frames and real transitions across supported
-screens; separately measure geometry, identity, in-scope values, centers and delay.
-For Steps 5–7, validate titles/buttons only under the scope above. Turn
-fixed known failures into ordinary passing tests only when actually corrected.
-Check preview/compact logs/targets, occlusion, source failure and camera/session
-switches. Recheck accepted TWIN states for regressions only; do not modify or retune
-their detector. Any new TWIN difference from the baseline must be resolved in the
-SENSE change, not accepted as an intentional TWIN improvement. Existing documented
-TWIN limitations do not become new implementation work. Main/Driver ID remain
-required regressions; Train Running Number remains unverified on SENSE until
-representative evidence is checked. Approve detection coverage and latency before
-calibration work.
-
-### 8.A. Prepare reusable vision and calibration library
-
-Expose the existing computer vision pipeline through a small, documented Python interface that is independent of any GUI or robot workflow application.
-
-Provide frame processing, structured detections, source-frame coordinates, detection freshness, and explicit session lifecycle management. Integrate calibrated pixel-to-mm target resolution through a separate interface once calibration is validated.
-
-Reuse existing implementations without duplicating detectors or changing accepted detection behavior. Keep annotation, calibration, observation and robot commands separate.
-
-Validate the library independently using recorded frames and fake hardware. The Flet GUI and final application must consume the same interfaces without implementing their own vision or calibration logic.
-
-### 9. Audit SENSE reference coordinates and identities
-
-Use only `TapperWare_Flet/DmiPositions.json -> DMI_SENSE_TOUCHSCREEN`. The old
-master database uses `DRIVER_ID_WINDOW`; this one uses `DRIVER_ID_SCREEN`, different
-positions, spacing, axis conventions and default press duration. Do not swap paths
-and assume compatibility. Match `(model, screen, detector label)` explicitly to
-reference buttons, starting with digit_n/KEY_n and unambiguous Level controls.
-Review confirmation/Yes/end-entry aliases with the user; never match by order or
-`leads_to` alone. The database is sparse: it lacks complete per-control mappings
-for the numbered train pages/validation. List missing/ambiguous points and verify
-units, origin, panel offsets and actual tool alignment before treating them as truth.
-Apply a panel/tool offset in one defined place; do not add the GUI Y offset again
-when the calibration already produces absolute coordinates in that convention.
-
-### 10. Fit and export SENSE pixel-to-mm calibration offline
-
-Reuse homography math/validation. Fit current original-image pixels to verified
-absolute robot XY; compare an affine fit if it achieves comparable independent
-error, keeping the simplest adequate model. Do not use a universal pixel/mm ratio.
-For a planar screen, use spatially distributed correspondences and held-out keys,
-entire controls/locations or screens, not repeated frames of the same point.
-At least four non-collinear matches are needed for a homography; use at least
-five for leave-one-out checks, preferably all reliable digits plus wider controls.
-Repeated references at the same physical location do not add independent coverage.
-Report per-point/mean/max mm error, outliers and validated coverage; reject
-collinear/contradictory points. Do not force a fit through inconsistent references.
-
-Extend the existing keypad-only model/projector/action validation deliberately;
-changing a reference path alone does not enable other screens or the left region.
-One SENSE transform can serve coplanar UI states only after coverage is validated.
-Convert other detected centers for inspection where mathematically valid, but mark
-out-of-coverage/uncertain mm unusable. Add measured spread-out references where
-needed; do not authorize the whole monitor from the keypad hull. Separate physical
-planes require separate fits. Save model/matrix, reference hash/label map, camera
-identity/settings/frame size/mount, origin/panel/tool convention, coverage, errors
-and verification status. Durable calibration belongs outside `/tmp`.
-
-### 11. Integrate live vision and calibration into the Flet GUI
-
-Reuse the existing Flet GUI and application-independent vision/calibration components. Add live camera preview, DMI detections, annotations, pixel centers, predicted robot XY coordinates and calibration status.
-
-Keep acquisition, detection and rendering independent so slow detection does not block the GUI. Show freshness and invalidate stale results.
-
-Allow loading and inspecting unverified calibration models, but never authorize robot actions from rejected models. Preserve existing GUI functionality and avoid duplicate pipelines.
-
-Use a bounded in-memory latest-detection state for GUI observation and target resolution. Do not continuously write or transfer full per-frame JSON results as the runtime communication mechanism. Keep detailed JSONL logging optional for debugging and evaluation.
-
-When an operator selects a button, resolve it from the latest valid observation, revalidate its identity, freshness and geometry, and apply the current verified calibration. Never use historical frame coordinates or cached annotations as authorization for robot actions.
-
-Use the existing icon templates in `data/icons/modes/`, with `box_14/` containing white mode icons, `box_16/` containing yellow blinking mode icons, and `power.bmp` representing the default icon in `box_14`.
-
-Match corresponding templates to the same logical mode identity across both boxes. Maintain a short, time-based history of detection results to recognize blinking icons in `box_16`, distinguish temporary blink-off frames from actual disappearance, and track the confirmed UI state. Support verification of the same icon appearing steadily in `box_14`, replacing `power.bmp`.
-
-Test offline using recordings and simulated inputs.
-
-### 12. Integrate robot communication and guided calibration
-
-Connect the existing GUI to the shared robot communication and calibration interfaces. Preserve one UDP command owner, existing protocol, command validation and safety mechanisms.
-
-Provide an operator-guided calibration workflow for collecting pixel-to-mm correspondences, inspecting residuals, fitting models and saving calibration data.
-
-Implement and test hardware readiness checks, connection handling, coordinate conventions and failure behavior using fake hardware. Physical validation remains pending until the office test.
-
-### 13. Add GUI target selection and move-only functionality
-
-Allow the operator to select a detected DMI button and inspect its current pixel coordinates, predicted robot XY coordinates, calibration validity and action readiness.
-
-Implement guarded, operator-confirmed move-only commands using the existing robot interface. The tool must remain retracted, with bounded movement and explicit safety checks.
-
-Rejected calibrations must not authorize normal movement. Any special commissioning movement must use independently established bounds and explicit operator confirmation.
-
-Test offline with simulated hardware; do not claim physical alignment has been verified.
-
-### 14. Implement guarded single-button pressing
-
-Integrate the existing MOVE_AND_CLICK functionality into the GUI without bypassing detection freshness, calibration, robot readiness or action safety checks.
-
-Allow only one explicitly selected and confirmed action at a time. Do not automatically retry or execute multi-screen sequences.
-
-Implement the functionality and validate its logic offline. Keep physical pressing disabled until independent hardware calibration, alignment and readiness checks have been completed successfully.
-
-Support an operator-confirmed five-second hold on `box_16` for eligible blinking mode icons, using the existing validated robot interface and safety checks.
-
-After the hold, verify using new camera observations that the same mode icon previously blinking in `box_16` now appears steadily in `box_14`, replacing the power icon, and is no longer present in `box_16`.
-
-Do not interpret temporary blink-off frames or robot command completion alone as successful acknowledgement.
-
-### 15. Prepare the GUI for office hardware testing
-
-Provide clear, reproducible instructions for configuring, launching and operating the existing GUI with the Raspberry Pi, camera and robot.
-
-Document connection settings, dependencies, startup and shutdown procedures, calibration workflow, live observation, move-only testing and the conditions required before enabling pressing.
-
-Prepare a concise hardware test checklist and a way to record detection problems, FPS, latency, coordinate offsets, calibration errors and robot behavior.
-
-Run available offline tests and report exactly what remains unverified on physical hardware.
-
-### 16. Validate and refine using real hardware
-
-Use observations and measurements collected by the operator during office testing.
-
-First validate live camera reception, detection accuracy, annotations and responsiveness. Then evaluate pixel-to-mm calibration using independently measured physical references and safe move-only alignment checks.
-
-Correct confirmed issues and revalidate calibration coverage and held-out errors. Enable a single physical press only after the necessary safety and accuracy requirements have been independently satisfied.
-
-Optimize detection and preview performance based on measured bottlenecks and observed usability problems.
-
-Preserve the accepted TWIN baseline and reusable interfaces for eventual integration into the team's main application.
+## Improvement roadmap — one authorized phase at a time
+
+Use the PLAN phase numbers below when naming work, approvals and evidence. The
+additional version-selector phase follows Phase 0 and precedes Phase 1. This avoids
+confusing the new phases with historical accepted step numbers in `STATE.md`.
+`PLAN.md` sections 3–6 supply the detailed requirements and review gates; follow
+its phase-specific tests and exit criteria as well as the rules in this file.
+
+### Phase 0 — Establish the Version 1 baseline (PLAN Phase 0 / G0)
+
+Verify HEAD, working tree, environment, source hashes and camera conventions.
+Freeze the exact existing behavior/source fingerprint as Version 1, preserving
+unrelated work and recording known failures rather than treating them as successes.
+Reproduce grey-field failures and Level dropouts from available real SENSE evidence.
+Measure accuracy, false positives, center/corner jitter, OCR cost, processing time,
+freshness and overwrites on matched inputs. Separate independent reference points
+from predictions and tuning samples from held-out evidence. No runtime detector
+change; unavailable office footage or measurements remain explicit gaps.
+
+### Phase V — Add the GUI Version 1 / Version 2 selector (new step)
+
+Add one clearly labeled selector to the existing GUI before implementing Phase 1.
+Version 1 preserves the Phase 0 behavior and functionality, including documented
+limitations. Version 2 enables only the improvements implemented and reviewed so
+far; selecting it does not mean the whole roadmap is implemented or accepted.
+Initially both modes use the baseline behavior. Default to Version 1 on launch.
+
+Allow switching only with observation stopped and no robot action or other
+execution running. Clear prior observations, locks, selections and pending action
+confirmations; require explicit observation restart. Revalidate source, origin and
+calibration context, invalidating incompatible mappings. Switching versions must
+not change calibration verification flags or grant physical-action authorization.
+
+Keep one camera owner, one latest-frame slot and one active processing path. Reuse
+existing components with narrowly scoped version choices; do not duplicate the
+application, detector source tree or backend. Keep Version 2 SENSE-only; TWIN
+retains its accepted behavior in both modes. Preserve existing GUI features and
+robot safety checks in both versions. This selector is the only planned GUI
+addition beyond the small observation/action wiring described in PLAN.md.
+
+Record selected version, source fingerprint, enabled improvements and relevant
+settings in comparison evidence using existing diagnostics where possible; do not
+unnecessarily change public output schemas. Verify selector/default behavior,
+busy/live-switch rejection, clean restart, absence of cross-version cached evidence,
+and Version 1 equality against the frozen baseline using offline/fake hardware.
+Explain the operator procedure for repeating the same hardware test in each mode.
+No hardware action is authorized by this documentation or by selecting a version.
+
+### Phase 1 — Lighting-robust localization (PLAN Phase 1 / G1)
+
+Preserve successful primary field detection and OCR. Add a conservative SENSE-only
+fallback based on current measured contrast and borders, rejecting competing or
+unsupported rectangles. Improve control borders only for reproduced failures.
+Validate held-out lighting variants, negatives, accuracy and bounded overhead;
+Version 1 and frozen TWIN outputs must remain unchanged.
+
+### Phase 2 — Screen acquisition and locking (PLAN Phase 2 / G2)
+
+Introduce cohesive session-owned Driver ID / Level profiles and bounded multi-frame
+acquisition: at least three consistent full observations in a window of at most
+five. Lock measured geometry and median original-pixel centers without inventing
+missing controls. Keep static cached layout separate from dynamic state and fresh
+action evidence. Invalidate on context, source, geometry, screen, calibration or
+origin changes and uncertainty. Other screens retain full detection until separately
+profiled and validated; bypass the SENSE lock for TWIN.
+
+### Phase 3 — Selective screen and dynamic-state updates (PLAN Phase 3 / G3)
+
+Use cheap bounded checks of current title, field, geometry, button/activity and
+mode-icon regions. Run existing targeted OCR/recognition when required; same-title
+field/activity/icon changes must still be detected. Preserve blink history and
+manual-change detection. Reacquire on unknown transitions or invalid geometry;
+retain bounded structural audits. Keep lock state independent of FrameProcessor's
+processed-frame gap resets. Measure full-call reduction and actual latency/cost,
+not just preview or acquisition FPS.
+
+### Phase 4 — Stable original-pixel coordinates (PLAN Phase 4 / G4)
+
+Keep measured median centers fixed within a verified lock generation; compare
+changes to its original baseline and never accumulate drift. Clearly distinguish
+cached display coordinates from current evidence. Preserve raw calibration/action
+precision and the GUI's independent display-only deadband. Suggested ±10 X / ±5 Y
+pixel tolerances are hypotheses, not adopted action rules; any change needs measured
+pixel-to-mm uncertainty, negative tests and explicit approval.
+
+### Phase 5 — Stable SENSE monitor-plane mapping (PLAN Phase 5 / G5)
+
+Reuse existing calibration math and saved provenance. Establish one robust session
+registration from consistent measured monitor geometry, then check continued
+alignment rather than recomputing a noisy transform per frame. Invalidate on real
+movement or incompatible context. Compare independent spread-out physical holdouts
+across screens/regions; normal acceptance still requires maximum held-out error
+≤3 mm and verified coverage. Keypad coverage does not authorize the whole monitor.
+Keep rejected/experimental models truthfully qualified; no database edits, new
+motor offsets or physical commands in this phase.
+
+### Phase 6 — Minimal guarded action integration (PLAN Phase 6 / G6)
+
+Requires explicit authorization distinct from read-only locking and projection.
+A locked cache cannot authorize actions. Retain on-demand full detection until a
+fresh, independent target-ROI verifier is implemented, validated and approved.
+Preserve current identity/activity/source/geometry checks, 1.5 s evidence expiry,
+4 px evidence agreement, calibration/origin/readiness/bounds checks, single action
+ownership, no queue and no automatic retries. A completed-action notification
+predicts what to inspect; it never proves contact or a UI transition. Grey fields
+remain visually observed fields; adding physical field pressing requires separate
+explicit review and authorization.
+
+### Phase 7 — Matched comparison and evaluation (PLAN Phase 7 / G7)
+
+Compare frozen Version 1 with implemented Version 2 on equal sources, options and
+environment. Also evaluate PLAN.md's staged modes A–D where implemented and
+separately approved. Report recognition accuracy, false retention, transitions,
+geometry/jitter, OCR/full-call cost, mean/P95 latency, freshness, skips/overwrites
+and independent mm errors. Check failure/recovery, stale caches, source changes,
+manual interactions, same-title changes, blinking and rejected calibration.
+Recheck existing SENSE coverage and frozen TWIN outputs. Explain the GUI hardware
+comparison procedure; physical results remain pending until supplied by the user.
+
+## Accepted contracts to preserve throughout the roadmap
+
+- Preserve Level center-only compact button entries, parallel `button_activity`,
+  rich/target `active` true/false/null and green/gray/amber status annotations.
+  Activity comes from current glyph evidence, adds no OCR, clears on loss and
+  changes independently of coordinate jitter. Inactive/uncertain is not actionable.
+- Preserve accepted train-state identities and region semantics. Numbered Train
+  Data pages and Validate Train Data retain titles/buttons-only scope: no left
+  summary or noninteractive row/value OCR. Validation's measured gray Yes/No
+  field remains the explicit exception, separate from lower Yes/No/Close buttons.
+  Preserve Train Data Gamma/Lambda summary/field support and TWIN behavior.
+- Use only `TapperWare_Flet/DmiPositions.json -> DMI_SENSE_TOUCHSCREEN` for the
+  intended SENSE reference. Match model/screen/region/kind/label explicitly;
+  never substitute the legacy DRIVER_ID_WINDOW database for DRIVER_ID_SCREEN,
+  infer aliases from order, or use references to invent detections. Missing and
+  ambiguous mappings remain unusable. Apply panel/tool offsets in one place.
+- Reuse existing calibration fits, validation and transport. Use distributed
+  non-collinear correspondences and whole-control/location holdouts; repeated
+  frames of one point do not add independent coverage. Compare affine/homography,
+  report outliers/errors and reject contradictions. Save provenance, conventions,
+  coverage and verification status in durable ignored local calibration storage.
+- Calibration loading/inspection is distinct from action authorization. No ordinary
+  recorded fit is to be treated as accepted merely because an experimental press
+  was reported successful. Preserve existing narrowly authorized experimental
+  scope from STATE.md in full, including detected buttons in both measured SENSE
+  regions under its existing guards. Do not narrow that authorization to the
+  user-tested keys or extend it beyond the already authorized scope. Fields, icons,
+  TWIN and any other extension require their own evidence and explicit approval.
+- Reuse existing box_14 white / box_16 yellow icon templates and ModeHistory.
+  Blink-off is not disappearance or acknowledgement. Physical hold/contact success
+  requires its own authorization and validation; command completion is insufficient.
+- Keep detailed per-frame JSONL optional for diagnostics; use bounded in-memory
+  state for GUI communication. Do not create another pipeline or continuously
+  transfer full per-frame JSON as the runtime communication mechanism.
+- Keep legacy XML/photo behavior compatible and separately guarded. No motor,
+  GPIO or UDP protocol rewrite, automatic screen navigation, automatic retry or
+  unsupported safety claim. Missing hardware blocks only criteria requiring it.
 
 ### Complete when
 
-The physical system has been validated against the agreed accuracy, responsiveness, calibration and safety requirements, or remaining limitations are explicitly documented. Do not claim hardware validation based only on offline tests.
+Measured Version 1 / Version 2 comparisons demonstrate improved supported SENSE
+recognition, cost and stability without stale action evidence, fabricated geometry,
+TWIN regressions or weakened safety/calibration gates. Independent physical accuracy
+and hardware results must be reported separately; stable annotations or offline
+tests alone do not establish physical success. Unverified criteria remain explicit.
 
 ## Code, output and validation standards
 
