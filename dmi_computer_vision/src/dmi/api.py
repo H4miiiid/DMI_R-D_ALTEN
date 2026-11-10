@@ -2,17 +2,20 @@
 from __future__ import annotations
 
 from contextlib import contextmanager
+from collections.abc import Callable
 from copy import deepcopy
 from dataclasses import dataclass
 import math
 from threading import Lock
 import time
 from uuid import uuid4
+from typing import Any
 
 from dmi_computer_vision.src.dmi.io.camera import CapturedFrame
 from dmi_computer_vision.src.dmi.output.latest_state import LatestState
 from dmi_computer_vision.src.dmi.pipeline.frame_processor import FrameProcessor, FrameResult
 from dmi_computer_vision.src.dmi.pipeline.live import LiveRunSummary, process_live
+from dmi_computer_vision.src.dmi.utils.image_ops import validate_frame
 
 __all__ = ["CapturedFrame", "LatestState", "LiveRunSummary", "Observation",
            "VisionSession", "process_live"]
@@ -48,6 +51,7 @@ class Observation:
     result: FrameResult
     direct_evidence: dict
     temporal_reset: str | None
+    layout_evidence: dict | None = None  # Optional current SENSE analyzer regions, presentation only.
 
     def age_seconds(self) -> float:
         """Receipt-to-now plus supplied upstream age; not proof of current state."""
@@ -63,7 +67,8 @@ class VisionSession:
     Lifecycle/process calls must be serialized; concurrent calls raise immediately.
     """
     def __init__(self, source_id: str, *, max_gap_seconds: float = 1.0,
-                 optimize: bool = True, contrast_fallback: bool = False) -> None:
+                 optimize: bool = True, contrast_fallback: bool = False,
+                 collect_layout_evidence: bool = False) -> None:
         self._source_id = _source_name(source_id)
         gap = _nonnegative(max_gap_seconds, "max_gap_seconds")
         if gap == 0:
@@ -73,6 +78,9 @@ class VisionSession:
         if type(contrast_fallback) is not bool:
             raise ValueError('contrast_fallback must be a boolean')
         self._contrast_fallback = contrast_fallback
+        if type(collect_layout_evidence) is not bool:
+            raise ValueError('collect_layout_evidence must be a boolean')
+        self._collect_layout = collect_layout_evidence
         self._operation = Lock()
         self._snapshot = Lock()
         self._state = LatestState()
@@ -99,7 +107,8 @@ class VisionSession:
     def _start(self) -> None:
         processor = FrameProcessor(max_gap_seconds=self._max_gap,
                                    collect_target_evidence=True, optimize=self._optimize,
-                                   **({'contrast_fallback': True} if self._contrast_fallback else {}))
+                                   **({'contrast_fallback': True} if self._contrast_fallback else {}),
+                                   **({'collect_layout_evidence': True} if self._collect_layout else {}))
         with self._snapshot:
             self._state.__enter__()
             self._processor = processor
@@ -192,7 +201,29 @@ class VisionSession:
                     return Observation(self._source_id, self._session_id,
                         packet.capture_index, received, finished, upstream, size,
                         deepcopy(result), deepcopy(processor.target_evidence),
-                        processor.last_reset_reason)
+                        processor.last_reset_reason,
+                        deepcopy(processor.layout_evidence) if self._collect_layout else None)
+            except Exception:
+                self._close()
+                raise
+
+    def read_regions(self, packet: CapturedFrame, reader: Callable[[], Any]) -> Any:
+        """Serialized presentation work on current pixels, without publication.
+
+        This does not return an Observation, advance full-detection confirmation
+        counts or refresh LatestState, direct evidence or action eligibility.
+        """
+        with self._exclusive():
+            if self._processor is None:
+                raise RuntimeError('Start VisionSession before reading regions')
+            try:
+                validate_frame(packet.image)
+                age = time.monotonic()-_nonnegative(packet.received_at, 'received_at')
+                age += sum(_nonnegative(getattr(packet, name, 0.), name) for name in
+                           ('remote_capture_age_seconds','transport_round_trip_seconds'))
+                if not 0 <= age <= 1.5:
+                    raise ValueError('Regional read requires a fresh source frame')
+                return self._processor.read_regions(reader)
             except Exception:
                 self._close()
                 raise

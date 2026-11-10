@@ -406,7 +406,7 @@ class DmiControlPanel:
     def build_vision(self):
         self.vision_version = ft.Dropdown(value=self.vision.version, label="Detection version",
             options=[ft.DropdownOption("1", "Version 1 · frozen baseline"),
-                     ft.DropdownOption("2", "Version 2 · SENSE field contrast fallback")],
+                     ft.DropdownOption("2", "Version 2 · SENSE field contrast fallback + lock / smart updates")],
             on_select=self.change_vision_version, **dropdown_border())
         self.vision_version.tooltip = 'Stop camera and finish execution before switching. Restart the camera explicitly. TWIN uses its baseline in both versions.'
         self.vision_kind = ft.Dropdown(value="recorded_replay" if self.is_demo else "remote_bridge", label="Camera source",
@@ -650,7 +650,7 @@ class DmiControlPanel:
                 control.src = value or b""
         projection = view['projection']
         fields = view.get('ocr_fields', {})
-        if not view['fresh']:
+        if not view['fresh'] and not view.get('display_fresh'):
             self.vision_fields.value = ('OCR values stale — waiting for fresh detections.'
                 if view['state'] == 'stale' else 'Waiting for fresh OCR values.')
         else:
@@ -672,7 +672,11 @@ class DmiControlPanel:
         self.vision_metrics.value = (f"Analisi {m['processed_fps']:.2f} FPS · media/P95 "
             f"{m['analysis_mean_seconds']:.3f}/{m['analysis_p95_seconds']:.3f} s · sovrascritti {m['overwrites']} "
             "· FPS locali, non misura camera/GUI")
-        modes = view['modes']
+        if m.get('selective'):
+            selective=m['selective']
+            self.vision_metrics.value += (f" · full {m['processed']} / ROI "
+                f"{selective.get('checked_frames',0)} · skipped {selective.get('policy_skipped_frames',0)}")
+        modes = view.get('display_modes') or view['modes']
         self.vision_mode.value = f"Icone modalità: {modes.get('state', 'unknown')} · {modes.get('mode') or '—'}"
         if modes.get('replacement_verified'):
             self.vision_mode.value += " · stessa icona lampeggiante ora stabile al posto di power (solo osservazione)"

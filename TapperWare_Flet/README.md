@@ -8,9 +8,36 @@
 preserves the accepted Phase 0 baseline, including its known recognition limits.
 Version 2 adds a measured contrast/border fallback for SENSE Driver ID and Level
 fields when the primary HSV region is absent or unsupported. It uses the existing
-OCR and leaves an unreadable value unknown. Other roadmap improvements are not
-enabled. The fallback applies only to image-evidenced connected SENSE geometry;
+OCR and leaves an unreadable value unknown. Version 2 also progressively locks
+measured Driver ID / Level layout elements after three consistent observations
+within the last five. The fallback and lock apply only to image-evidenced connected SENSE geometry;
 TWIN retains its accepted detector in both choices.
+
+The preview identifies `PARTIAL_LOCK` or `LOCKED` and labels the cached geometry
+as presentation only. Confirmed controls keep median native-pixel geometry;
+missing controls receive no invented coordinates. The right title, measured grey
+field and supported right buttons are required; independently measured left boxes
+and speedometer are optional. Values, activity and icons still come from current
+analysis. Existing preview loss/expiry rules still hide unsupported overlays.
+Source, screen, monitor geometry, calibration/origin changes and Stop clear locks.
+Version 2 now checks current title, field, control and monitor crops between
+bounded full audits (initially one second). Partial acquisition retries at a
+bounded frequency. Changed field pixels trigger the existing field reader;
+unreadable or unconfirmed values show unknown. Genuine new reads retain the
+existing 15-observation value-change confirmation; reused pixels never add counts.
+Level activity and mode icons update from current crops. Unexpected title,
+control, geometry or overlay changes trigger full reacquisition. These checks
+also detect manual interactions without an application-generated action event.
+
+ROI updates are display only. They do not refresh full observations, calibration
+samples, direct target evidence or action feedback. Semantic changes revoke older
+action evidence; commands still need a fresh full detection under all existing
+guards. Targets can temporarily be unavailable between audits or after a change.
+The full-detection diagnostic mode remains available through
+`VisionObserver(..., progressive_lock=True, selective_updates=False)`; no second
+camera, backend or processing pipeline is required. Mode history shown by ROI
+monitoring is separate from full-observation action feedback. Cached geometry
+does not establish click readiness or physical accuracy.
 
 Finish any robot, photo or XML operation and click **Stop camera** before switching.
 The selector rejects changes while observation is starting/running/stopping or
@@ -31,6 +58,13 @@ For a matched hardware comparison:
 2. Inspect the same supported screen and controls. Record recognized values,
    omissions, coordinate variation and the existing timing/overwrite readout. Enable
    the optional diagnostic JSONL before starting if detailed evidence is needed.
+   In Version 2, observe progressive confirmation over at least three analyzed
+   frames; compare fixed preview positions with Version 1. Test a manual value or
+   activity change and a page change: dynamic content must update and the old
+   screen lock must clear. No robot movement is needed for this check.
+   Record full-analysis and ROI/skipped counts separately. Full-detector FPS,
+   preview callbacks and camera/bridge FPS measure different things. Confirm that
+   old field text clears on an unreadable change and that Stop clears both views.
 3. Stop observation, finish execution, select Version 2, and explicitly restart.
    Re-select a freshly detected target; previous selections and confirmations are
    invalid. Repeat the same screen/test under the same conditions. If the UI state

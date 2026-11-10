@@ -331,34 +331,68 @@ unsupported rectangles. Improve control borders only for reproduced failures.
 Validate held-out lighting variants, negatives, accuracy and bounded overhead;
 Version 1 and frozen TWIN outputs must remain unchanged.
 
-### Phase 2 — Screen acquisition and locking (PLAN Phase 2 / G2)
+### Phase 2 — Progressive screen locking (PLAN Phase 2 / G2)
 
-Introduce cohesive session-owned Driver ID / Level profiles and bounded multi-frame
-acquisition: at least three consistent full observations in a window of at most
-five. Lock measured geometry and median original-pixel centers without inventing
-missing controls. Keep static cached layout separate from dynamic state and fresh
-action evidence. Invalidate on context, source, geometry, screen, calibration or
-origin changes and uncertainty. Other screens retain full detection until separately
-profiled and validated; bypass the SENSE lock for TWIN.
+Introduce a simple session-owned screen-lock module for Driver ID and Level.
+Confirm each button, box, or field independently after at least three
+consistent detections from different frames (not necessarily consecutive).
+Use a recent bounded history, initially around five observations per control.
 
-### Phase 3 — Selective screen and dynamic-state updates (PLAN Phase 3 / G3)
+Implement two locking states:
 
-Use cheap bounded checks of current title, field, geometry, button/activity and
-mode-icon regions. Run existing targeted OCR/recognition when required; same-title
-field/activity/icon changes must still be detected. Preserve blink history and
-manual-change detection. Reacquire on unknown transitions or invalid geometry;
-retain bounded structural audits. Keep lock state independent of FrameProcessor's
-processed-frame gap resets. Measure full-call reduction and actual latency/cost,
-not just preview or acquisition FPS.
+- **PARTIAL_LOCK:** Confirmed elements immediately receive fixed annotations
+  using their median original-pixel centers and measured bounding boxes.
+  Continue searching for missing controls with bounded retries, without
+  resetting previously confirmed elements.
+- **LOCKED:** All required static elements are confirmed. Preserve their
+  positions and switch to lightweight monitoring.
 
-### Phase 4 — Stable original-pixel coordinates (PLAN Phase 4 / G4)
+Never invent missing coordinates or combine evidence from different screens
+or camera contexts. Keep cached geometry separate from fresh action evidence.
+Invalidate locks on screen/source/geometry changes or significant movement.
+Other screens retain existing detection until validated; TWIN remains unchanged.
 
-Keep measured median centers fixed within a verified lock generation; compare
-changes to its original baseline and never accumulate drift. Clearly distinguish
-cached display coordinates from current evidence. Preserve raw calibration/action
-precision and the GUI's independent display-only deadband. Suggested ±10 X / ±5 Y
-pixel tolerances are hypotheses, not adopted action rules; any change needs measured
-pixel-to-mm uncertainty, negative tests and explicit approval.
+### Phase 3 — Lightweight monitoring and smart updates (PLAN Phase 3 / G3)
+
+Avoid continuous full-screen detection and OCR while a screen is locked.
+Use inexpensive current-frame comparisons to monitor title, grey field,
+monitor geometry, Level button activity, and left-side mode icons.
+
+Run existing targeted OCR only when relevant regions change or an action
+requires an update. Digit clicks should update the field without moving
+locked buttons. Level selections should update field/activity/icon states.
+Confirmation, close, or unexpected screen changes trigger transition checks
+and reacquisition when necessary.
+
+Continue observing blinking icons and manual interactions. During PARTIAL_LOCK,
+retry missing controls at a bounded frequency while keeping confirmed
+annotations stable. During LOCKED, retain fixed annotations over live frames.
+Keep lock state independent of FrameProcessor's temporal resets.
+
+Use occasional full checks when needed for reliability. Measure actual
+processing time, OCR/detection calls, and latency improvements.
+
+### Phase 4 — Stable coordinates and movement detection (PLAN Phase 4 / G4)
+
+Reuse the median original-pixel centers and fixed annotations established
+in Phase 2. Do not introduce another coordinate cache or smoothing system.
+
+Keep confirmed centers fixed during normal detection noise. Compare new
+geometry against the original locked baseline, not previous noisy frames,
+to avoid accumulated drift.
+
+If significant camera or monitor movement is confirmed, invalidate the
+affected lock and reacquire coordinates. Determine pixel movement thresholds
+using real recordings rather than arbitrary values.
+
+Adding new controls during PARTIAL_LOCK must not shift previously confirmed
+centers. Preserve raw detector coordinates for debugging and keep cached
+geometry separate from fresh action evidence.
+
+Do not change calibration logic, robot command precision, or the GUI's
+display-only deadband. Homography accuracy and the existing 3 mm held-out
+calibration requirement remain part of Phase 5. Preserve all existing
+action-safety and freshness checks.
 
 ### Phase 5 — Stable SENSE monitor-plane mapping (PLAN Phase 5 / G5)
 
@@ -455,9 +489,9 @@ tests alone do not establish physical success. Unverified criteria remain explic
   tracked tests remain tracked; do not untrack them without specific approval.
   Report that ignored new tests/raw data are unavailable in a clean clone unless
   separately supplied. Ship no runtime dependency on such development files.
-- Run relevant tests after runtime changes; full suites for shared detector,
-  calibration/transport or final integration changes. For docs/ignore-only edits,
-  check references, Git diff and ignore behavior rather than rerunning hardware.
+- Run relevant tests after runtime changes using the token-efficient testing
+  strategy below. For docs/ignore-only edits, check references, Git diff and
+  ignore behavior rather than rerunning hardware.
 - Use one task-owned scratch root and one canonical review package as specified
   above. Never overwrite sources or approved evidence; refresh only task-owned,
   unapproved generated review artifacts after a candidate change. Full debug/video/
@@ -468,3 +502,18 @@ tests alone do not establish physical success. Unverified criteria remain explic
   Keep real network/device settings configurable, never infer final values.
 - Claim only what measured evidence supports. Offline success is not physical
   pressing validation, and one supported state is not all-screen robustness.
+
+## Token-efficient testing strategy (VERY IMPORTANT)
+
+To minimize token usage and execution time, use a focused and incremental testing approach.
+
+1. During implementation, run only tests directly related to the changed functions or modules.
+2. Avoid repeatedly running the entire test suite after small modifications.
+3. Reuse existing test fixtures, recordings, and validation results whenever they remain applicable.
+4. Run the complete regression suite once after all implementation phases are completed, and rerun it only if subsequent changes could invalidate those results.
+5. For computer vision improvements, prioritize representative real SENSE frames and meaningful edge cases over large numbers of redundant synthetic tests.
+6. Never skip essential checks for coordinate accuracy, homography validation, detection freshness, screen transitions, or physical action eligibility.
+7. Keep test output concise. Report only the number of passed/failed tests, important failures, performance metrics, and relevant regression results. Avoid printing excessive logs.
+8. Reviewers should reuse existing test evidence and run additional tests only when needed to investigate an actual risk or potential defect.
+
+**Goal:** Minimize token consumption and unnecessary testing while preserving correctness, reliability, and safety. Follow the repository's existing approval and review requirements.

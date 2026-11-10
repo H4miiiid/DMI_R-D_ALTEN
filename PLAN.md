@@ -1,6 +1,7 @@
 # PLAN.md — SENSE Event-Driven Detection, Stable Screen Geometry, and Monitor Homography
 
-**Status:** Implementation proposal only; not implemented or validated.  
+**Status:** Incremental roadmap; see `STATE.md` for accepted implementation and remaining validation.
+
 **Prepared:** 2026-11-09.  
 **Reviewed repository:** `H4miiiid/DMI_R-D_ALTEN`, `main` at `c5b4e642601a8bb4b7c2b16d19f66d78e08649b1` (verify HEAD and working tree before editing).  
 **Primary scope:** The **upper, connected SENSE DMI monitor**: robust Driver ID / Level recognition, efficient screen-state observation, stable pixel centers, and reusable pixel-to-millimeter mapping. Extend to other SENSE screens only by independently describing and validating their layouts.  
@@ -26,18 +27,18 @@ Read `AGENTS.md`, `STATE.md`, the current source and tests **before making chang
 - The camera and SENSE monitor are intended to be fixed. UI controls have static physical positions on each unchanged screen. Per-frame coordinate jitter is mostly measurement noise.
 - Acquire a screen from approximately **3–5 consistent full detections**; compare observed identities/coverage to a **screen-specific expected layout**, then **lock** measured boxes and median centers.
 - Stop repeated full detection/OCR of the entire screen while its layout is confirmed and unchanged. Continue inexpensive, bounded checks for screen/context changes, relevant field values and dynamic icons.
-- Known **digit/keypad / same-page selection** actions often change the grey field's value, *not the title or layout*. After these actions, **keep locked geometry**, re-read the existing grey field region from current pixels, and update only the value/activity/icon information that changed.
+- Known **digit/keypad / same-page selection** actions often change the grey field's value, _not the title or layout_. After these actions, **keep locked geometry**, re-read the existing grey field region from current pixels, and update only the value/activity/icon information that changed.
 - A click on the **grey field (confirmation)** or **X / close** can navigate to a new page; enter transition monitoring and perform complete acquisition when a new title/layout is observed. Other controls may also change page or appearance in other workflows; do not hardcode the claim that only these two controls can ever change the screen.
 - Compare saved **title and field crops** with current crops as change indicators, rather than running title or field OCR on every frame. Prefer time-based scheduling (e.g. ~1 s for title checks), not counting every N camera frames.
 - Keep one physically meaningful SENSE **monitor-plane** homography across Driver ID, Level and other coplanar states when camera geometry/origin is unchanged; validate across independent physical positions before claiming accepted accuracy.
 
 ### Essential distinction: three kinds of retained information
 
-| Kind | May remain locked? | Can alone authorize a click? |
-|---|---|---|
-| Static screen model: identities, reference ROIs/quads, median centers, monitor registration | Yes, while the context remains verified; invalidate on loss/change | **No** |
-| Dynamic state: grey field value, Level active status, blinking mode identity | Must be updated from current pixels; unknown on ambiguity | **No** |
-| Fresh action evidence: observation of the intended control, visibility, active state, source/geometry and timing | No; expire under current contract | May contribute to authorization **only** with all existing guards |
+| Kind                                                                                                             | May remain locked?                                                 | Can alone authorize a click?                                      |
+| ---------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | ----------------------------------------------------------------- |
+| Static screen model: identities, reference ROIs/quads, median centers, monitor registration                      | Yes, while the context remains verified; invalidate on loss/change | **No**                                                            |
+| Dynamic state: grey field value, Level active status, blinking mode identity                                     | Must be updated from current pixels; unknown on ambiguity          | **No**                                                            |
+| Fresh action evidence: observation of the intended control, visibility, active state, source/geometry and timing | No; expire under current contract                                  | May contribute to authorization **only** with all existing guards |
 
 **Design rule:** Avoid full-screen detection for every action where a safe, cheap, independently verified current target-region check can be introduced. Until such a check is implemented and validated, retain the existing on-demand full-detection requirement for physical actions. Never replace it with an unchecked historical cache.
 
@@ -47,23 +48,23 @@ Read `AGENTS.md`, `STATE.md`, the current source and tests **before making chang
 
 The following references were inspected at the source revision above. Re-read local HEAD before editing.
 
-| File | Current responsibility / relevant behavior | Intended change |
-|---|---|---|
-| `dmi_computer_vision/src/dmi/detection/right_display.py` | `analyze_right_display()` rectifies to `RECTIFIED_SIZE=(600,960)`; `_detect_data_field()` uses HSV thresholds and contour/size/location filters; `_read_digits()` works *after* a field is found; Level `_recognize_level_buttons()` reads measured cells and active state | Add measured, brightness-resilient **field** fallback; optionally scoped contrast preprocessing for demonstrated weak controls; leave OCR logic initially untouched |
-| `dmi_computer_vision/src/dmi/detection/right_layout.py` | `detect_button_quads()` measures current border geometry; Level `_level_button_cells()` requires supporting borders; Level semantic identities are read from current content | Reuse; small SENSE-only improvements only after a reproduced lighting failure; never replace measured cells with nominal grid coordinates |
-| `dmi_computer_vision/src/dmi/detection/left_display.py`, `left_layout.py` | Speedometer/sidebar/box geometry vs left train workflow content; `BorderEvidence` already uses relative blue contrast | Reuse; do not globally change shared thresholds merely to improve right field |
-| `dmi_computer_vision/src/dmi/detection/title_ocr.py` | Tesseract title/field OCR and exact supported title classification | Reuse in acquisition, plus **targeted** OCR on changed title/field ROIs; no new OCR engine |
-| `dmi_computer_vision/src/dmi/pipeline/frame_processor.py` | Existing single-frame full detector and geometry/content temporal stabilizers; `max_gap_seconds=1.0` normally resets history after longer processed-frame gaps | Preserve full detection semantics. Controller/cache must not depend on its temporal state surviving long locked periods |
-| `dmi_computer_vision/src/dmi/temporal/smoothing.py` | Right-display stabilization; Level buttons intentionally publish current measured geometry rather than ordinary smoothing | Do not immediately change this for all screens. Lock centers at the **screen controller** layer instead; diagnose Level misses independently |
-| `dmi_computer_vision/src/dmi/api.py` | `VisionSession`, `Observation` (frame index, receipt/upstream time, direct evidence, context) | Preserve API and the meaning of fresh observations |
-| `dmi_robot_master/integration/vision_observer.py` | One acquisition, detector and render worker. `_detect()` currently calls `session.process(packet)` on each consumed frame, projects pixels and updates mode history. Holds only latest packet and bounded history; `snapshot()` expires full detector observations after 1.5 s | Add screen controller and selective work in this owner; maintain a separate display-only locked cache; expose safe action-trigger notifications if needed |
-| `dmi_robot_master/integration/processing_policy.py` | `DetectionPolicy` uses 160x120 blurred grayscale differences, detection cap, burst, refresh and forced event | Reuse/adapt cheap change-check logic; existing settings are not a drop-in “stop full detection” policy because it still forces regular detection |
-| `dmi_computer_vision/src/dmi/mode_observation.py`, `dmi/detection/icons.py` | Existing template/mode reading of measured `box_14` and `box_16`; `ModeHistory` tracks blinking/steady with timed observations | Reuse for **dynamic icons** using locked, image-evidenced ROIs; do not freeze modes or infer them from click labels |
-| `dmi_computer_vision/src/dmi/output/preview_state.py` | Display-only annotation hold/deadband, at most 2 missed detections / 1.5 s; cached overlay explicitly cannot authorize actions | Do not confuse preview caching with an authoritative screen lock; preserve preview freshness contracts |
-| `dmi_robot_master/integration/publication.py`, `targets.py` | Original-pixel targets, 4 px publishing tolerance, evidence checks/expiry | Preserve original outputs, freshness, identity and numerical policy; do not silently change public schema |
-| `dmi_robot_master/integration/recorded_test.py` | Experimental `RecordedTestProjector`: reused saved SENSE homography plus **current** `getPerspectiveTransform(current, recorded)` registration. `_view_anchor` bounds monitor drift but registration is recomputed from noisy current corners | Establish one robust session registration, check continued agreement; keep whole-monitor extrapolation explicitly experimental and unverified |
-| `dmi_robot_master/integration/sense_calibration.py`, `calibration.py` | Offline affine/homography fitting, validated provenance/geometry, independent control holdouts, reference mappings and error bounds | Reuse fitting/inspection; no new per-screen homography or altered acceptance standard |
-| `TapperWare_Flet/dmi_runtime.py`, `dmi_physical_press.py` | Existing call sites/press-result lifecycle; UI already invokes `VisionObserver` | **No GUI redesign**. If necessary, add only an explicit observer notification of successful/failed completed action; never assume movement guarantees a UI transition |
+| File                                                                        | Current responsibility / relevant behavior                                                                                                                                                                                                                                     | Intended change                                                                                                                                                       |
+| --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `dmi_computer_vision/src/dmi/detection/right_display.py`                    | `analyze_right_display()` rectifies to `RECTIFIED_SIZE=(600,960)`; `_detect_data_field()` uses HSV thresholds and contour/size/location filters; `_read_digits()` works _after_ a field is found; Level `_recognize_level_buttons()` reads measured cells and active state     | Add measured, brightness-resilient **field** fallback; optionally scoped contrast preprocessing for demonstrated weak controls; leave OCR logic initially untouched   |
+| `dmi_computer_vision/src/dmi/detection/right_layout.py`                     | `detect_button_quads()` measures current border geometry; Level `_level_button_cells()` requires supporting borders; Level semantic identities are read from current content                                                                                                   | Reuse; small SENSE-only improvements only after a reproduced lighting failure; never replace measured cells with nominal grid coordinates                             |
+| `dmi_computer_vision/src/dmi/detection/left_display.py`, `left_layout.py`   | Speedometer/sidebar/box geometry vs left train workflow content; `BorderEvidence` already uses relative blue contrast                                                                                                                                                          | Reuse; do not globally change shared thresholds merely to improve right field                                                                                         |
+| `dmi_computer_vision/src/dmi/detection/title_ocr.py`                        | Tesseract title/field OCR and exact supported title classification                                                                                                                                                                                                             | Reuse in acquisition, plus **targeted** OCR on changed title/field ROIs; no new OCR engine                                                                            |
+| `dmi_computer_vision/src/dmi/pipeline/frame_processor.py`                   | Existing single-frame full detector and geometry/content temporal stabilizers; `max_gap_seconds=1.0` normally resets history after longer processed-frame gaps                                                                                                                 | Preserve full detection semantics. Controller/cache must not depend on its temporal state surviving long locked periods                                               |
+| `dmi_computer_vision/src/dmi/temporal/smoothing.py`                         | Right-display stabilization; Level buttons intentionally publish current measured geometry rather than ordinary smoothing                                                                                                                                                      | Do not immediately change this for all screens. Lock centers at the **screen controller** layer instead; diagnose Level misses independently                          |
+| `dmi_computer_vision/src/dmi/api.py`                                        | `VisionSession`, `Observation` (frame index, receipt/upstream time, direct evidence, context)                                                                                                                                                                                  | Preserve API and the meaning of fresh observations                                                                                                                    |
+| `dmi_robot_master/integration/vision_observer.py`                           | One acquisition, detector and render worker. `_detect()` currently calls `session.process(packet)` on each consumed frame, projects pixels and updates mode history. Holds only latest packet and bounded history; `snapshot()` expires full detector observations after 1.5 s | Add screen controller and selective work in this owner; maintain a separate display-only locked cache; expose safe action-trigger notifications if needed             |
+| `dmi_robot_master/integration/processing_policy.py`                         | `DetectionPolicy` uses 160x120 blurred grayscale differences, detection cap, burst, refresh and forced event                                                                                                                                                                   | Reuse/adapt cheap change-check logic; existing settings are not a drop-in “stop full detection” policy because it still forces regular detection                      |
+| `dmi_computer_vision/src/dmi/mode_observation.py`, `dmi/detection/icons.py` | Existing template/mode reading of measured `box_14` and `box_16`; `ModeHistory` tracks blinking/steady with timed observations                                                                                                                                                 | Reuse for **dynamic icons** using locked, image-evidenced ROIs; do not freeze modes or infer them from click labels                                                   |
+| `dmi_computer_vision/src/dmi/output/preview_state.py`                       | Display-only annotation hold/deadband, at most 2 missed detections / 1.5 s; cached overlay explicitly cannot authorize actions                                                                                                                                                 | Do not confuse preview caching with an authoritative screen lock; preserve preview freshness contracts                                                                |
+| `dmi_robot_master/integration/publication.py`, `targets.py`                 | Original-pixel targets, 4 px publishing tolerance, evidence checks/expiry                                                                                                                                                                                                      | Preserve original outputs, freshness, identity and numerical policy; do not silently change public schema                                                             |
+| `dmi_robot_master/integration/recorded_test.py`                             | Experimental `RecordedTestProjector`: reused saved SENSE homography plus **current** `getPerspectiveTransform(current, recorded)` registration. `_view_anchor` bounds monitor drift but registration is recomputed from noisy current corners                                  | Establish one robust session registration, check continued agreement; keep whole-monitor extrapolation explicitly experimental and unverified                         |
+| `dmi_robot_master/integration/sense_calibration.py`, `calibration.py`       | Offline affine/homography fitting, validated provenance/geometry, independent control holdouts, reference mappings and error bounds                                                                                                                                            | Reuse fitting/inspection; no new per-screen homography or altered acceptance standard                                                                                 |
+| `TapperWare_Flet/dmi_runtime.py`, `dmi_physical_press.py`                   | Existing call sites/press-result lifecycle; UI already invokes `VisionObserver`                                                                                                                                                                                                | **No GUI redesign**. If necessary, add only an explicit observer notification of successful/failed completed action; never assume movement guarantees a UI transition |
 
 **Known current contracts:** `VisionObserver.experimental_press_sample()` uses recent direct detections (at most three, up to two misses, max 1.5 s) and matching screen/geometry; `recorded_test._xy()` checks direct center agreement within 4 px; `snapshot()` doesn't expose an expired observation as fresh. **A forever-locked coordinate therefore cannot make the existing press action immediately eligible by itself.** Address the gap in a separate, evidence-preserving integration phase; do not make stale observations “fresh.”
 
@@ -75,11 +76,18 @@ The following references were inspected at the source revision above. Re-read lo
 
 ### States
 
-Use an internal controller with three states, with an optional reason enum:
+Use three simple screen-lock states:
 
-- **ACQUIRING**: unknown/new screen, recovery after loss, untrusted monitor geometry, or explicit full reacquisition. Run existing `VisionSession.process()` on successive latest frames. Collect a bounded observation window (e.g. last five *successful* observations) and check expected identities, geometry coherence and stability. Do not keep using the old layout as valid during acquisition for a genuinely different screen.
-- **LOCKED**: retain measured quads/centers and screen identity. Do not run full detection continuously. Evaluate cheap thumbnail/ROI checks on new frames; targeted OCR or icon recognition only when needed. Static centers stay unchanged. Screen appearance may change dynamically without unlocking static geometry.
-- **UPDATING**: a known completed action or a changed/uncertain title/field/button region requires targeted checks. Retain the old geometry **only while current monitor/screen context remains confirmed**; otherwise discard the lock and enter ACQUIRING. A transition to an unfamiliar screen never inherits previous targets.
+- **ACQUIRING:** Detecting a new screen; no controls confirmed yet.
+- **PARTIAL_LOCK:** Some controls confirmed and locked.
+  Continue bounded searches for missing required controls.
+- **LOCKED:** All required static controls confirmed.
+  Stop continuous full detection and use lightweight monitoring.
+
+Dynamic updates (field values, icons, button activity) do not
+require a separate state. Update them while keeping the lock valid.
+
+On screen change or significant monitor movement, reset to ACQUIRING.
 
 The controller should be a small **session-owned object**, ideally one new file `dmi_robot_master/integration/screen_lock.py`, with a small profile/configuration block there initially. Avoid a new service or modifying every analyzer. Proposed interfaces (names may adapt to local conventions):
 
@@ -109,20 +117,20 @@ Keep a single pending acquisition frame and native receipt timestamps. Store no 
 
 ### State transitions
 
-| Event/evidence | New state / work | Geometry reused? |
-|---|---|---|
-| Session start or frame-size/source/rotation change | ACQUIRING; discard lock and source-bound calibration context | No |
-| 3–5 consistent full detections satisfy the profile | LOCKED; median measured centers, save current ROI references | Yes |
-| Driver ID digit pressed; title/monitor unchanged | UPDATING: refresh **grey field value** from current crop, then LOCKED | Yes |
-| Level selection changed; same title/geometry | UPDATING: refresh field **and relevant Level activity/icon states**; then LOCKED | Yes, if independently confirmed unchanged |
-| Grey field/confirmation or X/close pressed | UPDATING: watch title / page and transition; ACQUIRING if state/layout changes | Only if page demonstrably stays same |
-| Other button whose outcome is not explicitly modeled | UPDATING with broad change check; ACQUIRING if uncertain | Conditionally |
-| Cheap title crop differs | Title OCR on **current** image; if recognized new title, ACQUIRING; if uncertain, retry/reacquire | No on unresolved transition |
-| Title unchanged but field crop differs | Targeted value OCR from current pixels; no full geometry detection if field is still present | Yes |
-| Same-title button label/enable state changes | Targeted validation if supported, else ACQUIRING | Only static verified geometry |
-| Blink toggles in box_16 | Targeted existing mode observation and temporal logic; avoid full screen detection | Yes |
-| Monitor border/camera drift beyond locked tolerance, occlusion, frame loss, stale source, unknown title, configuration/calibration invalidation, Stop | Invalidate relevant lock/evidence and ACQUIRING when visibility returns | No |
-| No changes for a prolonged interval | Periodic bounded structural **audit** and/or full detection, configurable using measured failure rates | Yes only while audit confirms it |
+| Event/evidence                                                                                                                                        | New state / work                                                                                       | Geometry reused?                          |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------ | ----------------------------------------- |
+| Session start or frame-size/source/rotation change                                                                                                    | ACQUIRING; discard lock and source-bound calibration context                                           | No                                        |
+| 3–5 consistent full detections satisfy the profile                                                                                                    | LOCKED; median measured centers, save current ROI references                                           | Yes                                       |
+| Driver ID digit pressed; title/monitor unchanged                                                                                                      | UPDATING: refresh **grey field value** from current crop, then LOCKED                                  | Yes                                       |
+| Level selection changed; same title/geometry                                                                                                          | UPDATING: refresh field **and relevant Level activity/icon states**; then LOCKED                       | Yes, if independently confirmed unchanged |
+| Grey field/confirmation or X/close pressed                                                                                                            | UPDATING: watch title / page and transition; ACQUIRING if state/layout changes                         | Only if page demonstrably stays same      |
+| Other button whose outcome is not explicitly modeled                                                                                                  | UPDATING with broad change check; ACQUIRING if uncertain                                               | Conditionally                             |
+| Cheap title crop differs                                                                                                                              | Title OCR on **current** image; if recognized new title, ACQUIRING; if uncertain, retry/reacquire      | No on unresolved transition               |
+| Title unchanged but field crop differs                                                                                                                | Targeted value OCR from current pixels; no full geometry detection if field is still present           | Yes                                       |
+| Same-title button label/enable state changes                                                                                                          | Targeted validation if supported, else ACQUIRING                                                       | Only static verified geometry             |
+| Blink toggles in box_16                                                                                                                               | Targeted existing mode observation and temporal logic; avoid full screen detection                     | Yes                                       |
+| Monitor border/camera drift beyond locked tolerance, occlusion, frame loss, stale source, unknown title, configuration/calibration invalidation, Stop | Invalidate relevant lock/evidence and ACQUIRING when visibility returns                                | No                                        |
+| No changes for a prolonged interval                                                                                                                   | Periodic bounded structural **audit** and/or full detection, configurable using measured failure rates | Yes only while audit confirms it          |
 
 **Do not treat `title unchanged` as proof that all state is unchanged.** Same-title field values, Level enabled/disabled states, button/overlay changes and blinking modes are separate monitored regions. External/manual touchscreen interactions are possible even without an app-generated click event; cheap visual checks must detect unexpected change.
 
@@ -164,61 +172,214 @@ Keep a single pending acquisition frame and native receipt timestamps. Store no 
 
 **Exit:** Higher field-region recall on held-out real SENSE samples, no new false positives on supported screens, existing OCR value accuracy preserved, and bounded measured processing overhead. Log/debug which detector (`primary`/`fallback`) succeeded without changing public output schemas unnecessarily.
 
-### Phase 2 — Screen profiles and multi-frame acquisition / locking (core feature)
+### Phase 2 — Progressive Screen Locking
 
-**Preferred new file:** `dmi_robot_master/integration/screen_lock.py` (~one small pure-Python module).  
-**Integration point:** `dmi_robot_master/integration/vision_observer.py`.  
-**Tests:** `tests/test_screen_lock.py` or the current integration-test suite; add focused SENSE fixtures.
+**Goal:** Detect each button, box, and field several times, save its stable position, and progressively build a complete screen layout.
 
-1. Introduce **small image-evidence-driven profiles** for Driver ID and Level, not hardcoded pixel coordinates:
-   - Required static identities/roles for the specific observed screen (e.g. Driver ID known digit identities, explicitly supported actions and a grey field; Level known supported labels and grey field); clearly distinguish optional controls, dynamic controls and conditions where a control can be hidden/disabled.
-   - Driver ID's left sidebar may contain up to 22 known boxes; **verify actual required visibility and labels from current code + raw screenshots** before requiring all 22. Never extrapolate a missing box or let a frozen left layout impersonate a train-workflow view.
-   - Level's observed controls include levels 0/1/2/3, KVB, SCMT, MEMOR, ATC-2, TBL1+, close and more; determine required/optional availability from measured examples. `active=true/false/null` must remain current-image evidence, not a fixed property of the label.
-   - Other screens: default to current full pipeline until a profile and transition recordings have been independently checked. Direct startup on any known screen must continue working; no prior page is mandatory.
-2. On entering ACQUIRING, run current `VisionSession.process()` on the latest acquired frames. Keep at most five usable observations from the **same screen, source, resolution and consistent monitor geometry**; reset the candidate window on context change/occlusion/ambiguous screen. The first 3–5 **consistent** detections should not need to be consecutive camera frames if some are legitimately skipped, but they must remain recent and span enough source frames to exclude duplicate evidence.
-3. Validate each candidate before counting it: right/left measured display geometry, expected **detected** control identities, convex in-frame quads, field presence, allowed button activity; no duplicate Level identities; no accidental train workflow layout; original pixel centers not out-of-range. Use observed border/label support, not nominal cell placement.
-4. Confirm the same required identity/geometry set and bounded center/corner dispersion across at least **three** acceptable full detections in a window of at most five; choose these numbers as initial tunable settings. An excellent single full frame **does not** alone establish a lock. Avoid a “wait forever for every possible optional control” failure. If minimum coverage cannot be reached, remain ACQUIRING with partial, honestly labeled visual results and no locked action targets.
-5. Compute **median** of original-frame centers and, if appropriate, compatible measured quads, per stable identity; use robust dispersion checks and reject outliers. Do not blend geometries across different monitor-layout detection bases. Save measured geometry, expected identities, field/title/icon ROIs, source identity, camera context, lock generation, calibration ID and timestamps.
-6. Publish a separate **locked layout** to the observer/preview as stable display information. Do **not** overwrite the raw `Observation.result`, `direct_evidence`, `received_at` or frame indices, and do not artificially increase confirmation counts or invent raw fields. Keep the original full detector available for diagnostics and cold-start comparisons.
-7. Invalidate on source/frame-size/camera configuration/rotation change, confirmed monitor movement, incompatible geometry or crop basis, occlusion/loss/recovery, an unknown/changed screen, Stop or calibration/origin identity change. A transient absent button can remain shown as an explicitly *cached* visual region only when appropriate; it cannot be silently relabeled as current direct evidence.
-8. When separated TWIN geometry is observed, bypass the SENSE lock and run existing behavior unchanged.
+**Files:**
 
-**Exit:** Driver ID and Level can lock from 3–5 consistent detections, centers stay fixed through static camera noise, wrong/partial screens never lock, and a new screen starts without inheriting stale targets.
+- New: `dmi_robot_master/integration/screen_lock.py`
+- Update: `dmi_robot_master/integration/vision_observer.py`
 
-### Phase 3 — Cheap screen/field/icon monitoring and event-driven updates (highest performance priority)
+**Implementation:**
 
-**Primary:** `screen_lock.py` + small wiring in `vision_observer.py`; reuse `processing_policy.py` ideas and existing `mode_observation.py` / `title_ocr.py` functions.
+1. Create a simple screen-lock module that stores:
+   - Current screen name (Driver ID, Level, etc.).
+   - Confirmed buttons, boxes, and fields.
+   - Stable pixel centers and bounding boxes.
+   - Recent detection positions for unconfirmed elements.
 
-**Do not merely call `DetectionPolicy` unchanged.** Its current default `refresh_seconds=0.4`, `burst_seconds=3.0` and forced full-detection behavior are useful for the original selective runner, but do not implement a truly locked screen. Reuse its cheap 160x120 image-change technique and forced-refresh notion; adjust scheduling at the observer level while leaving the existing regular/selective CLI runner behavior unchanged unless separately authorized.
+2. For Driver ID and Level, define which elements are required and which are optional.
+   - Use existing detector identities and real screen recordings.
+   - Do not require every possible button or all 22 left boxes unless they are actually expected on that screen.
+   - Other screens continue using the existing detection pipeline until supported.
 
-**While LOCKED, process each latest frame cheaply:**
+3. When a screen appears, start collecting detections:
+   - Each button, box, and field is checked independently.
+   - Confirm an element after **3 consistent detections** from different frames.
+   - The 3 detections do not need to be consecutive.
+   - Check that the detected positions are reasonably close to each other.
+   - Save the median center and detected bounding box.
 
-1. **Global context check:** frame/source/shape continuity and optional small monitor-border/anchor checks. Maintain a cheap coarse downsampled frame-difference signal to catch unexpected changes/manual touches even if no application action event was received. Compensate only for tiny sensor noise/global brightness drift; do not hide real transitions. Do not use a saved whole screenshot as a screen-identity classifier; image comparisons are **change detectors**, not replacement OCR/geometry evidence.
-2. **Title crop:** save the title ROI from the measured locked geometry. About **once per second initially** (time-based), compare current vs reference title crop using a bounded, illumination-tolerant metric (small normalized grayscale image, local contrast and/or stable text-edge structure; calibrate noise floor). If changed or alignment invalid, run **existing title OCR on the current crop**. Known new exact title ⇒ invalidate prior targets, enter ACQUIRING; unknown/uncertain ⇒ prevent action, repeat short transition checks or full acquire. A periodic OCR audit at a longer interval may be needed for missed changes; tune from real tests.
-3. **Grey field crop:** retain its measured ROI and current value separately. On a completed digit press, same-page selection, significant *field-specific* pixel change, or periodic uncertainty refresh, apply **existing field OCR/value extraction** only to current pixels within the locked rectangle (with the correct Driver ID/Level-specific digit/value semantics). If unchanged, preserve the previously confirmed displayed value but not its freshness timestamp. If changed but unreadable, publish **unknown**, not the old value as current. Check the field border/ROI still supports the same measured region; invalid field ⇒ reacquire/fallback detector.
-4. **Level active state:** activity may change without a title change. Check relevant current button glyph/color ROIs when an action or image difference warrants it; reuse `_level_button_active()` logic where practical. Never infer enabled/disabled from fixed label identity. If affected labels/geometry are uncertain, trigger full analysis instead of declaring activity unchanged.
-5. **Left mode icons:** continue observing `box_14` and `box_16` through the existing template matching and `ModeHistory` state machine. Keep their measured locations from the locked layout. While a blink/hold is active, sample at a **sufficient cadence for existing timing logic**, not once per second; check image/ROI changes or sample routinely in this small area. Do not silently freeze a blinking icon as static or infer a mode from a click event.
-6. **Bounded structural refresh:** add a configurable long-interval full check/audit (initial experiment e.g. **15–30 seconds**, tune) plus immediate full reacquisition for unexplained large changes, ambiguous ROI comparisons or prolonged source instability. This honors existing bounded-refresh requirements; the expected steady-state expensive-call rate should remain far below the present continuous detector rate.
-7. **Transition monitor:** following an action that may navigate, do not blindly restore LOCKED from the old crop. Watch for title+layout difference and settle time. Unknown title or different right layout ⇒ ACQUIRING. Confirmed same title with unchanged static geometry ⇒ continue lock and refresh the changed dynamic regions.
-8. **Acquisition gap:** `FrameProcessor` currently resets its own history when processed full-frame observations are >1 s apart. This is expected if full detection is suspended. Keep screen-lock state **independent** of that internal temporal history. On a triggered full reacquisition, re-establish confidence as necessary; never rely on internal temporal results as already confirmed after an unprocessed gap. Do not modify the shared TWIN timing semantics.
-9. Add traceable diagnostics in existing debug metrics, not a new always-on verbose log: state/transition/reason, number of full calls, cheap checks and their time, title OCR calls, field OCR calls, icon checks, active-state checks, number of locks/reacquisitions, field-value latency and frame/result age.
+4. Implement two simple locking states:
+   - **PARTIAL LOCK:** Some elements are confirmed, while others are still being detected.
+   - **COMPLETE LOCK:** All required static elements are confirmed.
 
-**Suggested initial decision rules (experimentally tune; not guarantees):** `title_check_period ≈ 1.0 s`; full acquisition window up to 5 qualifying observations; OCR on changed crops/known actions plus bounded audit; cheap ROI sampling per available latest frame or a small fixed frequency; 15–30 s full structural audit **only if needed** to meet miss-detection and staleness requirements. Do not hard-code a 20/30-frame OCR cadence.
+5. During PARTIAL LOCK:
+   - Immediately annotate confirmed elements using their saved positions.
+   - Keep those annotations fixed.
+   - Continue searching for missing elements.
+   - Add each newly confirmed element to the annotations.
+   - Do not restart detection for elements already confirmed.
+   - Limit repeated expensive searches if an element cannot be found.
 
-**Exit:** Static screen no longer requires full recognition on each consumed frame; a same-title digit updates only field content; a Level change updates field/activity/icons; grey confirmation and close trigger transition checks and full acquisition on a true screen change; manual/unexpected changes are still detected; no false current values are manufactured.
+6. During COMPLETE LOCK:
+   - Stop continuous full-screen detection.
+   - Keep all confirmed annotations fixed.
+   - Switch to the lightweight monitoring implemented in Phase 3.
 
-### Phase 4 — Locked centers and stable original-pixel targets
+7. Reset the lock when:
+   - The screen changes.
+   - The camera or monitor moves significantly.
+   - The video source or resolution changes.
+   - The current screen geometry becomes unreliable.
+   - The vision session stops.
 
-**Primary:** `screen_lock.py`, `vision_observer.py`.  
-**Optional:** `smoothing.py` only if independent measurements show additional needed SENSE-specific correction.
+8. Important restrictions:
+   - Never invent coordinates for missing elements.
+   - Never mix detections from different screens.
+   - Keep the original detector results separate from cached coordinates.
+   - Cached annotations alone cannot authorize robot actions.
+   - Do not change existing TWIN detection behavior.
 
-1. Store median center **once at lock time** for each confirmed static control. For consistent idle observations, do not update it in response to single-frame jitter. Use the exact same coordinate reference basis as the current camera frames and the locked monitor registration.
-2. After reacquisition of the **same** screen, compare to the saved center with a *non-cumulative* pixel tolerance against the **original locked baseline** (never the immediately previous noisy frame). Provisional user hypotheses: ±10 px X, ±5 px Y; **do not adopt them automatically**. Determine safe per-region tolerances by mapping the extreme pixel deviations through the actual homography and its uncertainty, using the fixed 3 mm limit as an upper-bound constraint.
-3. A real shift beyond tolerated geometry/monitor drift invalidates or relocks after new independent observations. Never drag a stable center gradually through repeated ±small jitter. If the selected button identity or active state changes, invalidate its eligibility regardless of coordinate tolerance.
-4. In preview, distinguish a cached/locked center from directly observed current evidence and show state/age/reason. Existing `LivePreviewState` may continue its short display-only hold; a persistent **screen lock is not the same object as preview hold**.
-5. Keep calibration input points, raw detector coordinates and action confirmation precision unchanged. If a new stable-center readout is added, make the source of its coordinates explicit. Do not apply the GUI's existing **2 mm display-only XY deadband** to robot command coordinates.
+**Expected Result:**
+The detector builds a partial lock, progressively adds confirmed elements,
+and eventually reaches a complete lock. Annotations stop flickering and
+remain stable even when individual detections temporarily fail.
 
-**Exit:** Same physical control has one locked center through stationary noise; median/dispersion and real pixel→mm uncertainty are reported; wrong label, large shift or source change invalidates the lock rather than shifting the target silently.
+---
+
+### Phase 3 — Lightweight Monitoring and Smart Updates
+
+**Goal:** Avoid running expensive detection and OCR on every frame when the screen has not changed.
+
+**Files:**
+
+- `dmi_robot_master/integration/screen_lock.py`
+- `dmi_robot_master/integration/vision_observer.py`
+- Reuse existing OCR and icon-detection functions.
+
+**Implementation:**
+
+1. While the screen is completely locked, reuse its saved button
+   and box positions instead of detecting them again.
+
+2. Monitor the screen using inexpensive image comparisons:
+   - Check the title area periodically (initially about once per second).
+   - Check the grey field for changes.
+   - Check relevant button appearance and left-side mode icons.
+   - Check that the monitor position remains stable.
+
+3. Only run OCR when needed:
+   - If the title area changes, run title OCR to identify the screen.
+   - If the grey field changes, run field OCR to read its new value.
+   - Avoid repeated OCR when these regions remain unchanged.
+   - If a changed field cannot be read, report an unknown value
+     instead of presenting the previous value as current.
+
+4. Handle button clicks intelligently:
+   - **Digit click:** Keep locked positions and update only the field value.
+   - **Level selection:** Keep positions and update relevant field/button states.
+   - **Confirm / Close:** Check whether the screen has changed.
+   - **New screen:** Clear the old lock and start Phase 2 again.
+
+5. Continue checking dynamic elements:
+   - Enabled/disabled Level buttons may change without a new screen.
+   - Blinking icons must continue updating using the existing logic.
+   - Do not freeze dynamic information just because positions are locked.
+   - Manual screen interactions must also be detected.
+
+6. If the screen appears different or its geometry becomes unreliable:
+   - Run the existing full detector again.
+   - Rebuild the lock if necessary.
+   - Keep occasional full checks if real tests show they are needed.
+
+7. During PARTIAL LOCK:
+   - Continue checking for missing elements at a limited frequency.
+   - Keep confirmed annotations stable.
+   - Avoid repeatedly processing the entire screen at maximum frequency
+     when the same elements remain missing.
+
+8. Keep the live camera preview running normally:
+   - The video continues updating.
+   - Static annotations use saved positions.
+   - Field values, button states, and icons update when needed.
+
+**Expected Result:**
+The system performs much less full detection and OCR while the
+screen is unchanged, resulting in better processing speed and
+more stable annotations.
+
+---
+
+### Phase 4 — Stable Coordinates and Movement Detection
+
+**Goal:** Keep confirmed button centers fixed until a real screen or camera movement requires new coordinates.
+
+**Files:**
+
+- `dmi_robot_master/integration/screen_lock.py`
+- `dmi_robot_master/integration/vision_observer.py`
+
+**Implementation:**
+
+1. Use the median pixel center calculated in Phase 2 for each
+   confirmed button, box, or field.
+
+2. After confirmation, do not continuously update that center
+   using every new detector result.
+
+3. Ignore small detection variations caused by normal image noise.
+
+4. Periodically check whether the monitor or screen geometry
+   has genuinely changed.
+   - Small detection noise: keep the locked coordinates.
+   - Confirmed significant movement: invalidate the affected lock
+     and detect the coordinates again.
+   - Use simple pixel-distance checks with thresholds determined
+     from real recordings, not arbitrary fixed values.
+
+5. During PARTIAL LOCK, adding a newly confirmed element must not
+   move the centers of previously confirmed elements.
+
+6. During COMPLETE LOCK, keep all static annotation positions fixed
+   while the screen remains valid.
+
+7. Keep raw detector coordinates available for debugging and comparison.
+
+8. Use the locked pixel centers with the appropriate validated
+   pixel-to-millimeter mapping, but do not modify calibration logic here.
+
+9. Keep robot safety checks unchanged:
+   - A cached center is not fresh detection evidence.
+   - Current target identity and eligibility must still be verified.
+   - Existing calibration and action-safety requirements remain mandatory.
+
+**Expected Result:**
+Buttons have stable pixel centers and stable annotations.
+Minor detection noise no longer causes coordinate movement.
+Real camera or monitor movement triggers reacquisition.
+
+**Note:**
+Homography improvement and the existing 3 mm held-out calibration
+accuracy requirement belong in Phase 5, not Phase 4.
+
+---
+
+### Testing Strategy for Phases 2–4
+
+Keep testing simple, focused, and token-efficient.
+
+1. Check that an element detected in 3 different consistent frames
+   becomes locked, even when the frames are not consecutive.
+2. Check that confirmed elements remain stable while missing elements
+   continue being detected.
+3. Check that partial lock becomes complete lock when all required
+   elements are confirmed.
+4. Check that missing elements never receive invented coordinates
+   and that retries do not continue indefinitely.
+5. Check that annotations remain fixed despite temporary detector misses.
+6. Check that digit clicks update the field without restarting
+   full-screen detection.
+7. Check that screen changes and real monitor movement reset the lock.
+8. Check that dynamic icons and Level button activity still update.
+9. Check that cached coordinates cannot bypass fresh-evidence checks.
+10. Verify that existing TWIN behavior remains unchanged.
+
+Run focused tests during implementation. Run the full regression
+suite at the end or whenever a change makes broader testing necessary.
+
+---
 
 ### Phase 5 — One SENSE monitor-plane homography and stable registration
 
@@ -279,23 +440,29 @@ Keep a single pending acquisition frame and native receipt timestamps. Store no 
 
 ### 4.2 Action-to-refresh matrix (initial proposal, refine from actual UI recordings)
 
-| Known action/event | Prediction | Cheapest follow-up | When to unlock |
-|---|---|---|---|
-| Driver ID `digit_0..9`, `delete` | Field text changes, same Driver ID page | Compare grey field; call `_read_digits()` on **current** crop if changed | Title/geometry/field border changes unexpectedly or state uncertain |
-| Driver ID `decimal` / other visible actions | Could change text or state | Title + field + relevant button-region comparison | If expected effect is not confirmed, or new title/layout appears |
-| Level `level_*` or other selection | Grey field value and/or button `active` state and icons change, page may remain Level | Field crop/OCR + changed Level glyph/activity ROIs + left modes | New page, changed cell layout, unresolved activity or title |
-| Confirming **grey field** (when an external/authorized action is observed) | Often page navigation | Title crop check immediately after view settles | New title or layout ⇒ ACQUIRING |
-| `close` / X | Often page navigation | Title crop check + structural context | New title or layout ⇒ ACQUIRING |
-| Train workflow navigation / unmodeled action | Unknown or page navigation | Broad cheap change detection; full acquire on ambiguity | Any transition or insufficient evidence |
-| Robot movement *without confirmed click* | Possible occlusion/vibration, **no presumed UI effect** | Wait for clear/stable current image, check source/anchor | If monitor geometry altered / state uncertain |
-| Manual touch / unexpected change | Unknown | Cheap ROI/global change detector, title and affected ROI checks | New/unknown screen, invalid geometry or unexplained layout |
+| Known action/event                                                         | Prediction                                                                            | Cheapest follow-up                                                       | When to unlock                                                      |
+| -------------------------------------------------------------------------- | ------------------------------------------------------------------------------------- | ------------------------------------------------------------------------ | ------------------------------------------------------------------- |
+| Driver ID `digit_0..9`, `delete`                                           | Field text changes, same Driver ID page                                               | Compare grey field; call `_read_digits()` on **current** crop if changed | Title/geometry/field border changes unexpectedly or state uncertain |
+| Driver ID `decimal` / other visible actions                                | Could change text or state                                                            | Title + field + relevant button-region comparison                        | If expected effect is not confirmed, or new title/layout appears    |
+| Level `level_*` or other selection                                         | Grey field value and/or button `active` state and icons change, page may remain Level | Field crop/OCR + changed Level glyph/activity ROIs + left modes          | New page, changed cell layout, unresolved activity or title         |
+| Confirming **grey field** (when an external/authorized action is observed) | Often page navigation                                                                 | Title crop check immediately after view settles                          | New title or layout ⇒ ACQUIRING                                     |
+| `close` / X                                                                | Often page navigation                                                                 | Title crop check + structural context                                    | New title or layout ⇒ ACQUIRING                                     |
+| Train workflow navigation / unmodeled action                               | Unknown or page navigation                                                            | Broad cheap change detection; full acquire on ambiguity                  | Any transition or insufficient evidence                             |
+| Robot movement _without confirmed click_                                   | Possible occlusion/vibration, **no presumed UI effect**                               | Wait for clear/stable current image, check source/anchor                 | If monitor geometry altered / state uncertain                       |
+| Manual touch / unexpected change                                           | Unknown                                                                               | Cheap ROI/global change detector, title and affected ROI checks          | New/unknown screen, invalid geometry or unexplained layout          |
 
 Make these rules **proposals**, not robot-driving instructions. The application may not currently support clicking field targets; this table describes observation reactions only. Never infer UI state from the intended action label without checking the actual image.
 
 ### 4.3 Lock acceptance / recovery policy (recommended starting assumptions)
 
-- Acquisition window: **5 latest successful full observations**, require **≥3 consistent** with exact same supported screen identity and measured geometry and all **required static** controls. Unknown/ambiguous/duplicate label or field absent in a required sample does not count for that control.
-- Profile coverage is *screen specific*. Distinguish required static, optional static and dynamically visible. Do not require `box_16` to contain an icon, or an inactive Level button to be bright. Static **box geometry** may be present while icon content is absent.
+- Confirm each required control independently after at least 3 consistent detections from different frames.
+- Use a recent, bounded history (initially around 5 observations per control). Frames do not need to be consecutive.
+- Add each confirmed control immediately to PARTIAL_LOCK.
+- Enter LOCKED only when all required static controls are confirmed.
+- If controls remain missing, use bounded retries rather than
+  running full detection indefinitely.
+- Never combine evidence from different screens or camera geometries.
+- Profile coverage is _screen specific_. Distinguish required static, optional static and dynamically visible. Do not require `box_16` to contain an icon, or an inactive Level button to be bright. Static **box geometry** may be present while icon content is absent.
 - Use **median** native centers; require a small, justified raw dispersion threshold. Do not reuse one frame's outlier corner to initialize the lock. Center stability cannot compensate for an incorrect identity.
 - Initial pilot: allow cached display geometry to remain visible during short uncertain intervals, **marked as cached**; drop its action usability. Do not increase previously accepted `LivePreviewState` display hold or direct evidence lifetime as a shortcut.
 - Every lock/relock gets a generation ID and reason; selection and calibration registration must refer to the same generation. Invalidate on source/calibration/origin change, verified monitor movement, new page, or shutdown.
@@ -323,31 +490,31 @@ The objective is computer vision and mapping. Do not rebuild Flet screens, add a
 
 Add focused unit/replay tests in appropriate existing files (`dmi_computer_vision/tests/`, `tests/test_robot_integration.py` or one new `tests/test_screen_lock.py`) rather than a separate test framework. **Do not run real robot hardware in automated tests.**
 
-| Test ID | Input/scenario | Expected |
-|---|---|---|
-| F1 | Grey field brighter/darker, cooler WB, JPEG noise | Same measured field region and OCR as baseline; no field if evidence absent |
-| F2 | Large bright title/summary patch or two competing rectangles | No false grey-field lock; ambiguity explicit |
-| F3 | Level dim/inactive glyphs | Identity and `active` remain evidence-based; null when uncertain |
-| L1 | 1 good full frame then ambiguous frames | No lock |
-| L2 | ≥3 of 5 consistent full observations | Lock required measured geometry; median per-target center |
-| L3 | One outlier center / different screen / duplicate control | Reject outlier; no false lock across states |
-| L4 | Driver ID left 22-box expected view vs Train workflow replacing it | Profile doesn't invent missing boxes or prevent valid workflow |
-| S1 | Unchanged title, digit changes grey field | Only current field OCR/value update; no full-screen relocalization |
-| S2 | Level unchanged title, selection toggles activity/mode | Update dynamic status correctly; geometry remains locked |
-| S3 | Grey confirmation / close causes new title | Old lock invalidated; full acquisition on new state |
-| S4 | Manual touch changes state without application event | Cheap change detector still discovers transition |
-| S5 | Blinking box_16 on/off/steady, 5 s holds | Existing mode history remains correct; no false frozen mode |
-| S6 | Camera drops frames; frame source stale >1.5 s | Freshness expires; cached layout cannot renew action evidence |
-| S7 | Partial/unknown/occluded image, monitor reposition | Lock/action support invalidated; recovery reacquires before new approval |
-| S8 | Long idle > `FrameProcessor` 1 s temporal gap | Controller lock remains logically separate; triggered full scan handles reset correctly |
-| H1 | Jittered 1–3 px corners/centers on same physical setup | Stable locked R/centers; low converted XY variation |
-| H2 | Real camera/monitor shift, resize/rotation/source change | Registration/lock invalidated; no silent recenter |
-| H3 | Independent Level and screen-edge physically measured targets | Held-out mm error reported; ≤3 mm required for normal acceptance |
-| A1 | Cached locked button, no fresh independent target proof | **No action**, even though preview still shows center |
-| A2 | Fresh correct target ROI and valid calibration/context | Read-only eligible status / optional authorized action if existing guards pass |
-| A3 | Wrong label, inactive Level control, stale view, large shift, invalid map | Action blocked; no retry or substituted old coordinate |
-| R1 | Frozen TWIN Main/Driver ID/Level/train records | Same accepted detections/output contracts; no SENSE leakage |
-| P1 | Matched baseline vs optimized replay | Exact accuracy, mean/P95 age, OCR calls, full calls, skips/overwrites documented |
+| Test ID | Input/scenario                                                            | Expected                                                                                                            |
+| ------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------- |
+| F1      | Grey field brighter/darker, cooler WB, JPEG noise                         | Same measured field region and OCR as baseline; no field if evidence absent                                         |
+| F2      | Large bright title/summary patch or two competing rectangles              | No false grey-field lock; ambiguity explicit                                                                        |
+| F3      | Level dim/inactive glyphs                                                 | Identity and `active` remain evidence-based; null when uncertain                                                    |
+| L1      | 1 good full frame then ambiguous frames                                   | No lock                                                                                                             |
+| L2      | Different controls detected in different subsets of frames                | Confirm each independently; progressively build PARTIAL_LOCK; enter LOCKED when all required controls are confirmed |
+| L3      | One outlier center / different screen / duplicate control                 | Reject outlier; no false lock across states                                                                         |
+| L4      | Driver ID left 22-box expected view vs Train workflow replacing it        | Profile doesn't invent missing boxes or prevent valid workflow                                                      |
+| S1      | Unchanged title, digit changes grey field                                 | Only current field OCR/value update; no full-screen relocalization                                                  |
+| S2      | Level unchanged title, selection toggles activity/mode                    | Update dynamic status correctly; geometry remains locked                                                            |
+| S3      | Grey confirmation / close causes new title                                | Old lock invalidated; full acquisition on new state                                                                 |
+| S4      | Manual touch changes state without application event                      | Cheap change detector still discovers transition                                                                    |
+| S5      | Blinking box_16 on/off/steady, 5 s holds                                  | Existing mode history remains correct; no false frozen mode                                                         |
+| S6      | Camera drops frames; frame source stale >1.5 s                            | Freshness expires; cached layout cannot renew action evidence                                                       |
+| S7      | Partial/unknown/occluded image, monitor reposition                        | Lock/action support invalidated; recovery reacquires before new approval                                            |
+| S8      | Long idle > `FrameProcessor` 1 s temporal gap                             | Controller lock remains logically separate; triggered full scan handles reset correctly                             |
+| H1      | Jittered 1–3 px corners/centers on same physical setup                    | Stable locked R/centers; low converted XY variation                                                                 |
+| H2      | Real camera/monitor shift, resize/rotation/source change                  | Registration/lock invalidated; no silent recenter                                                                   |
+| H3      | Independent Level and screen-edge physically measured targets             | Held-out mm error reported; ≤3 mm required for normal acceptance                                                    |
+| A1      | Cached locked button, no fresh independent target proof                   | **No action**, even though preview still shows center                                                               |
+| A2      | Fresh correct target ROI and valid calibration/context                    | Read-only eligible status / optional authorized action if existing guards pass                                      |
+| A3      | Wrong label, inactive Level control, stale view, large shift, invalid map | Action blocked; no retry or substituted old coordinate                                                              |
+| R1      | Frozen TWIN Main/Driver ID/Level/train records                            | Same accepted detections/output contracts; no SENSE leakage                                                         |
+| P1      | Matched baseline vs optimized replay                                      | Exact accuracy, mean/P95 age, OCR calls, full calls, skips/overwrites documented                                    |
 
 Provisional success goals to establish after baseline (avoid inventing achieved numbers): substantially improve field **recall** on the failure captures with no increased false positives, correct screen changes and same-title updates on all representative test sequences, no lock on ambiguous frames, stable locked centers, significantly fewer full-detector/OCR calls during steady state, and no increase in stale or unsafe action eligibility. For homography, unchanged **≤3 mm maximum held-out error** is non-negotiable for normal acceptance.
 
@@ -367,16 +534,16 @@ If optional deps are missing or some original raw fixtures are absent, report **
 
 ## 6. Suggested small change sets and review gates
 
-| Review gate | Preferred production files | Deliverable / approval criterion |
-|---|---|---|
-| **G0 Baseline** | No runtime edits | Failure clips, ground-truth definitions, baseline summary |
-| **G1 Lighting** | `right_display.py`; optional image helper | Field primary/fallback correctness; SENSE improvement; TWIN unchanged |
-| **G2 Screen lock** | New `screen_lock.py`, narrow `vision_observer.py` hook | 3–5 frame lock, expected profiles, invalidations; read-only cache only |
-| **G3 Selective detection** | `screen_lock.py`, `vision_observer.py`, optional `processing_policy.py` reuse | Same-title field update, transition/title checks, Level activity, blinking, bounded audits, reduced cost |
-| **G4 Stable coordinates** | `screen_lock.py`, observer projection/presentation; optional SENSE-only smoothing | Median locked original-pixel targets, no jitter/drift, explicit evidence separation |
-| **G5 SENSE homography** | `recorded_test.py` and existing calibration inspection/tests | Fixed session registration and independent cross-screen error report; unchanged 3 mm criterion |
-| **G6 Physical-action readiness** | Minimal action bridge only after independent approval | Fresh ROI direct proof OR on-demand full scan, no cache-only clicks, expiry/safety preserved |
-| **G7 End-to-end evaluation** | Mostly tests/benchmark harness | Matched accuracy/latency comparison, complete regressions, hardware gaps stated |
+| Review gate                      | Preferred production files                                                        | Deliverable / approval criterion                                                                         |
+| -------------------------------- | --------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| **G0 Baseline**                  | No runtime edits                                                                  | Failure clips, ground-truth definitions, baseline summary                                                |
+| **G1 Lighting**                  | `right_display.py`; optional image helper                                         | Field primary/fallback correctness; SENSE improvement; TWIN unchanged                                    |
+| **G2 Screen lock**               | New `screen_lock.py`, narrow `vision_observer.py` hook                            | 3–5 frame lock, expected profiles, invalidations; read-only cache only                                   |
+| **G3 Selective detection**       | `screen_lock.py`, `vision_observer.py`, optional `processing_policy.py` reuse     | Same-title field update, transition/title checks, Level activity, blinking, bounded audits, reduced cost |
+| **G4 Stable coordinates**        | `screen_lock.py`, observer projection/presentation; optional SENSE-only smoothing | Median locked original-pixel targets, no jitter/drift, explicit evidence separation                      |
+| **G5 SENSE homography**          | `recorded_test.py` and existing calibration inspection/tests                      | Fixed session registration and independent cross-screen error report; unchanged 3 mm criterion           |
+| **G6 Physical-action readiness** | Minimal action bridge only after independent approval                             | Fresh ROI direct proof OR on-demand full scan, no cache-only clicks, expiry/safety preserved             |
+| **G7 End-to-end evaluation**     | Mostly tests/benchmark harness                                                    | Matched accuracy/latency comparison, complete regressions, hardware gaps stated                          |
 
 Avoid scattering screen-lock state across `FrameProcessor`, preview worker, GUI widgets and robot controller. Keep the state machine cohesive and its integration small. A single new module plus focused edits/tests is preferable to many premature abstractions. Retain existing file names/contracts unless necessary.
 

@@ -50,8 +50,15 @@ def comparison_diagnostics(version: str) -> dict:
             "source_files_sha256": hashes,
             "source_fingerprint_complete": all(value is not None for value in hashes.values()),
             "baseline_source_fingerprint": BASELINE_SOURCE_FINGERPRINT,
-            "enabled_improvements": ["sense_field_contrast_fallback"] if version == '2' else [],
+            "enabled_improvements": ["sense_field_contrast_fallback", "sense_progressive_layout_lock",
+                                     "sense_selective_updates"] if version == '2' else [],
             "improvement_scope": "SENSE connected geometry only; TWIN retains baseline in both versions",
             "settings": {"optimize": True, "max_gap_seconds": 1.0, "stable_preview": True,
-                         "processing": "full detection per consumed frame", "rotation_clockwise": 0,
-                         "mirror_horizontal": False, "contrast_fallback": version == '2'}}
+                         "processing": ("ROI checks with bounded full audits" if version=='2'
+                                        else "full detection per consumed frame"), "rotation_clockwise": 0,
+                         "mirror_horizontal": False, "contrast_fallback": version == '2',
+                         "progressive_layout_lock": version == '2',
+                         "lock_confirmation_frames": 3, "lock_window_observations": 5,
+                         "lock_scope": "Driver ID/Level presentation only; action evidence requires full detection",
+                         "selective_updates": version=='2', "full_audit_seconds": 1.,
+                         "partial_retry_seconds": .5, "field_refresh_seconds": 1.}}

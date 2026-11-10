@@ -7,8 +7,10 @@ evidence-backed detections without changing video acquisition or output code.
 from __future__ import annotations
 
 from typing import Any
+from copy import deepcopy
 import math
 from contextlib import nullcontext
+from collections.abc import Callable
 
 from dmi_computer_vision.src.dmi.utils.image_ops import validate_frame
 from dmi_computer_vision.src.dmi.detection.analysis_session import AnalysisSession, select_connected
@@ -33,7 +35,8 @@ class FrameProcessor:
     """
 
     def __init__(self, *, max_gap_seconds: float | None = None, collect_target_evidence: bool = False,
-                 optimize: bool = True, contrast_fallback: bool = False) -> None:
+                 optimize: bool = True, contrast_fallback: bool = False,
+                 collect_layout_evidence: bool = False) -> None:
         if max_gap_seconds is not None and (
             not math.isfinite(max_gap_seconds) or max_gap_seconds <= 0
         ):
@@ -43,6 +46,10 @@ class FrameProcessor:
             raise ValueError('contrast_fallback must be a boolean')
         self.contrast_fallback = contrast_fallback
         self.target_evidence: dict = {}
+        self.layout_evidence: dict = {}
+        if type(collect_layout_evidence) is not bool:
+            raise ValueError('collect_layout_evidence must be a boolean')
+        self.collect_layout_evidence = collect_layout_evidence
         self.max_gap_seconds = max_gap_seconds
         self._analysis = AnalysisSession() if optimize else None
         self.reset()
@@ -51,6 +58,7 @@ class FrameProcessor:
         """Begin a new source/session with no previous detections."""
         self.close()
         self.target_evidence.clear()
+        self.layout_evidence.clear()
         self._index = 0
         self._timestamp: float | None = None
         self._shape: tuple[int, ...] | None = None
@@ -61,6 +69,16 @@ class FrameProcessor:
         """Release session-owned native OCR resources."""
         if self._analysis is not None:
             self._analysis.close()
+
+    def read_regions(self, reader: Callable[[], Any]) -> Any:
+        """Share this owner's OCR engine for admitted SENSE ROI presentation.
+
+        No full detector result, target evidence, temporal counters or processed
+        timestamp is updated. The caller must independently verify the ROI basis.
+        """
+        with self._analysis.frame() if self._analysis is not None else nullcontext():
+            select_connected(True)
+            return reader()
 
     def _reset_history(self) -> None:
         self._geometry = GeometryStabilizer()
@@ -85,15 +103,19 @@ class FrameProcessor:
         self.last_reset_reason = reason
         try:
             self.target_evidence.clear()
+            self.layout_evidence.clear()
             arguments = (frame, self._index, timestamp, self._geometry, self._right,
                          self._left, self._left_workflow)
             with self._analysis.frame() if self._analysis is not None else nullcontext():
                 features = {'contrast_fallback': True} if self.contrast_fallback else {}
+                if self.collect_layout_evidence:
+                    features['layout_evidence'] = self.layout_evidence
                 result = (process_frame(*arguments, target_evidence=self.target_evidence, **features)
                           if self.collect_target_evidence else process_frame(*arguments, **features))
             if self.last_reset_reason is None:
                 self.last_reset_reason = self._geometry.last_reset_reason
         except Exception:
+            self.layout_evidence.clear()
             self.close()
             self._reset_history()
             raise
@@ -112,6 +134,7 @@ def process_frame(
     left_display_stabilizer: LeftDisplayStabilizer | None = None,
     left_workflow_stabilizer: LeftWorkflowStabilizer | None = None,
     *, target_evidence: dict | None = None, contrast_fallback: bool = False,
+    layout_evidence: dict | None = None,
 ) -> FrameResult:
     """Process one source-independent BGR frame.
 
@@ -163,6 +186,12 @@ def process_frame(
             "data_field": None,
         }
     )
+    if layout_evidence is not None:
+        layout_evidence.clear()
+        if connected and right_content['state'] in {'Driver ID', 'Level'}:
+            # Optional same-pass geometry before legacy display smoothing. This
+            # separate side channel never changes detection/target outputs.
+            layout_evidence['right_display'] = deepcopy(right_content)
     if target_evidence is not None:
         target_evidence.clear()
         target_evidence.update({
@@ -197,9 +226,13 @@ def process_frame(
                 train_state, left_content, left_geometry
             )
     elif left_geometry is not None:
+        measured_left = {} if layout_evidence is not None and layout_evidence else None
         left_content = analyze_left_display(
-            frame, left_geometry, left_display_stabilizer, left_rectified
+            frame, left_geometry, left_display_stabilizer, left_rectified,
+            **({'layout_evidence': measured_left} if measured_left is not None else {})
         )
+        if measured_left is not None:
+            layout_evidence['left_display'] = measured_left
     else:
         left_content = {"boxes": {}, "speed_indicator": None}
     if (train_left is not None or left_geometry is None) and left_display_stabilizer is not None:

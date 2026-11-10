@@ -252,11 +252,15 @@ def analyze_left_display(
     geometry: DisplayGeometry,
     stabilizer: LeftDisplayStabilizer | None = None,
     rectified: Frame | None = None,
+    *, layout_evidence: dict | None = None,
 ) -> dict[str, Any]:
     """Locate the 22 logical regions and speed panel using visible borders."""
     if rectified is None:
         rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
     boxes, speed = detect_left_regions(rectified)
+    if layout_evidence is not None:
+        measured_boxes = {name: points.copy() for name, points in boxes.items() if valid_quad(points)}
+        measured_speed = speed.copy() if speed is not None and valid_quad(speed) else None
     if stabilizer is not None:
         boxes, speed = stabilizer.update(boxes, speed, rectified)
     boxes = {name: points for name, points in boxes.items() if valid_quad(points)}
@@ -268,6 +272,11 @@ def analyze_left_display(
         [[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], np.float32
     )
     transform = cv2.getPerspectiveTransform(source, geometry.corners)
+    if layout_evidence is not None:
+        layout_evidence.update(boxes={name: _region_result(points, transform)
+                                     for name, points in measured_boxes.items()},
+                               speed_indicator=_region_result(measured_speed, transform)
+                               if measured_speed is not None else None)
     return {
         "boxes": {
             name: {**_region_result(points, transform), "icon": icons[name]}

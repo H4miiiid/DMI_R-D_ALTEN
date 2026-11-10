@@ -72,6 +72,13 @@ enabled state, calibration coverage, robot readiness nor a successful press.
 Current SENSE natural-transition/Train Running Number coverage remains pending
 the raw evidence identified in root `STATE.md`.
 
+`VisionSession.read_regions(packet, reader)` serializes admitted SENSE ROI work
+on the same owner and OCR engine. The caller must verify the current locked ROI
+basis. It returns presentation data, without publishing an `Observation`,
+updating `LatestState`, changing full-detector timestamps or adding confirmation
+counts from cached values. Input/reader failures close the session and clear its
+latest state. This method cannot provide target or action evidence.
+
 ## Ownership and lifecycle
 
 - Use `with VisionSession(source_id)` or explicit `start()` / `close()`.

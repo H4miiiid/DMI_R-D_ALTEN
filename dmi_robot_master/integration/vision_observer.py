@@ -17,6 +17,8 @@ from dmi_computer_vision.src.dmi.output.preview_state import LivePreviewState
 from dmi_robot_master.integration.camera import IntegrationFrame
 from dmi_robot_master.integration.targets import TargetProjector
 from dmi_robot_master.integration.publication import project_pixels
+from dmi_robot_master.integration.screen_lock import ScreenLock
+from dmi_robot_master.integration.screen_monitor import MonitorDecision, ScreenMonitor
 
 
 def _jpeg(image):
@@ -54,7 +56,8 @@ class VisionObserver:
     def __init__(self, source, source_info: dict, *, calibration_path=None,
                  context=None, geometry_tolerance_px=4., debug_jsonl=None,
                  session_factory=VisionSession, stable_preview=False, comparison=None,
-                 origin_epoch=None, contrast_fallback=False):
+                 origin_epoch=None, contrast_fallback=False, progressive_lock=False,
+                 selective_updates=False):
         self.source, self.source_info = source, deepcopy(source_info)
         self.projector = TargetProjector(source_info=source_info, calibration_path=calibration_path,
             context=context, geometry_tolerance_px=geometry_tolerance_px, origin_epoch=origin_epoch)
@@ -63,6 +66,20 @@ class VisionObserver:
         self.debug_jsonl = Path(debug_jsonl) if debug_jsonl else None
         self._comparison = deepcopy(comparison)
         self._contrast_fallback = contrast_fallback
+        self._screen_lock = ScreenLock() if progressive_lock else None
+        self._lock_layout = None
+        if selective_updates and not progressive_lock:
+            raise ValueError('Selective updates require progressive SENSE locking')
+        self._monitor = ScreenMonitor() if selective_updates else None
+        self._monitor_epoch = 0
+        self._monitor_bound_epoch = None
+        self._monitor_view = None
+        self._monitor_field = None
+        self._monitor_admitted = False
+        self._monitor_stats = {}
+        self._action_invalidated_capture = -1
+        self._annotation_from_monitor = False
+        self._annotation_monitor_epoch = -1
         self._condition = Condition()
         self._project_lock = Lock()
         self._calibration_epoch = 0
@@ -112,6 +129,7 @@ class VisionObserver:
             self._press_history.clear()
             self._raw_jpeg = self._annotation_jpeg = None
             self._mode = {}
+            self._invalidate_layout(state)
             self._preview_epoch += 1
             self._condition.notify_all()
 
@@ -153,6 +171,8 @@ class VisionObserver:
                                             allow_nan=False) + '\n')
                     stream.flush()
             options = {'contrast_fallback': True} if self._contrast_fallback else {}
+            if self._screen_lock is not None:
+                options['collect_layout_evidence'] = True
             with self.session_factory(str(self.source_info), **options) as session:
                 while not self._stop.is_set():
                     with self._condition:
@@ -162,7 +182,21 @@ class VisionObserver:
                             break
                         packet = self._packet
                         self._last_taken = packet.capture_index
+                        layout_epoch = self._calibration_epoch
+                        monitor_epoch = self._monitor_epoch
+                        current_layout = deepcopy(self._lock_layout)
                     started = time.monotonic()
+                    decision = self._check_monitored_packet(
+                        session, packet, monitor_epoch, current_layout, history)
+                    if decision is not None and not decision.full:
+                        if stream and not self._stop.is_set():
+                            stream.write(json.dumps({'type':'monitor_update',
+                                'capture_index':packet.capture_index, 'reason':decision.reason,
+                                'presentation_only':True,
+                                'field_value': (decision.view['result']['right_display']['data_field']['value']
+                                                if decision.view else None)}, allow_nan=False)+'\n')
+                            stream.flush()
+                        continue
                     observation = session.process(packet)
                     with self._project_lock:
                         calibration_epoch = self._calibration_epoch
@@ -179,13 +213,33 @@ class VisionObserver:
                     mode['observations'] = icons
                     if icons:
                         mode['history_epoch'] = history.epoch
-                    duration = time.monotonic()-started
                     with self._condition:
                         if self._stop.is_set():
                             break
                         if (calibration_epoch != self._calibration_epoch
                                 or observation.received_at - observation.upstream_age_seconds < self._origin_bound_at):
                             self._clear_mm(projection)
+                        if (self._screen_lock is not None and layout_epoch == self._calibration_epoch
+                                and calibration_epoch == self._calibration_epoch
+                                and observation.received_at-observation.upstream_age_seconds >= self._origin_bound_at):
+                            self._screen_lock.observe_full(observation, context=(self.source_info,
+                                self._calibration_epoch, projection.get('calibration_id'),
+                                projection.get('calibration_provenance'), projection.get('calibration_valid'),
+                                self.projector.error))
+                            self._lock_layout = self._screen_lock.cached_layout()
+                        lock_layout = deepcopy(self._lock_layout)
+                        if self._monitor is not None:
+                            self._monitor_admitted = bool(
+                                observation.layout_evidence and
+                                observation.layout_evidence.get('right_display') and
+                                connected_regions(observation.result))
+                            self._monitor.bind_full(observation, packet, lock_layout,
+                                context=(self.source_info,self._calibration_epoch,
+                                         projection.get('calibration_id'),self.projector.error))
+                            self._monitor_view = None
+                            self._monitor_field = self._monitor.field_snapshot()
+                            self._monitor_stats = self._monitor.stats()
+                        duration = time.monotonic()-started
                         self._analysis_count += 1
                         self._analysis_total += duration
                         self._samples.append(duration)
@@ -207,7 +261,9 @@ class VisionObserver:
                         # Explicit debugging only; no runtime consumer reads this.
                         stream.write(json.dumps({'capture_index': observation.capture_index,
                             'received_at': observation.received_at,
-                            'result': observation.result, 'modes': mode}, allow_nan=False)+'\n')
+                            'result': observation.result, 'modes': mode,
+                            **({'screen_lock': lock_layout} if self._screen_lock else {})},
+                            allow_nan=False)+'\n')
                         stream.flush()
         except Exception as exc:
             if not self._stop.is_set():
@@ -215,6 +271,46 @@ class VisionObserver:
         finally:
             if stream:
                 stream.close()
+
+    def _check_monitored_packet(self, session, packet, epoch, layout, history) -> MonitorDecision | None:
+        """Run one admitted ROI check and publish presentation under its epoch."""
+        if self._monitor is None or not hasattr(session, 'read_regions'):
+            return None
+        if self._monitor_bound_epoch != epoch:
+            self._monitor.clear()
+            self._monitor_bound_epoch = epoch
+        if self._monitor.active:
+            age = (time.monotonic()-packet.received_at
+                   + getattr(packet, 'remote_capture_age_seconds', 0.)
+                   + getattr(packet, 'transport_round_trip_seconds', 0.))
+            decision = (session.read_regions(packet, lambda: self._monitor.check_frame(packet))
+                        if 0 <= age <= 1.5 else self._monitor.check_frame(packet))
+        elif self._monitor_admitted and layout and layout['screen'] is not None:
+            decision = self._monitor.check_frame(packet)
+        else:
+            return None  # Unsupported screens and TWIN retain full processing.
+        with self._condition:
+            if self._stop.is_set() or epoch != self._monitor_epoch:
+                return MonitorDecision(False, 'context_invalidated_during_check')
+            if decision.invalidate:
+                self._invalidate_layout(decision.reason)
+                self._observation = self._projection = None
+                self._press_history.clear()
+                self._mode = {}
+                history.reset()
+                self._monitor.clear()
+                self._monitor_bound_epoch = self._monitor_epoch
+            if decision.semantic_change:
+                # Preserve historical identity continuity, but revoke all older
+                # action eligibility until a genuinely new full observation.
+                self._action_invalidated_capture = packet.capture_index
+                self._press_history.clear()
+                self._mode = {}
+            self._monitor_view = deepcopy(decision.view)
+            self._monitor_field = self._monitor.field_snapshot()
+            self._monitor_stats = self._monitor.stats()
+            self._condition.notify_all()
+        return decision
 
     def _render(self):
         preview = LivePreviewState()
@@ -228,22 +324,43 @@ class VisionObserver:
                     raw_index, annotation_index = self._raw_index, self._annotation_index
                     detection, epoch = self._analysis_count, self._preview_epoch
                     stable = self.stable_preview
+                    layout = deepcopy(self._lock_layout)
+                    monitor_view = deepcopy(self._monitor_view)
+                    monitor_epoch = self._monitor_epoch
                 if epoch != last_epoch:
                     preview.clear()
                     last_epoch = epoch
                 raw = (_jpeg(packet.image) if packet is not None
                        and packet.capture_index != raw_index else None)
                 annotated = None
+                monitor_composite = False
                 if stable and observed is not None and detection != last_detection:
                     observation, image = observed
                     # No queue: skipped detector publications count conservatively
                     # as missed updates for any control still absent in this one.
                     analyzed_packet = IntegrationFrame(image, observation.capture_index,
                         observation.received_at, '', remote_capture_age_seconds=observation.upstream_age_seconds)
-                    preview.update(observation.result, analyzed_packet, evidence=observation.direct_evidence,
+                    display_result = (ScreenLock.measured_display(observation.result, observation.layout_evidence)
+                                      if layout is not None and layout['screen'] else observation.result)
+                    preview.update(display_result, analyzed_packet, evidence=observation.direct_evidence,
                                    updates=detection-last_detection)
+                    if layout is not None:
+                        ScreenLock.apply_display(preview.result, layout)
                     last_detection = detection
-                if not stable and observed is not None and observed[0].capture_index != annotation_index:
+                monitor_valid = (stable and packet is not None and monitor_view is not None
+                    and monitor_view['capture_index'] == packet.capture_index
+                    and self._monitor_fresh(monitor_view, time.monotonic())
+                    and 0 <= time.monotonic()-monitor_view['full_received_at']+
+                        monitor_view['full_upstream_age_seconds'] <= 1.5)
+                if monitor_valid:
+                    if packet.capture_index != annotation_index or not self._annotation_from_monitor:
+                        image = annotate_frame(packet.image, monitor_view['result'])
+                        self._draw_display_modes(image, monitor_view['modes'])
+                        cv2.putText(image, 'SENSE LOCKED | ROI updates / cached geometry | DISPLAY ONLY',
+                                    (20,image.shape[0]-25),cv2.FONT_HERSHEY_SIMPLEX,.8,(0,190,255),2)
+                        annotated = _jpeg(image)
+                    monitor_composite = True
+                elif not stable and observed is not None and observed[0].capture_index != annotation_index:
                     image = annotate_frame(observed[1], observed[0].result)
                     for box, icon in modes.get('observations', {}).items():
                         center = tuple(round(v) for v in icon['center'])
@@ -253,6 +370,9 @@ class VisionObserver:
                 elif stable and packet is not None and (packet.capture_index != annotation_index or
                         detection != rendered_detection or time.monotonic() > render_deadline):
                     image = preview.render(packet)
+                    if layout is not None and preview.overlay_valid and layout['screen']:
+                        cv2.putText(image, f"SENSE {layout['state']} | cached geometry only | generation {layout['generation']}",
+                                    (20, image.shape[0]-25), cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 190, 255), 2)
                     render_deadline = preview.expires_at if preview.overlay_valid else float('inf')
                     for box, icon in (modes.get('observations', {}) if preview.overlay_valid else {}).items():
                         center = tuple(round(v) for v in icon['center'])
@@ -269,6 +389,18 @@ class VisionObserver:
                                                  + getattr(packet, 'transport_round_trip_seconds', 0.))
                         self._render_count += 1
                     if annotated is not None:
+                        if monitor_composite:
+                            if (monitor_epoch == self._monitor_epoch and self._monitor_view is not None
+                                    and monitor_view['capture_index'] == self._monitor_view['capture_index']):
+                                self._annotation_jpeg = annotated
+                                self._annotation_index = packet.capture_index
+                                self._annotation_from_monitor = True
+                                self._annotation_monitor_epoch = monitor_epoch
+                                self._annotation_expires = min(
+                                    monitor_view['received_at']-monitor_view['upstream_age_seconds'],
+                                    monitor_view['full_received_at']-monitor_view['full_upstream_age_seconds'])+1.5
+                            continue
+                        self._annotation_from_monitor = False
                         if not stable:
                             if epoch != self._preview_epoch:
                                 continue
@@ -294,7 +426,13 @@ class VisionObserver:
         with self._condition:
             observed = self._observation[0] if self._observation else None
             age = observed.age_seconds() if observed else None
-            fresh = observed is not None and 0 <= age <= 1.5 and not self._stop.is_set()
+            fresh = (observed is not None and 0 <= age <= 1.5 and not self._stop.is_set()
+                     and observed.capture_index >= self._action_invalidated_capture)
+            monitor_fresh = (self._monitor_fresh(self._monitor_view, now) and not self._stop.is_set())
+            field_fresh = (self._monitor_field is not None and not self._stop.is_set()
+                           and 0 <= now-self._monitor_field['evidence_at'] <= 1.5)
+            if not fresh and not monitor_fresh and self._lock_layout and self._lock_layout['screen'] is not None:
+                self._invalidate_layout('stale_source')
             raw_age = (now-self._raw_received+self._raw_upstream_age
                        if self._raw_received is not None else None)
             projection = deepcopy(self._projection) if fresh else None
@@ -309,6 +447,10 @@ class VisionObserver:
             # still come exclusively from the latest unmodified observation.
             annotation = (self._annotation_jpeg if raw is not None and compatible and
                           now <= self._annotation_expires else raw)
+            if self._annotation_from_monitor:
+                annotation = (self._annotation_jpeg if raw is not None and monitor_fresh
+                    and self._annotation_monitor_epoch == self._monitor_epoch
+                    and now <= self._annotation_expires else raw)
             if not self.stable_preview:
                 annotation = (self._annotation_jpeg if fresh and
                               self._annotation_index == observed.capture_index and
@@ -329,16 +471,33 @@ class VisionObserver:
                 # Identity continuity only: this never authorizes a press or extends evidence age.
                 'experimental_context': ([observed.session_id, self._projection['screen']]
                     if observed and self._projection and experimental else None),
-                'ocr_fields': _ocr_fields(observed) if fresh else {},
+                'ocr_fields': ({self._monitor_field['name']:self._monitor_field['value']}
+                    if field_fresh else _ocr_fields(observed) if fresh and self._monitor_field is None else {}),
+                **({'display_fresh':monitor_fresh or field_fresh,
+                    'display_modes':deepcopy(self._monitor_view['modes']) if monitor_fresh else {}}
+                    if self._monitor else {}),
                 'raw_jpeg': raw,
                 'raw_index': self._raw_index, 'annotation_jpeg': annotation,
                 'calibration_error': calibration_error,
                 'action_ready': False,
+                **({'screen_lock': deepcopy(self._lock_layout)} if self._screen_lock else {}),
                 'metrics': {'processed': self._analysis_count, 'overwrites': self._overwrites,
                     'analysis_mean_seconds': self._analysis_total/max(1, self._analysis_count),
                     'analysis_p95_seconds': float(np.percentile(self._samples, 95)) if self._samples else 0.,
                     'processed_fps': self._analysis_count/elapsed,
-                    'preview_callbacks_fps': self._render_count/elapsed}}
+                    'preview_callbacks_fps': self._render_count/elapsed,
+                    **({'selective':deepcopy(self._monitor_stats)} if self._monitor else {})}}
+
+    @staticmethod
+    def _monitor_fresh(view, now: float) -> bool:
+        return bool(view is not None and 0 <= now-view['received_at']+view['upstream_age_seconds'] <= 1.5)
+
+    @staticmethod
+    def _draw_display_modes(image, modes):
+        for box, icon in modes.get('observations', {}).items():
+            center = tuple(round(v) for v in icon['center'])
+            cv2.putText(image, f"{box}: {icon['mode'] or icon['status']}", center,
+                        cv2.FONT_HERSHEY_SIMPLEX,.5,(0,200,255),1,cv2.LINE_AA)
 
     def inspect_target(self, session_id: str, screen: str, label: str) -> dict:
         """Resolve from latest state, never cached UI pixels. No action authority."""
@@ -399,12 +558,25 @@ class VisionObserver:
         return self.projector.project(observation.result,
             observation.direct_evidence, frame_size=observation.frame_size)[0]
 
+    def _invalidate_layout(self, reason: str) -> None:
+        """Caller holds the condition; never alter detector/action observations."""
+        if self._screen_lock is not None:
+            self._screen_lock.invalidate(reason)
+            self._lock_layout = self._screen_lock.cached_layout()
+            self._preview_epoch += 1
+        if self._monitor is not None:
+            self._monitor_epoch += 1
+            self._monitor_view = None
+            self._monitor_field = None
+            self._monitor_admitted = False
+
     def invalidate_calibration(self) -> None:
         """Origin/connection changes clear mm, while camera/preview keep running."""
         with self._condition:
             self._calibration_epoch += 1
             self._calibration_invalidated = True
             self._press_history.clear()
+            self._invalidate_layout('calibration_or_origin_changed')
             if self._projection:
                 self._clear_mm(self._projection)
 
@@ -419,6 +591,7 @@ class VisionObserver:
             self.projector.origin_epoch = origin_epoch
             self._calibration_invalidated = False
             self._press_history.clear()
+            self._invalidate_layout('origin_rebound')
             if self._projection:
                 self._clear_mm(self._projection)
             return True

@@ -1,16 +1,74 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-09. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
+Updated 2026-11-10. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
+Phase 3 / G3 — COMPLETED OFFLINE; implementation accepted for now by the user
+(2026-11-10), with commit/push explicitly authorized for the reviewed Version 2
+work, its Phase 2 dependencies and required workflow documentation. The user will
+perform comprehensive Version 2 hardware tests next. Real SENSE transition/blink
+comparison, native GUI/live-camera behavior and physical accuracy remain pending;
+this acceptance does not verify those criteria. Phase 4 is not authorized.
+Version 1 remains the launch default. Version 2 adds selective SENSE Driver ID /
+Level ROI checks, existing field recognition with independent 15-read value-change
+confirmation, current activity and display-mode updates, bounded full audits and
+conservative reacquisition. ROI presentation never renews full observations,
+targets, calibration samples or action evidence; existing guards remain intact.
+Accepted runtime source fingerprint
+`37b217e33a6f7d68f948dd18adeff58870017f446c7ee85f1a940026e59e0549`,
+based on HEAD `39dd29c3116b164f050678661db95663ba82cc75` plus accepted Phase 2.
+Canonical evidence: `runs/phase3_smart_updates/` (immutable pre-acceptance snapshot);
+inspect `summary.json`, `annotated.mp4` and `contact.png`. Final code_review:
+PASS WITH WARNINGS; step_checker: NOT VERIFIED for the required real-transition
+comparison. The user explicitly accepts the offline implementation with that gap.
+Checks: 179 unique tests plus 23 subtests; 262 regular V2 full/direct baseline
+matches, 112 V1 frozen matches, all 495 decoded TWIN frames unchanged and excluded
+from monitoring, and 12 unsupported SENSE cold regressions. Simulated native
+23->24 changes clear old text and confirm after 15 independent reads without
+moving field geometry. Matched receipt replay full calls: Level 19->14,
+Driver02 29->8, held-out Driver03 76->24; OCR calls 90->61, 29->8 and 76->24.
+These are local single-trial replay costs, not hardware FPS. Driver02 has one
+additional uncertain displayed field; conservative guards may reacquire. Existing
+Phase 1 evidence gaps and hardware/calibration/action limitations remain open.
+New tests/harness/evidence remain ignored and require separate supply in a clone;
+runtime has no dependency on them. Next: operator hardware validation under the
+existing supported scope and guards, then a separately authorized next phase.
+
+Phase 2 / G2 — offline implementation accepted by the user (2026-11-09).
+Version 2 progressively locks measured SENSE Driver ID / Level geometry after
+three consistent independent observations within five. Required right title,
+field and supported buttons remain separate from optional measured left boxes/
+speed geometry. Same-pass regions before right smoothing and left optical-flow
+tracking supply acquisition; predictions alone cannot confirm a lock. Cached
+geometry changes presentation only; dynamic state, targets and fresh action
+evidence retain their existing contracts. Full detection was explicitly retained
+until separately authorized Phase 3. Version 1 and sampled TWIN outputs match.
+Accepted runtime source fingerprint
+`36cca7f3b2a59cdbbcda1e6e136a6588f7d1eb2974c9f1b114aa83d512ecb452`,
+based on HEAD `39dd29c3116b164f050678661db95663ba82cc75`.
+Canonical evidence: `runs/phase2_screen_lock/` (immutable accepted snapshot);
+inspect `summary.json`, `annotated.mp4` and `contact.png`. Both final reviewers:
+PASS WITH WARNINGS after fixing tracked-only left confirmation and adding native
+coordinate-reference comparisons. Checks: 137 passes plus 23 subtests; 268 V2
+full/direct baseline matches and 112 V1 frozen matches, with six TWIN samples per
+version. Level preview jitter mean 1.10 -> 0.31 px; Driver02 0.07 -> 0.26 px.
+Approximate reference-center errors 0.79–7.27 px retain +/-5-px border uncertainty
+and disclosed cross-frame limits; these are not physical measurements. Lock
+bookkeeping adds about 2.5 ms/frame, with no detection/OCR speedup claimed.
+Conservative 4-px monitor checks can reacquire; optional-cell losses also advance
+generations. Natural transitions, native GUI and physical accuracy remain
+unverified. New tests/harness/evidence remain local/ignored and need separate
+supply in a clean clone. Publication was subsequently authorized with Phase 3
+(2026-11-10); its offline acceptance and remaining limits are recorded above.
+
 Phase 1 / G1 — offline implementation accepted **for now** by the user, with
 commit/push explicitly authorized (2026-11-09). The held-out real-SENSE improvement
 gate remains **NOT VERIFIED**; this acceptance does not establish that gate or
 physical validation. Version 1 remains the launch default and frozen baseline.
-Version 2 enables only the measured contrast/border fallback for Driver ID / Level
+At this milestone, Version 2 enabled the measured contrast/border fallback for Driver ID / Level
 fields on image-detected connected SENSE geometry. Existing primary title search,
 OCR, control detection/activity, freshness, calibration and action guards remain
 unchanged; TWIN uses the accepted path in both versions.
@@ -38,8 +96,7 @@ Native GUI/live lighting and physical accuracy remain unverified. New local test
 harness and evidence remain ignored and require separate supply in a clean clone;
 already tracked field tests remain tracked. Runtime has no development-data dependency.
 Operator comparison procedure: `TapperWare_Flet/README.md`, "Compare Version 1 and
-Version 2". Next proposed implementation phase: Phase 2, acquisition/locking,
-awaiting separate authorization; acceptance/publication of Phase 1 does not start it.
+Version 2". Phase 2 was subsequently authorized and accepted as recorded above.
 
 Phase V — GUI Version 1 / Version 2 selector accepted offline; commit/push
 authorized (2026-11-09). At that acceptance, both choices
