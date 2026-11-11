@@ -6,9 +6,51 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
-Phase 2/3 corrective extension — ACCEPTED OFFLINE for now by the user
-(2026-11-11); STATE update and commit/push of the latest reviewed updates are
-explicitly authorized. Phase 4 has not started and requires separate authorization.
+Phase 4 / G4 — ACCEPTED OFFLINE by the user (2026-11-11), with STATE update
+and commit/push explicitly authorized. Version 2 reuses the existing confirmed
+median centers/bounding boxes and original monitor baseline; no second coordinate
+cache or smoothing is introduced. Acquisition remains three consistent real
+detections within five observations. Three consecutive fresh, consistent full
+outliers are required to confirm movement beyond the unchanged geometry bounds.
+Pending monitor alignment retains the cache but hides cached overlays and blocks
+action eligibility; confirmed movement releases affected geometry for reacquisition.
+Current measured monitor corners are checked before detector smoothing. Transient
+mapping rejection still blocks mapped actions without discarding the pixel cache;
+actual model/reference/origin/source changes invalidate it. Geometry-only cached
+annotations provide no current values, activity or action evidence. JSON profiles,
+Version 1, TWIN, calibration math, GUI deadband and existing action guards remain
+unchanged. Cached geometry never renews fresh action evidence.
+Accepted runtime fingerprint:
+`ff5508ee9fca6495604b79a69837e572675d845c76b276db4f40b93c2e5b0973`,
+based on HEAD `e7f058da47d85e637b5d4189c0b947ff51300caa` plus reviewed updates.
+Canonical accepted evidence: `runs/phase4_stable_coordinates/` (immutable
+pre-acceptance snapshot); inspect `summary.json`, `results.jsonl`, `normal.png`,
+`train.png` and `movement.png`. Both final reviewers: PASS WITH WARNINGS.
+Checks: 236 focused tests plus 36 subtests; 51 focused SENSE/V1/TWIN baseline
+comparisons match. Full PC suite: 1,050 passed plus 346 subtests and six failures.
+Five failures reproduce on published HEAD; the sixth is timing-sensitive and
+passes in isolation on both versions, with causality not conclusively established.
+Across 503 full-measurement frames, 10,585 shared confirmed-geometry checks show
+zero within-generation cache drift. Matched selective replay, 503 frames per mode:
+lock-generation changes 22->7, full detections 102->106, OCR calls 408->403.
+Verified COMPLETE LOCK frames: Level 33/53, Driver02 46/53, held-out Driver03
+90/156 (previously 127/156, full calls 24->29); Train Type 36/61, page 1 35/86,
+page 2 36/69, validation 1/25. Validation locks only on its last frame; subsequent
+stability is unverified. Full-measurement validation locks on 12/25 frames; that
+is a separate diagnostic audit, not selective-runtime performance. No speedup
+or physical-accuracy claim follows from stable cached coordinates.
+Native-frame simulated 6-pixel transient and 12-pixel sustained shifts verify
+retention, action suspension and reacquisition, not physical movement. Natural
+movement/transitions/blinking, live GUI/camera, calibration accuracy and physical
+pressing remain unverified. Local tests/harness/evidence are ignored and require
+separate supply in a clean clone; runtime has no dependency on them.
+Next: operator Version 2 hardware checks under existing guards, using the procedure
+in `dmi_robot_master/integration/README.md`. Phase 5 is not authorized.
+
+## Earlier roadmap milestones (historical)
+
+Phase 2/3 corrective extension — accepted offline for now by the user
+(2026-11-11), published in `e7f058d`. Phase 4 had not started at that milestone.
 Version 2 uses editable `dmi_robot_master/integration/screen_profiles.json` for
 required/optional controls on both SENSE regions, title side, dynamic OCR and
 presentation-only confirmation roles. Supported vocabulary is validated; normal
@@ -44,11 +86,8 @@ increased to force validation lock.
 Natural transitions, held-out office footage, live GUI/camera, calibration accuracy
 and physical pressing remain unverified. Local tests/evidence are ignored and
 require separate supply in a clean clone; runtime has no dependency on them.
-Next: operator Version 2 hardware validation under existing guards; further
-corrections or Phase 4 require separate authorization. PLAN's Phase 4 clarification
-is documentation only and does not accept or start its implementation.
-
-## Earlier roadmap milestones (historical)
+At that milestone, operator hardware validation remained pending and PLAN's
+Phase 4 clarification was documentation only; Phase 4 was authorized later.
 
 Phase 3 / G3 — COMPLETED OFFLINE; implementation accepted for now by the user
 (2026-11-10), with commit/push explicitly authorized for the reviewed Version 2

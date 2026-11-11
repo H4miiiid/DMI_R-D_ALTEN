@@ -52,7 +52,7 @@ def comparison_diagnostics(version: str) -> dict:
             "source_fingerprint_complete": all(value is not None for value in hashes.values()),
             "baseline_source_fingerprint": BASELINE_SOURCE_FINGERPRINT,
             "enabled_improvements": ["sense_field_contrast_fallback", "sense_progressive_layout_lock",
-                                     "sense_selective_updates"] if version == '2' else [],
+                                     "sense_selective_updates", "sense_stable_coordinates"] if version == '2' else [],
             "improvement_scope": "SENSE connected geometry only; TWIN retains baseline in both versions",
             "settings": {"optimize": True, "max_gap_seconds": 1.0, "stable_preview": True,
                          "processing": ("ROI checks with bounded full audits" if version=='2'
@@ -62,4 +62,6 @@ def comparison_diagnostics(version: str) -> dict:
                          "lock_confirmation_frames": 3, "lock_window_observations": 5,
                          "lock_scope": "JSON-profiled SENSE presentation only; action evidence requires full detection",
                          "selective_updates": version=='2', "full_audit_seconds": 1.,
+                         "stable_coordinates": version=='2', "movement_confirmation_frames": 3,
+                         "movement_reference": "original lock baseline; presentation only",
                          "partial_retry_seconds": .5, "field_refresh_seconds": 1.}}

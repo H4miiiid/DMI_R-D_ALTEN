@@ -149,6 +149,10 @@ def process_frame(
 
     diagnostics: dict[str, str] = {}
     displays = detect_displays(frame, diagnostics=diagnostics)
+    monitor_geometry = ({side+'_display': geometry.as_result() if geometry is not None else None
+                         for side, geometry in displays.items()}
+                        if layout_evidence is not None and contrast_fallback
+                        and diagnostics.get('path') == 'connected' else None)
     select_connected(diagnostics.get("path") == "connected")
     if geometry_stabilizer is not None:
         layout = diagnostics.get("path")
@@ -192,6 +196,10 @@ def process_frame(
     )
     if layout_evidence is not None:
         layout_evidence.clear()
+        if monitor_geometry is not None:
+            # Same current native measurements, before the accepted detector's
+            # temporal geometry smoothing. Never target/calibration evidence.
+            layout_evidence['monitor_geometry'] = monitor_geometry
         if connected and right_content['state'] != 'unknown':
             # Optional same-pass geometry before legacy display smoothing. This
             # separate side channel never changes detection/target outputs.

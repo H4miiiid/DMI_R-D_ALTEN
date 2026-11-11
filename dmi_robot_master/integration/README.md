@@ -1193,6 +1193,36 @@ same-pass measured layout evidence only; confirmed preview geometry and ROI
 monitoring never add target/action evidence or change calibration limits.
 Validation No/Close have one local measured-border retry, restricted to glyphs
 inside the currently rejected measurements; larger unsupported fits remain
-rejected. The supplied validation recording still fails COMPLETE
-LOCK, so bounded full-detection retries remain active on that screen. Profile
+rejected. Validation geometry can still prevent or interrupt COMPLETE
+LOCK, so bounded full-detection retries remain active when it is incomplete. Profile
 support alone does not establish recorded-camera COMPLETE LOCK on every screen.
+
+## Stable Version 2 coordinates and movement checks
+
+Confirmed controls reuse the existing lock's median native-pixel geometry.
+New partial-lock confirmations never shift earlier controls. Missing controls
+can retain a clearly labelled, geometry-only annotation; this supplies no OCR
+value, activity, visibility, calibration sample or robot-action evidence.
+Changed fields/icons remain current dynamic observations, independently of the
+static overlay. The shared GUI display deadband and raw detector results are
+unchanged.
+
+Movement is compared with the original lock baseline. The existing four-pixel
+monitor bound and control compatibility bounds are unchanged: three consecutive,
+consistent full measurements must exceed a bound before the affected geometry
+is discarded. Acquisition still uses three consistent detections within five.
+Movement history reuses that bounded observation history, not another cache.
+Monitor checks use current measured corners before detector smoothing. If the
+detector pose lags those measurements by more than four pixels, or monitor
+alignment is pending, the overlay is hidden and action evidence is unavailable.
+Screen/source/resolution/context changes and geometry loss still invalidate.
+Calibration, direct-evidence precision and the 1.5-second expiry remain unchanged.
+Transient mapping rejection still disables mapped actions; it does not discard
+the independent pixel cache. Model/reference-file and origin identity changes do.
+
+For an operator check, stop observation, select Version 2 and restart SENSE.
+Manually change a field and inspect the fixed cached centers and live OCR value.
+With the robot idle, change the camera pose: expect pending alignment, hidden
+cached annotations, then reacquisition. Reappearing annotations do not establish
+calibration accuracy or permission to press. Physical movement/accuracy and real
+transition coverage require separate hardware validation.

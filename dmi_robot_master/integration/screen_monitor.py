@@ -56,6 +56,17 @@ def _changed(a: np.ndarray, b: np.ndarray) -> bool:
     return bool(np.any(blocks > area*.25))
 
 
+def _structure(image: np.ndarray, result: dict, elements: dict) -> np.ndarray:
+    points = np.r_[result['left_display']['geometry']['corners'],
+                   result['right_display']['geometry']['corners']]
+    lo, hi = np.min(points, axis=0).astype(int), np.max(points, axis=0).astype(int)
+    lo = np.maximum(0, lo-8);hi = np.minimum(image.shape[1::-1], hi+9)
+    crop = image[lo[1]:hi[1],lo[0]:hi[0]].copy()
+    for region in elements.values():
+        cv2.fillConvexPoly(crop, np.int32(region['corners'])-lo, (0,0,0))
+    return _descriptor(cv2.resize(crop,(320,192),interpolation=cv2.INTER_AREA))
+
+
 def _activity(image: np.ndarray, region: dict) -> bool | None:
     quad = np.float32(region['corners'])
     target = np.float32([[0,0],[159,0],[159,79],[0,79]])
@@ -132,7 +143,8 @@ class ScreenMonitor:
     def bind_full(self, observation, packet, layout: dict, *, context=None, now=None) -> None:
         now = time.monotonic() if now is None else now
         age = now-observation.received_at+observation.upstream_age_seconds
-        if not layout or layout['state'] != 'LOCKED' or not 0 <= age <= 1.5:
+        if (not layout or layout['state'] != 'LOCKED' or not layout.get('alignment_valid', True)
+                or not 0 <= age <= 1.5):
             self.clear()
             self._last_full = packet.received_at
             return
@@ -176,17 +188,20 @@ class ScreenMonitor:
             self._accept_field(field, packet)
 
     def _structural(self, image):
-        geometry = self._result['right_display']['geometry']
-        left = self._result['left_display']['geometry']
-        points = np.r_[left['corners'], geometry['corners']]
-        lo, hi = np.min(points, axis=0).astype(int), np.max(points, axis=0).astype(int)
         # Padding includes actual outer borders; no synthetic division is drawn.
-        lo = np.maximum(0, lo-8);hi = np.minimum(image.shape[1::-1], hi+9)
-        crop = image[lo[1]:hi[1],lo[0]:hi[0]].copy()
-        for region in self._layout['elements'].values():
-            q = np.int32(region['corners'])-lo
-            cv2.fillConvexPoly(crop, q, (0,0,0))
-        return _descriptor(cv2.resize(crop,(320,192),interpolation=cv2.INTER_AREA))
+        return _structure(image, self._result, self._layout['elements'])
+
+    @staticmethod
+    def static_visible(reference: np.ndarray, image: np.ndarray, result: dict, layout: dict) -> bool:
+        """Read-only static overlay checks; not recognition or action evidence."""
+        if (not layout.get('alignment_valid', True) or reference.shape != image.shape
+                or tuple(image.shape[1::-1]) != layout.get('frame_size')
+                or result['right_display']['state'] != layout['screen']):
+            return False
+        elements = layout['elements']
+        title = elements.get(layout['profile']['title_side']+'_display/title')
+        return bool(title and not _changed(_descriptor(_crop(reference,title)), _descriptor(_crop(image,title)))
+                    and not _changed(_structure(reference,result,elements), _structure(image,result,elements)))
 
     def _accept_field(self, field: dict, packet) -> bool:
         if packet.capture_index <= self._field_capture:
@@ -307,13 +322,16 @@ class ScreenMonitor:
         # Only independently locked mode-box geometry is used for display reads.
         mode_result=deepcopy(result)
         boxes=mode_result['left_display']['boxes']
-        mode_result['left_display']['boxes']={name:{**region, **self._layout['elements']['left_display/boxes/'+name]}
-            for name,region in boxes.items() if 'left_display/boxes/'+name in self._layout['elements']}
+        mode_result['left_display']['boxes']={key.split('/')[-1]:
+            {**boxes.get(key.split('/')[-1], {}), **self._layout['elements'][key]}
+            for key in mode_keys if key in self._layout['elements']}
         icons=observe_modes(packet.image,mode_result)
         geometry=[result[side]['geometry']['corners'] for side in ('left_display','right_display')] if icons else None
         modes=self._modes.update(packet.received_at,icons,geometry)
         modes['observations']=icons
         for name,icon in icons.items():
+            result['left_display']['boxes'].setdefault(name,
+                deepcopy(self._layout['elements']['left_display/boxes/'+name]))
             result['left_display']['boxes'][name]['icon']=None
         view={'result':result,'modes':modes,'capture_index':packet.capture_index,
               'received_at':packet.received_at,'upstream_age_seconds':age-(now-packet.received_at),

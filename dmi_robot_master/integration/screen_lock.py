@@ -24,6 +24,11 @@ GEOMETRY_FIELDS = ('center', 'corners', 'bbox', 'oriented_box')
 CACHE_CENTER_GUARD_PX = 10.
 LOCK_EDGE_MARGIN_PX = 6.
 LOCK_MIN_INSIDE_FRACTION = .95
+MONITOR_KEYS = (('left_display', 'geometry'), ('right_display', 'geometry'))
+
+
+def _monitor_close(a: dict, b: dict) -> bool:
+    return bool(np.max(np.abs(np.asarray(a['corners'])-b['corners'])) <= 4)
 
 
 def _geometry(region: dict, size: tuple[int, int], monitor: dict, *,
@@ -93,6 +98,7 @@ class ScreenLock:
         self._required: set = set()
         self._profile = None
         self._pending_sidebar = None
+        self._alignment_valid = True
 
     @staticmethod
     def _regions(observation, profile) -> dict:
@@ -154,11 +160,14 @@ class ScreenLock:
                 or not connected_regions(result)):
             self.invalidate('unsupported_or_uncertain_view')
             return
-        corners = {side: deepcopy(result[side]['geometry']['corners'])
-                   for side in ('left_display', 'right_display')}
-        if self._context is not None and any(
-                np.max(np.abs(np.asarray(corners[side])-self._anchor[side])) > 4 for side in corners):
-            self.invalidate('monitor_geometry_changed')
+        monitors = (observation.layout_evidence or {}).get('monitor_geometry',
+            {side: result[side]['geometry'] for side in ('left_display', 'right_display')})
+        if (not connected_regions({side: {'geometry': geometry} for side, geometry in monitors.items()})
+                or any(_geometry(geometry, observation.frame_size, geometry) is None
+                       for geometry in monitors.values())):
+            self.invalidate('invalid_monitor_geometry')
+            return
+        corners = {side: deepcopy(geometry['corners']) for side, geometry in monitors.items()}
         if self._context is not None and screen not in (None, 'unknown', self.screen):
             # A recognized different identity is a real transition. Unknown OCR
             # alone is not evidence that the old screen has changed.
@@ -207,19 +216,49 @@ class ScreenLock:
             self._required = set(profile.required)
         self._last_index = observation.capture_index
         self._last_receipt = observation.received_at
+        # Reuse the bounded observation history for movement evidence; no second
+        # coordinate cache or smoothing baseline. References below never drift.
+        self._samples.append({**measured, **{key: deepcopy(monitors[key[0]]) for key in MONITOR_KEYS}})
+        monitor_changes = [key for key in MONITOR_KEYS if not _monitor_close(
+            monitors[key[0]], {'corners': self._anchor[key[0]]})]
+        if monitor_changes:
+            confirmed = any(self._movement_confirmed(key, {'corners': self._anchor[key[0]]},
+                                                     _monitor_close) for key in monitor_changes)
+            # Pending monitor alignment cannot contribute control confirmations.
+            self._samples[-1] = {key: self._samples[-1][key] for key in MONITOR_KEYS}
+            if confirmed:
+                self.invalidate('monitor_geometry_changed')
+                self.observe_full(observation, context=context, now=now)
+            else:
+                self._alignment_valid = False
+                self.reason = 'monitor_movement_pending'
+            return
         released = False
+        self._alignment_valid = all(_monitor_close(monitors[side], result[side]['geometry']) for side in monitors)
+        if not self._alignment_valid:
+            # Projection still uses the unchanged detector output. Do not make
+            # it actionable while its smoothing lags the current measured pose.
+            self.reason = 'detector_geometry_pending'
+        elif self.reason in ('monitor_movement_pending', 'element_movement_pending',
+                             'detector_geometry_pending', 'awaiting_screen_identity'):
+            self.reason = 'geometry_revalidated'
         for key, region in list(self._confirmed.items()):
             incompatible = key in measured and not _close(region, measured[key], center_limit=CACHE_CENTER_GUARD_PX)
             if incompatible:
+                matches = lambda a, b: _close(a, b, center_limit=CACHE_CENTER_GUARD_PX)
+                if not self._movement_confirmed(key, region, matches):
+                    # A local border outlier is not monitor movement. Preserve
+                    # the static coordinate; actions still require raw evidence.
+                    self.reason = 'element_movement_pending'
+                    continue
                 # Release only the moved cell. Other confirmed elements stay fixed.
                 del self._confirmed[key]
-                for sample in self._samples:
+                for sample in list(self._samples)[:-1]:
                     sample.pop(key, None)
                 released = True
         if released:
             self.generation += 1
             self.reason = 'element_geometry_changed_or_lost'
-        self._samples.append(measured)
         for key in measured.keys()-self._confirmed.keys():
             samples = [sample[key] for sample in self._samples if key in sample]
             # At most ten triples; no unbounded retries or stale successful history.
@@ -234,12 +273,23 @@ class ScreenLock:
         self.state = ('LOCKED' if self._required <= self._confirmed.keys() else
                       'PARTIAL_LOCK' if self._confirmed else 'ACQUIRING')
 
+    def _movement_confirmed(self, key, reference: dict, matches) -> bool:
+        group = [sample.get(key) for sample in list(self._samples)[-3:]]
+        if len(group) != 3 or any(item is None or matches(item, reference) for item in group):
+            return False
+        median = _median(group)
+        # Existing acquisition consistency also rejects conflicting directions,
+        # size/perspective changes and duplicate/synthetic evidence.
+        consistent = _monitor_close if key in MONITOR_KEYS else _close
+        return not matches(median, reference) and all(consistent(item, median) for item in group)
+
     def _pause_identity(self, observation) -> None:
         # Keep static confirmations dormant until current identity is readable
         # again; never acquire across an uncertain transition.
         self._samples.clear()
         self.state = 'PARTIAL_LOCK' if self._confirmed else 'ACQUIRING'
         self.reason = 'awaiting_screen_identity'
+        self._alignment_valid = False
         self._last_index = max(self._last_index, observation.capture_index)
         self._last_receipt = observation.received_at
 
@@ -249,7 +299,9 @@ class ScreenLock:
                 'reason': self.reason, 'presentation_only': True,
                 'elements': {'/'.join(key): deepcopy(region) for key, region in self._confirmed.items()},
                 'missing_required': sorted('/'.join(key) for key in self._required-self._confirmed.keys()),
-                'profile': self._profile.metadata() if self._profile else None}
+                'profile': self._profile.metadata() if self._profile else None,
+                'alignment_valid': self._alignment_valid,
+                'frame_size': self._context[2] if self._context else None}
 
     @staticmethod
     def measured_display(result: dict, layout_evidence: dict | None, *, layout=None, frame_size=None) -> dict:
@@ -269,7 +321,8 @@ class ScreenLock:
         for region, measured in pairs:
             if region is not None and measured is not None:
                 region.update({key: deepcopy(measured[key]) for key in GEOMETRY_FIELDS if key in measured})
-        if (layout and frame_size and layout['screen'] == candidate['right_display']['state']
+        if (layout and frame_size and layout.get('alignment_valid', True)
+                and layout['screen'] == candidate['right_display']['state']
                 and connected_regions(candidate)):
             right = candidate['right_display']
             for name, measured in (layout_evidence or {}).get('edge_buttons', {}).items():
@@ -293,11 +346,34 @@ class ScreenLock:
     @staticmethod
     def apply_display(result: dict | None, layout: dict) -> None:
         """Change geometry of an existing preview copy; never resurrect content."""
-        if result is None or layout['screen'] != result['right_display']['state']:
+        if (result is None or not layout.get('alignment_valid', True)
+                or layout['screen'] != result['right_display']['state']):
             return
         for path, geometry in layout['elements'].items():
             parts = path.split('/')
             owner = result[parts[0]]
             region = owner.get(parts[1]) if len(parts) == 2 else owner.get(parts[1], {}).get(parts[2])
-            if region is not None and _close(geometry, region, center_limit=CACHE_CENTER_GUARD_PX):
+            if region is not None:
                 region.update(deepcopy(geometry))
+
+    @staticmethod
+    def draw_missing(image: np.ndarray, result: dict | None, layout: dict, *, all_static: bool = False) -> None:
+        """Draw confirmed geometry only; never fabricate current content/evidence."""
+        if (result is None or not layout.get('alignment_valid', True)
+                or layout.get('frame_size') != tuple(image.shape[1::-1])
+                or layout['screen'] != result['right_display']['state']
+                or not connected_regions(result)):
+            return
+        for path, geometry in layout['elements'].items():
+            if not all_static and region_at(result, tuple(path.split('/'))) is not None:
+                continue
+            # Match the existing annotation renderer's rasterization so a miss
+            # cannot move a half-pixel median's outline or center marker.
+            is_box = path.split('/')[1] == 'boxes'
+            points = (np.rint(geometry['corners']).astype(np.int32) if is_box
+                      else np.asarray(geometry['corners'], np.int32))
+            cv2.polylines(image, [points], True, (0, 190, 255), 2, cv2.LINE_AA)
+            center = tuple(np.rint(geometry['center'] if is_box else points.mean(axis=0)).astype(int))
+            cv2.circle(image, center, 3, (0, 190, 255), -1)
+            cv2.putText(image, 'cached '+path.split('/')[-1], tuple(points[0]),
+                        cv2.FONT_HERSHEY_SIMPLEX, .45, (0, 190, 255), 1, cv2.LINE_AA)

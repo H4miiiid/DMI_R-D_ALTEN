@@ -19,6 +19,8 @@ from dmi_robot_master.integration.targets import TargetProjector
 from dmi_robot_master.integration.publication import project_pixels
 from dmi_robot_master.integration.screen_lock import ScreenLock
 from dmi_robot_master.integration.screen_monitor import MonitorDecision, ScreenMonitor
+from dmi_robot_master.integration.calibration import REFERENCE_PATH as KEYPAD_REFERENCE_PATH
+from dmi_robot_master.integration.sense_calibration import REFERENCE_PATH as SENSE_REFERENCE_PATH
 
 
 def _jpeg(image):
@@ -222,11 +224,13 @@ class VisionObserver:
                         if (self._screen_lock is not None and layout_epoch == self._calibration_epoch
                                 and calibration_epoch == self._calibration_epoch
                                 and observation.received_at-observation.upstream_age_seconds >= self._origin_bound_at):
-                            self._screen_lock.observe_full(observation, context=(self.source_info,
-                                self._calibration_epoch, projection.get('calibration_id'),
-                                projection.get('calibration_provenance'), projection.get('calibration_valid'),
-                                self.projector.error))
+                            self._screen_lock.observe_full(observation, context=self._layout_context())
                             self._lock_layout = self._screen_lock.cached_layout()
+                            if not self._lock_layout['alignment_valid']:
+                                self._action_invalidated_capture = max(
+                                    self._action_invalidated_capture, observation.capture_index+1)
+                                self._press_history.clear()
+                                self._preview_epoch += 1
                         lock_layout = deepcopy(self._lock_layout)
                         if self._monitor is not None:
                             self._monitor_admitted = bool(
@@ -234,8 +238,7 @@ class VisionObserver:
                                 observation.layout_evidence.get('right_display') and
                                 connected_regions(observation.result))
                             self._monitor.bind_full(observation, packet, lock_layout,
-                                context=(self.source_info,self._calibration_epoch,
-                                         projection.get('calibration_id'),self.projector.error))
+                                context=self._layout_context())
                             self._monitor_view = None
                             self._monitor_field = self._monitor.field_snapshot()
                             self._monitor_stats = self._monitor.stats()
@@ -244,7 +247,8 @@ class VisionObserver:
                         self._analysis_total += duration
                         self._samples.append(duration)
                         del self._samples[:-256]
-                        if projection.get('experimental_recorded_test'):
+                        if (projection.get('experimental_recorded_test') and
+                                (not lock_layout or lock_layout.get('alignment_valid', True))):
                             if (observation.temporal_reset or not self._press_history
                                     or not self._same_press_context(self._press_history[-1][0], observation)):
                                 self._press_history.clear()
@@ -297,7 +301,8 @@ class VisionObserver:
                 # analysis, but do not themselves prove the static layout moved.
                 self._invalidate_layout(decision.reason, preserve_geometry=decision.reason in (
                     'source_stale', 'title_unreadable', 'title_change_before_audit',
-                    'field_border_missing', 'control_or_other_region_changed'))
+                    'field_border_missing', 'control_or_other_region_changed',
+                    'monitor_or_unmodeled_change', 'field_geometry_changed'))
                 self._observation = self._projection = None
                 self._press_history.clear()
                 self._mode = {}
@@ -338,6 +343,9 @@ class VisionObserver:
                        and packet.capture_index != raw_index else None)
                 annotated = None
                 monitor_composite = False
+                if layout and not layout.get('alignment_valid', True):
+                    preview.clear()
+                    last_detection = detection
                 if stable and observed is not None and detection != last_detection:
                     observation, image = observed
                     # No queue: skipped detector publications count conservatively
@@ -362,6 +370,8 @@ class VisionObserver:
                 if monitor_valid:
                     if packet.capture_index != annotation_index or not self._annotation_from_monitor:
                         image = annotate_frame(packet.image, monitor_view['result'])
+                        if layout:
+                            ScreenLock.draw_missing(image, monitor_view['result'], layout)
                         self._draw_display_modes(image, monitor_view['modes'])
                         cv2.putText(image, 'SENSE LOCKED | ROI updates / cached geometry | DISPLAY ONLY',
                                     (20,image.shape[0]-25),cv2.FONT_HERSHEY_SIMPLEX,.8,(0,190,255),2)
@@ -377,6 +387,17 @@ class VisionObserver:
                 elif stable and packet is not None and (packet.capture_index != annotation_index or
                         detection != rendered_detection or time.monotonic() > render_deadline):
                     image = preview.render(packet)
+                    if layout and preview.overlay_valid:
+                        ScreenLock.draw_missing(image, preview.result, layout)
+                    elif (layout and layout['screen'] and observed is not None
+                            and 0 <= observed[0].age_seconds() <= 1.5
+                            and 0 <= time.monotonic()-packet.received_at+
+                                getattr(packet,'remote_capture_age_seconds',0.)+
+                                getattr(packet,'transport_round_trip_seconds',0.) <= 1.5
+                            and ScreenMonitor.static_visible(observed[1],packet.image,observed[0].result,layout)):
+                        # Changed dynamic pixels can hide old OCR/activity while
+                        # independently checked static coordinates remain fixed.
+                        ScreenLock.draw_missing(image, observed[0].result, layout, all_static=True)
                     if layout is not None and preview.overlay_valid and layout['screen']:
                         cv2.putText(image, f"SENSE {layout['state']} | cached geometry only | generation {layout['generation']}",
                                     (20, image.shape[0]-25), cv2.FONT_HERSHEY_SIMPLEX, .8, (0, 190, 255), 2)
@@ -434,7 +455,8 @@ class VisionObserver:
             observed = self._observation[0] if self._observation else None
             age = observed.age_seconds() if observed else None
             fresh = (observed is not None and 0 <= age <= 1.5 and not self._stop.is_set()
-                     and observed.capture_index >= self._action_invalidated_capture)
+                     and observed.capture_index >= self._action_invalidated_capture
+                     and (not self._lock_layout or self._lock_layout.get('alignment_valid', True)))
             monitor_fresh = (self._monitor_fresh(self._monitor_view, now) and not self._stop.is_set())
             field_fresh = (self._monitor_field is not None and not self._stop.is_set()
                            and 0 <= now-self._monitor_field['evidence_at'] <= 1.5)
@@ -562,6 +584,19 @@ class VisionObserver:
             return projection
         return self.projector.project(observation.result,
             observation.direct_evidence, frame_size=observation.frame_size)[0]
+
+    def _layout_context(self) -> tuple:
+        """Stable model/origin identity, separate from per-frame mapping rejection."""
+        files = []
+        for path in (self.projector.calibration_path, KEYPAD_REFERENCE_PATH, SENSE_REFERENCE_PATH):
+            try:
+                stat = path.stat() if path is not None else None
+                stamp = (stat.st_ino, stat.st_size, stat.st_mtime_ns, stat.st_ctime_ns) if stat else None
+            except OSError:
+                stamp = None
+            files.append((str(path), stamp))
+        return (deepcopy(self.source_info), self._calibration_epoch,
+                deepcopy(self.projector.context), tuple(files))
 
     def _invalidate_layout(self, reason: str, *, preserve_geometry: bool = False) -> None:
         """Caller holds the condition; never alter detector/action observations."""
