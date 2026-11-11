@@ -304,55 +304,86 @@ more stable annotations.
 
 ### Phase 4 — Stable Coordinates and Movement Detection
 
-**Goal:** Keep confirmed button centers fixed until a real screen or camera movement requires new coordinates.
+**Goal:** Keep confirmed button, box, and field coordinates fixed
+while the screen and monitor remain unchanged. Detect real movement
+without reacting to normal detection noise.
 
 **Files:**
 
 - `dmi_robot_master/integration/screen_lock.py`
 - `dmi_robot_master/integration/vision_observer.py`
+- Reuse existing Phase 3 monitoring functions where possible.
 
 **Implementation:**
 
-1. Use the median pixel center calculated in Phase 2 for each
-   confirmed button, box, or field.
+1. Reuse the median pixel centers and bounding boxes already
+   calculated and stored during Phase 2.
+   - Do not introduce another coordinate cache or smoothing system.
+   - Keep everything in original camera-frame pixel coordinates.
 
-2. After confirmation, do not continuously update that center
-   using every new detector result.
+2. Once an element is confirmed, keep its center and bounding box
+   fixed while the screen and monitor geometry remain valid.
+   - Do not update coordinates from every new detection.
+   - Temporary detection misses or OCR failures must not
+     remove confirmed static geometry.
 
-3. Ignore small detection variations caused by normal image noise.
+3. During PARTIAL LOCK:
+   - Keep already confirmed elements at their fixed positions.
+   - Continue adding newly confirmed elements.
+   - Adding new elements must not move previously locked ones.
 
-4. Periodically check whether the monitor or screen geometry
-   has genuinely changed.
-   - Small detection noise: keep the locked coordinates.
-   - Confirmed significant movement: invalidate the affected lock
-     and detect the coordinates again.
-   - Use simple pixel-distance checks with thresholds determined
-     from real recordings, not arbitrary fixed values.
+4. During COMPLETE LOCK:
+   - Keep static annotations fixed over the live video.
+   - Continue lightweight monitoring from Phase 3.
+   - Do not restart full detection solely because of normal
+     coordinate jitter.
 
-5. During PARTIAL LOCK, adding a newly confirmed element must not
-   move the centers of previously confirmed elements.
+5. Detect actual camera or monitor movement:
+   - Reuse existing monitor geometry checks from Phases 2 and 3.
+   - Compare new measurements with the original locked baseline.
+   - Ignore small variations caused by detection noise.
+   - Do not invalidate a lock based on one noisy measurement.
+   - If meaningful movement is confirmed, invalidate affected
+     geometry and reacquire coordinates.
+   - If monitor alignment becomes uncertain, suspend action
+     eligibility until it is verified.
+   - Determine pixel thresholds using real recordings.
 
-6. During COMPLETE LOCK, keep all static annotation positions fixed
-   while the screen remains valid.
+6. Handle screen transitions correctly:
+   - Reacquire screen-specific controls when the layout changes.
+   - Preserve the shared left sidebar across compatible screens
+     only when its geometry is still verified.
+   - Do not reuse normal sidebar geometry on Train Data screens.
 
-7. Keep raw detector coordinates available for debugging and comparison.
+7. Keep raw detector coordinates available for debugging.
+   - Compare raw centers with locked centers to measure jitter.
+   - Do not modify locked coordinates just to match noisy
+     current-frame detections.
 
-8. Use the locked pixel centers with the appropriate validated
-   pixel-to-millimeter mapping, but do not modify calibration logic here.
+8. Keep homography implementation separate:
+   - Phase 4 manages stable original-pixel coordinates.
+   - Phase 5 manages stable pixel-to-millimeter transformation.
+   - Read-only XY predictions may use compatible mapping, but
+     do not treat an unvalidated calibration as action-ready.
 
-9. Keep robot safety checks unchanged:
-   - A cached center is not fresh detection evidence.
+9. Preserve existing robot safety checks:
+   - Cached coordinates are not fresh detection evidence.
    - Current target identity and eligibility must still be verified.
-   - Existing calibration and action-safety requirements remain mandatory.
+   - Do not change action freshness, calibration, or robot commands.
+   - Preserve existing TWIN behavior.
 
 **Expected Result:**
-Buttons have stable pixel centers and stable annotations.
-Minor detection noise no longer causes coordinate movement.
-Real camera or monitor movement triggers reacquisition.
+
+- Confirmed controls keep fixed centers and annotations.
+- Temporary detection failures no longer cause coordinate jitter.
+- Partial locks progressively accumulate confirmed elements.
+- Real camera/monitor movement triggers appropriate reacquisition.
+- No duplicate locking or smoothing mechanisms are introduced.
+- Phase 5 can reuse these stable coordinates for homography.
 
 **Note:**
-Homography improvement and the existing 3 mm held-out calibration
-accuracy requirement belong in Phase 5, not Phase 4.
+Phase 4 focuses only on stable pixel coordinates and movement detection.
+Homography and pixel-to-millimeter accuracy are handled in Phase 5.
 
 ---
 

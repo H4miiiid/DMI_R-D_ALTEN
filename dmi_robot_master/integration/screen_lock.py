@@ -14,6 +14,7 @@ import cv2
 import numpy as np
 
 from dmi_computer_vision.src.dmi.mode_observation import connected_regions
+from dmi_robot_master.integration.screen_profiles import load_profiles, region_at
 
 
 GEOMETRY_FIELDS = ('center', 'corners', 'bbox', 'oriented_box')
@@ -21,14 +22,12 @@ GEOMETRY_FIELDS = ('center', 'corners', 'bbox', 'oriented_box')
 # 9 native px. This 10-px DISPLAY compatibility bound is not an action tolerance
 # or a physical movement claim. Acquisition still requires 4-px agreement.
 CACHE_CENTER_GUARD_PX = 10.
-BUTTONS = {
-    'Driver ID': frozenset([f'digit_{i}' for i in range(10)] + ['delete', 'decimal', 'cancel']),
-    'Level': frozenset(['level_0', 'level_1', 'level_2', 'level_3', 'kvb',
-                        'scmt', 'memor', 'atc_2', 'tbl1_plus', 'more', 'close']),
-}
+LOCK_EDGE_MARGIN_PX = 6.
+LOCK_MIN_INSIDE_FRACTION = .95
 
 
-def _geometry(region: dict, size: tuple[int, int], monitor: dict) -> dict | None:
+def _geometry(region: dict, size: tuple[int, int], monitor: dict, *,
+              edge_margin_px: float = 1., min_inside_fraction: float = 0.) -> dict | None:
     """Accept measured finite, convex, in-region quads and native centers only."""
     try:
         quad = np.asarray(region['corners'], np.float32)
@@ -37,10 +36,17 @@ def _geometry(region: dict, size: tuple[int, int], monitor: dict) -> dict | None
         if (quad.shape != (4, 2) or center.shape != (2,) or not np.isfinite(quad).all()
                 or not np.isfinite(center).all() or not cv2.isContourConvex(quad)
                 or abs(cv2.contourArea(quad)) < 1 or (quad < 0).any()
+                or parent.shape != (4, 2) or not np.isfinite(parent).all()
+                or not cv2.isContourConvex(parent)
                 or (quad[:, 0] >= size[0]).any() or (quad[:, 1] >= size[1]).any()
                 or cv2.pointPolygonTest(quad, tuple(center), False) < 0
-                or any(cv2.pointPolygonTest(parent, tuple(map(float, p)), True) < -1 for p in quad)):
+                or cv2.pointPolygonTest(parent, tuple(center), False) < 0
+                or any(cv2.pointPolygonTest(parent, tuple(map(float, p)), True) < -edge_margin_px for p in quad)):
             return None
+        if min_inside_fraction:
+            inside, _ = cv2.intersectConvexConvex(quad, parent)
+            if inside / abs(cv2.contourArea(quad)) < min_inside_fraction:
+                return None
         return {key: deepcopy(region[key]) for key in GEOMETRY_FIELDS if key in region}
     except (KeyError, TypeError, ValueError, cv2.error):
         return None
@@ -64,13 +70,13 @@ def _median(samples: list[dict]) -> dict:
 class ScreenLock:
     """Confirm each element from three distinct full observations in five.
 
-    Required: current right title, grey field geometry and the observed screen's
-    supported buttons. Left boxes/speedometer are optional independently measured
-    elements: incomplete left grids cannot fabricate boxes or prevent a right lock.
+    JSON selects required/optional measured elements on both sides. It never
+    supplies coordinates, identities, OCR values or action authorization.
     The existing four-pixel monitor bound is deliberately conservative. It is a
     read-only compatibility check, not a physically validated movement threshold.
     """
-    def __init__(self) -> None:
+    def __init__(self, *, profile_path=None) -> None:
+        self.profiles = load_profiles() if profile_path is None else load_profiles(profile_path)
         self.generation = 0
         self.invalidate('session_start')
 
@@ -84,40 +90,43 @@ class ScreenLock:
         self._last_receipt = None
         self._samples: deque = deque(maxlen=5)
         self._confirmed: dict = {}
-        self._seen: dict = {}
-        self._misses: dict = {}
         self._required: set = set()
+        self._profile = None
+        self._pending_sidebar = None
 
     @staticmethod
-    def _regions(observation) -> dict:
+    def _regions(observation, profile) -> dict:
         result, direct = observation.result, observation.direct_evidence
         layout = observation.layout_evidence or {}
-        right = layout.get('right_display')
-        if right is None:
-            return {}  # Stabilized results alone cannot establish independent measurements.
+        if not connected_regions(result):
+            return {}
         candidates = {}
-        for name in ('title', 'data_field'):
-            region = right.get(name)
+        for key in profile.allowed:
+            region = region_at(layout, key)
+            if not region and key[:2] == ('right_display', 'buttons'):
+                # Same-pass OCR/border measurements excluded from the strict
+                # target path. This channel is presentation/lock evidence only.
+                region = layout.get('edge_buttons', {}).get(key[2])
+                if region:
+                    candidates[key] = region
+                    continue
             if not region:
                 continue
-            if name == 'data_field' and (direct.get('right_field') is None or
-                    np.max(np.abs(np.asarray(region['center'])-direct['right_field'])) > 4):
+            raw = None
+            if len(key) == 3 and key[1] == 'buttons':
+                raw = direct.get('right_buttons' if key[0] == 'right_display' else 'left_buttons', {}).get(key[2])
+            elif key == ('right_display', 'data_field'):
+                raw = direct.get('right_field')
+            else:
+                # Other candidates come from the pre-tracking measurement channel.
+                candidates[key] = region
                 continue
-            candidates[('right_display', name)] = region
-        for name, region in right.get('buttons', {}).items():
-            raw = direct.get('right_buttons', {}).get(name)
-            if name in BUTTONS[right['state']] and raw is not None and (
-                    np.max(np.abs(np.asarray(region['center'])-raw)) <= 4):
-                candidates[('right_display', 'buttons', name)] = region
-        left = layout.get('left_display', {})
-        candidates.update({('left_display', 'boxes', name): region
-                           for name, region in left.get('boxes', {}).items()
-                           if name in {f'box_{i}' for i in range(1, 23)}})
-        if left.get('speed_indicator'):
-            candidates[('left_display', 'speed_indicator')] = left['speed_indicator']
+            if raw is not None and np.max(np.abs(np.asarray(region['center'])-raw)) <= 4:
+                candidates[key] = region
         measured = {key: geometry for key, region in candidates.items()
                     if (geometry := _geometry(region, observation.frame_size,
-                                              result[key[0]]['geometry'])) is not None}
+                                              result[key[0]]['geometry'], edge_margin_px=LOCK_EDGE_MARGIN_PX,
+                                              min_inside_fraction=LOCK_MIN_INSIDE_FRACTION)) is not None}
         # Duplicate identities in one cell cannot contribute to acquisition.
         duplicates = set()
         buttons = [key for key in measured if len(key) == 3 and key[1] == 'buttons']
@@ -128,57 +137,85 @@ class ScreenLock:
 
     def observe_full(self, observation, *, context=None, now: float | None = None) -> None:
         now = time.monotonic() if now is None else now
+        basis = (observation.source_id, observation.session_id, observation.frame_size, deepcopy(context))
+        if self._context is not None and basis != self._context:
+            self.invalidate('context_changed')
         age = now-observation.received_at+observation.upstream_age_seconds
         if not math.isfinite(age) or not 0 <= age <= 1.5:
-            self.invalidate('stale_source')
+            # Expired observations cannot confirm anything or renew evidence.
+            # They do not expire the independently cached static layout.
+            self._samples.clear()
             return
         result, direct = observation.result, observation.direct_evidence
         right = result['right_display']
         screen = direct.get('right_state')
-        if (screen not in BUTTONS or right['state'] != screen or
-                direct.get('right_visibility') != 'clear' or right['visibility'] != 'clear'
+        profile = self.profiles.get(screen)
+        if (direct.get('right_visibility') != 'clear' or right['visibility'] != 'clear'
                 or not connected_regions(result)):
             self.invalidate('unsupported_or_uncertain_view')
             return
-        basis = (observation.source_id, observation.session_id, observation.frame_size, deepcopy(context))
         corners = {side: deepcopy(result[side]['geometry']['corners'])
                    for side in ('left_display', 'right_display')}
-        if self._context is not None:
-            reason = None
-            if basis != self._context or screen != self.screen:
-                reason = 'context_or_screen_changed'
-            elif observation.received_at-self._last_receipt > 1.5:
-                reason = 'source_gap'
-            elif any(np.max(np.abs(np.asarray(corners[side])-self._anchor[side])) > 4
-                     for side in corners):
-                reason = 'monitor_geometry_changed'
-            if reason:
-                self.invalidate(reason)
+        if self._context is not None and any(
+                np.max(np.abs(np.asarray(corners[side])-self._anchor[side])) > 4 for side in corners):
+            self.invalidate('monitor_geometry_changed')
+        if self._context is not None and screen not in (None, 'unknown', self.screen):
+            # A recognized different identity is a real transition. Unknown OCR
+            # alone is not evidence that the old screen has changed.
+            prior = (self._context, self._anchor, self._last_receipt, self._confirmed)
+            reuse = self._profile.reuse_left_sidebar
+            self.invalidate('screen_changed')
+            if reuse:
+                self._pending_sidebar = prior
+        if profile is None or not profile.matches(observation.layout_evidence or {}):
+            if self._context is not None and screen in (None, 'unknown', self.screen):
+                self._pause_identity(observation)
+            else:
+                self.invalidate('unsupported_or_uncertain_view')
+            return
+        measured = self._regions(observation, profile)
+        prior = self._pending_sidebar
+        if self._profile is not None and self._profile.reuse_left_sidebar:
+            prior = (self._context, self._anchor, self._last_receipt, self._confirmed)
+        retained = {}
+        if (profile.reuse_left_sidebar and prior is not None and basis == prior[0]
+                and 0 <= observation.received_at-prior[2] <= 1.5
+                and all(np.max(np.abs(np.asarray(corners[side])-prior[1][side])) <= 4 for side in corners)):
+            retained = {key: value for key, value in prior[3].items()
+                        if key[0] == 'left_display' and key in measured and _close(value, measured[key])}
+        if right['state'] != screen:
+            if self._context is not None and self.screen == screen:
+                self._pause_identity(observation)
+                return
+            # Legacy state smoothing may temporarily report unknown during a
+            # normal-screen transition. Keep no active lock, only sidebar cells
+            # remeasured NOW; every uncertain/context/loss case otherwise clears.
+            self.invalidate('pending_screen_identity')
+            if retained:
+                self._pending_sidebar = (basis, prior[1], observation.received_at, retained)
+            return
         if observation.capture_index <= self._last_index:
             return  # A repeated frame cannot count toward confirmation.
+        if self._last_receipt is not None and observation.received_at-self._last_receipt > 1.5:
+            self._samples.clear()  # Unconfirmed history cannot bridge a source gap.
         if self._context is None:
+            # Reuse never copies right controls, title, values or evidence ages.
+            self._confirmed = retained
+            self._pending_sidebar = None
             self._context, self._anchor, self.screen = basis, corners, screen
-            self._required = {('right_display', 'title'), ('right_display', 'data_field')} | {
-                ('right_display', 'buttons', name) for name in BUTTONS[screen]}
+            self._profile = profile
+            self._required = set(profile.required)
         self._last_index = observation.capture_index
         self._last_receipt = observation.received_at
-        measured = self._regions(observation)
-        effective_receipt = observation.received_at-observation.upstream_age_seconds
         released = False
         for key, region in list(self._confirmed.items()):
-            self._misses[key] = self._misses.get(key, 0)+1 if key not in measured else 0
             incompatible = key in measured and not _close(region, measured[key], center_limit=CACHE_CENTER_GUARD_PX)
-            lost = self._misses[key] > 2 or (key not in measured and effective_receipt-self._seen[key] > 1.5)
-            if incompatible or lost:
+            if incompatible:
                 # Release only the moved cell. Other confirmed elements stay fixed.
                 del self._confirmed[key]
-                self._seen.pop(key, None)
-                self._misses.pop(key, None)
                 for sample in self._samples:
                     sample.pop(key, None)
                 released = True
-            elif key in measured:
-                self._seen[key] = effective_receipt
         if released:
             self.generation += 1
             self.reason = 'element_geometry_changed_or_lost'
@@ -189,40 +226,69 @@ class ScreenLock:
             for group in reversed(list(combinations(samples, 3))):
                 median = _median(group)
                 if (all(_close(item, median) for item in group) and
-                        _geometry(median, observation.frame_size, result[key[0]]['geometry']) is not None):
+                        _geometry(median, observation.frame_size, result[key[0]]['geometry'],
+                                  edge_margin_px=LOCK_EDGE_MARGIN_PX,
+                                  min_inside_fraction=LOCK_MIN_INSIDE_FRACTION) is not None):
                     self._confirmed[key] = median
-                    self._seen[key] = effective_receipt
-                    self._misses[key] = 0
                     break
         self.state = ('LOCKED' if self._required <= self._confirmed.keys() else
                       'PARTIAL_LOCK' if self._confirmed else 'ACQUIRING')
+
+    def _pause_identity(self, observation) -> None:
+        # Keep static confirmations dormant until current identity is readable
+        # again; never acquire across an uncertain transition.
+        self._samples.clear()
+        self.state = 'PARTIAL_LOCK' if self._confirmed else 'ACQUIRING'
+        self.reason = 'awaiting_screen_identity'
+        self._last_index = max(self._last_index, observation.capture_index)
+        self._last_receipt = observation.received_at
 
     def cached_layout(self) -> dict:
         """Detached presentation metadata. Never an Observation or target list."""
         return {'state': self.state, 'screen': self.screen, 'generation': self.generation,
                 'reason': self.reason, 'presentation_only': True,
                 'elements': {'/'.join(key): deepcopy(region) for key, region in self._confirmed.items()},
-                'missing_required': sorted('/'.join(key) for key in self._required-self._confirmed.keys())}
+                'missing_required': sorted('/'.join(key) for key in self._required-self._confirmed.keys()),
+                'profile': self._profile.metadata() if self._profile else None}
 
     @staticmethod
-    def measured_display(result: dict, layout_evidence: dict | None) -> dict:
-        """Use same-pass measured right geometry in a detached preview copy.
+    def measured_display(result: dict, layout_evidence: dict | None, *, layout=None, frame_size=None) -> dict:
+        """Use same-pass measured geometry on both sides in a detached preview.
 
         Keep stabilized values/activity/identity and the original Observation.
         LivePreviewState still independently filters direct presence and values.
         """
         candidate = deepcopy(result)
-        if not layout_evidence or not layout_evidence.get('right_display'):
-            return candidate
-        layout_evidence = layout_evidence['right_display']
-        right = candidate['right_display']
-        pairs = [(right.get(key), layout_evidence.get(key)) for key in ('title', 'data_field')]
-        pairs.extend((region, layout_evidence.get('buttons', {}).get(name))
-                     for name, region in right.get('buttons', {}).items())
+        pairs = []
+        for side in ('left_display', 'right_display'):
+            current, measured = candidate[side], (layout_evidence or {}).get(side, {})
+            pairs.extend((current.get(key), measured.get(key)) for key in ('title', 'data_field', 'speed_indicator'))
+            for kind in ('buttons', 'boxes'):
+                pairs.extend((region, measured.get(kind, {}).get(name))
+                             for name, region in current.get(kind, {}).items())
         for region, measured in pairs:
             if region is not None and measured is not None:
                 region.update({key: deepcopy(measured[key]) for key in GEOMETRY_FIELDS if key in measured})
+        if (layout and frame_size and layout['screen'] == candidate['right_display']['state']
+                and connected_regions(candidate)):
+            right = candidate['right_display']
+            for name, measured in (layout_evidence or {}).get('edge_buttons', {}).items():
+                cached = layout['elements'].get('right_display/buttons/'+name)
+                if (name not in right['buttons'] and cached is not None and
+                        _geometry(measured, frame_size, right['geometry'], edge_margin_px=LOCK_EDGE_MARGIN_PX,
+                                  min_inside_fraction=LOCK_MIN_INSIDE_FRACTION) is not None
+                        and _close(cached, measured, center_limit=CACHE_CENTER_GUARD_PX)):
+                    right['buttons'][name] = deepcopy(measured)
         return candidate
+
+    @staticmethod
+    def display_evidence(direct: dict, layout_evidence: dict | None, display: dict) -> dict:
+        """Detached preview presence map. Never use it for targets/actions."""
+        evidence = deepcopy(direct)
+        for name, region in (layout_evidence or {}).get('edge_buttons', {}).items():
+            if name not in direct.get('right_buttons', {}) and name in display['right_display']['buttons']:
+                evidence.setdefault('right_buttons', {})[name] = deepcopy(region['center'])
+        return evidence
 
     @staticmethod
     def apply_display(result: dict | None, layout: dict) -> None:

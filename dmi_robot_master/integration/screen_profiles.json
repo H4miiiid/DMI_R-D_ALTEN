@@ -1,0 +1,351 @@
+{
+  "schema_version": 1,
+  "screens": [
+    {
+      "title": "Main",
+      "title_side": "right",
+      "left": {
+        "required": [
+          "boxes/box_14",
+          "boxes/box_16"
+        ],
+        "optional": [
+          "boxes/box_1",
+          "boxes/box_2",
+          "boxes/box_3",
+          "boxes/box_4",
+          "boxes/box_5",
+          "boxes/box_6",
+          "boxes/box_7",
+          "boxes/box_8",
+          "boxes/box_9",
+          "boxes/box_10",
+          "boxes/box_11",
+          "boxes/box_12",
+          "boxes/box_13",
+          "boxes/box_15",
+          "boxes/box_17",
+          "boxes/box_18",
+          "boxes/box_19",
+          "boxes/box_20",
+          "boxes/box_21",
+          "boxes/box_22",
+          "speed_indicator"
+        ]
+      },
+      "right": {
+        "required": [
+          "buttons/close",
+          "buttons/driver_id",
+          "buttons/level",
+          "buttons/shunting",
+          "buttons/start",
+          "buttons/train_data",
+          "buttons/train_running_number"
+        ],
+        "optional": [
+          "buttons/maintain_shunting",
+          "buttons/non_leading",
+          "buttons/radio_data",
+          "buttons/empty_driver_id"
+        ]
+      },
+      "dynamic_ocr": null,
+      "confirmation": null,
+      "reuse_left_sidebar": true
+    },
+    {
+      "title": "Driver ID",
+      "title_side": "right",
+      "left": {
+        "required": [
+          "boxes/box_14",
+          "boxes/box_16"
+        ],
+        "optional": [
+          "boxes/box_1",
+          "boxes/box_2",
+          "boxes/box_3",
+          "boxes/box_4",
+          "boxes/box_5",
+          "boxes/box_6",
+          "boxes/box_7",
+          "boxes/box_8",
+          "boxes/box_9",
+          "boxes/box_10",
+          "boxes/box_11",
+          "boxes/box_12",
+          "boxes/box_13",
+          "boxes/box_15",
+          "boxes/box_17",
+          "boxes/box_18",
+          "boxes/box_19",
+          "boxes/box_20",
+          "boxes/box_21",
+          "boxes/box_22",
+          "speed_indicator"
+        ]
+      },
+      "right": {
+        "required": [
+          "buttons/cancel",
+          "buttons/decimal",
+          "buttons/delete",
+          "buttons/digit_0",
+          "buttons/digit_1",
+          "buttons/digit_2",
+          "buttons/digit_3",
+          "buttons/digit_4",
+          "buttons/digit_5",
+          "buttons/digit_6",
+          "buttons/digit_7",
+          "buttons/digit_8",
+          "buttons/digit_9",
+          "data_field"
+        ],
+        "optional": [
+          "buttons/trn",
+          "buttons/settings",
+          "buttons/empty_action"
+        ]
+      },
+      "dynamic_ocr": {
+        "region": "right_display/data_field",
+        "name": "driver_id"
+      },
+      "confirmation": "right_display/data_field",
+      "reuse_left_sidebar": true
+    },
+    {
+      "title": "Level",
+      "title_side": "right",
+      "left": {
+        "required": [
+          "boxes/box_14",
+          "boxes/box_16"
+        ],
+        "optional": [
+          "boxes/box_1",
+          "boxes/box_2",
+          "boxes/box_3",
+          "boxes/box_4",
+          "boxes/box_5",
+          "boxes/box_6",
+          "boxes/box_7",
+          "boxes/box_8",
+          "boxes/box_9",
+          "boxes/box_10",
+          "boxes/box_11",
+          "boxes/box_12",
+          "boxes/box_13",
+          "boxes/box_15",
+          "boxes/box_17",
+          "boxes/box_18",
+          "boxes/box_19",
+          "boxes/box_20",
+          "boxes/box_21",
+          "boxes/box_22",
+          "speed_indicator"
+        ]
+      },
+      "right": {
+        "required": [
+          "buttons/level_0",
+          "buttons/level_1",
+          "buttons/level_2",
+          "buttons/close",
+          "data_field"
+        ],
+        "optional": [
+          "buttons/atc_2",
+          "buttons/kvb",
+          "buttons/level_3",
+          "buttons/lzb",
+          "buttons/memor",
+          "buttons/more",
+          "buttons/pzb",
+          "buttons/scmt",
+          "buttons/tbl1_plus"
+        ]
+      },
+      "dynamic_ocr": {
+        "region": "right_display/data_field",
+        "name": "level"
+      },
+      "confirmation": "right_display/data_field",
+      "reuse_left_sidebar": true
+    },
+    {
+      "title": "Train Running Number",
+      "title_side": "right",
+      "left": {
+        "required": [
+          "boxes/box_14",
+          "boxes/box_16"
+        ],
+        "optional": [
+          "boxes/box_1",
+          "boxes/box_2",
+          "boxes/box_3",
+          "boxes/box_4",
+          "boxes/box_5",
+          "boxes/box_6",
+          "boxes/box_7",
+          "boxes/box_8",
+          "boxes/box_9",
+          "boxes/box_10",
+          "boxes/box_11",
+          "boxes/box_12",
+          "boxes/box_13",
+          "boxes/box_15",
+          "boxes/box_17",
+          "boxes/box_18",
+          "boxes/box_19",
+          "boxes/box_20",
+          "boxes/box_21",
+          "boxes/box_22",
+          "speed_indicator"
+        ]
+      },
+      "right": {
+        "required": [
+          "buttons/close",
+          "buttons/decimal",
+          "buttons/delete",
+          "buttons/digit_0",
+          "buttons/digit_1",
+          "buttons/digit_2",
+          "buttons/digit_3",
+          "buttons/digit_4",
+          "buttons/digit_5",
+          "buttons/digit_6",
+          "buttons/digit_7",
+          "buttons/digit_8",
+          "buttons/digit_9",
+          "data_field"
+        ],
+        "optional": []
+      },
+      "dynamic_ocr": {
+        "region": "right_display/data_field",
+        "name": "train_running_number"
+      },
+      "confirmation": null,
+      "reuse_left_sidebar": true
+    },
+    {
+      "title": "Train Data",
+      "title_side": "left",
+      "left": {
+        "required": [
+          "buttons/yes"
+        ],
+        "optional": []
+      },
+      "right": {
+        "required": [
+          "buttons/close",
+          "buttons/enter_data",
+          "buttons/gamma",
+          "buttons/lambda",
+          "buttons/left_arrow",
+          "buttons/right_arrow",
+          "data_field"
+        ],
+        "optional": []
+      },
+      "dynamic_ocr": {
+        "region": "right_display/data_field",
+        "name": "train_type"
+      },
+      "confirmation": null,
+      "reuse_left_sidebar": false
+    },
+    {
+      "title": "Train Data (1/2)",
+      "title_side": "left",
+      "left": {
+        "required": [
+          "buttons/yes"
+        ],
+        "optional": []
+      },
+      "right": {
+        "required": [
+          "buttons/close",
+          "buttons/decimal",
+          "buttons/delete",
+          "buttons/digit_0",
+          "buttons/digit_1",
+          "buttons/digit_2",
+          "buttons/digit_3",
+          "buttons/digit_4",
+          "buttons/digit_5",
+          "buttons/digit_6",
+          "buttons/digit_7",
+          "buttons/digit_8",
+          "buttons/digit_9",
+          "buttons/left_arrow",
+          "buttons/right_arrow",
+          "buttons/select_type"
+        ],
+        "optional": []
+      },
+      "dynamic_ocr": null,
+      "confirmation": null,
+      "reuse_left_sidebar": false
+    },
+    {
+      "title": "Train Data (2/2)",
+      "title_side": "left",
+      "left": {
+        "required": [
+          "buttons/yes"
+        ],
+        "optional": []
+      },
+      "right": {
+        "required": [
+          "buttons/close",
+          "buttons/g1",
+          "buttons/ga",
+          "buttons/gb",
+          "buttons/gc",
+          "buttons/left_arrow",
+          "buttons/out_of_gc",
+          "buttons/right_arrow",
+          "buttons/select_type"
+        ],
+        "optional": []
+      },
+      "dynamic_ocr": null,
+      "confirmation": null,
+      "reuse_left_sidebar": false
+    },
+    {
+      "title": "Validate Train Data",
+      "title_side": "left",
+      "left": {
+        "required": [],
+        "optional": [
+          "buttons/yes"
+        ]
+      },
+      "right": {
+        "required": [
+          "buttons/yes",
+          "buttons/no",
+          "buttons/close",
+          "data_field"
+        ],
+        "optional": []
+      },
+      "dynamic_ocr": {
+        "region": "right_display/data_field",
+        "name": "confirmation"
+      },
+      "confirmation": null,
+      "reuse_left_sidebar": false
+    }
+  ]
+}

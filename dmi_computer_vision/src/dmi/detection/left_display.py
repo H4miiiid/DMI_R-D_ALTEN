@@ -26,6 +26,8 @@ RECTIFIED_SIZE = (800, 1280)
 
 def analyze_train_left_display(
     rectified: Frame, geometry: DisplayGeometry, *, connected: bool = False,
+    read_summary: bool = True,
+    tight_title: bool = False,
 ) -> tuple[str, dict[str, Any]] | None:
     """Read the left title and bordered confirmation control in train workflows."""
     width, height = RECTIFIED_SIZE
@@ -98,8 +100,13 @@ def analyze_train_left_display(
                        [0, height - 1]], np.float32)
     transform = cv2.getPerspectiveTransform(source, geometry.corners)
     if glyphs:
-        title_quad = np.array([[x1 - 6, y1 - 6], [x2 + 6, y1 - 6],
-                               [x2 + 6, y2 + 6], [x1 - 6, y2 + 6]], np.float32)
+        if tight_title:
+            # Glyph extents are half-open pixel bounds. OCR keeps its original
+            # padded crop; lock geometry uses only current measured glyphs.
+            title_quad = np.array([[x1, y1], [x2-1, y1], [x2-1, y2-1], [x1, y2-1]], np.float32)
+        else:
+            title_quad = np.array([[x1 - 6, y1 - 6], [x2 + 6, y1 - 6],
+                                   [x2 + 6, y2 + 6], [x1 - 6, y2 + 6]], np.float32)
     else:
         x1, y1, x2, y2 = title_box
         title_quad = np.array([[x1, y1], [x2, y1],
@@ -136,7 +143,7 @@ def analyze_train_left_display(
             if text == "Yes":
                 buttons["yes"] = _region_result(points, transform)
     content = {"boxes": {}, "speed_indicator": None, "title": title, "buttons": buttons}
-    if state == "Train Data":
+    if state == "Train Data" and read_summary:
         content["summary"] = _read_train_summary(rectified, transform)
     return state, content
 

@@ -193,7 +193,7 @@ class VisionObserver:
                             stream.write(json.dumps({'type':'monitor_update',
                                 'capture_index':packet.capture_index, 'reason':decision.reason,
                                 'presentation_only':True,
-                                'field_value': (decision.view['result']['right_display']['data_field']['value']
+                                'field_value': ((decision.view['result']['right_display'].get('data_field') or {}).get('value')
                                                 if decision.view else None)}, allow_nan=False)+'\n')
                             stream.flush()
                         continue
@@ -293,7 +293,11 @@ class VisionObserver:
             if self._stop.is_set() or epoch != self._monitor_epoch:
                 return MonitorDecision(False, 'context_invalidated_during_check')
             if decision.invalidate:
-                self._invalidate_layout(decision.reason)
+                # Missing OCR/borders or changed control pixels require fresh
+                # analysis, but do not themselves prove the static layout moved.
+                self._invalidate_layout(decision.reason, preserve_geometry=decision.reason in (
+                    'source_stale', 'title_unreadable', 'title_change_before_audit',
+                    'field_border_missing', 'control_or_other_region_changed'))
                 self._observation = self._projection = None
                 self._press_history.clear()
                 self._mode = {}
@@ -340,9 +344,12 @@ class VisionObserver:
                     # as missed updates for any control still absent in this one.
                     analyzed_packet = IntegrationFrame(image, observation.capture_index,
                         observation.received_at, '', remote_capture_age_seconds=observation.upstream_age_seconds)
-                    display_result = (ScreenLock.measured_display(observation.result, observation.layout_evidence)
+                    display_result = (ScreenLock.measured_display(observation.result, observation.layout_evidence,
+                                      layout=layout, frame_size=observation.frame_size)
                                       if layout is not None and layout['screen'] else observation.result)
-                    preview.update(display_result, analyzed_packet, evidence=observation.direct_evidence,
+                    display_evidence = ScreenLock.display_evidence(observation.direct_evidence,
+                        observation.layout_evidence, display_result) if layout is not None else observation.direct_evidence
+                    preview.update(display_result, analyzed_packet, evidence=display_evidence,
                                    updates=detection-last_detection)
                     if layout is not None:
                         ScreenLock.apply_display(preview.result, layout)
@@ -431,8 +438,6 @@ class VisionObserver:
             monitor_fresh = (self._monitor_fresh(self._monitor_view, now) and not self._stop.is_set())
             field_fresh = (self._monitor_field is not None and not self._stop.is_set()
                            and 0 <= now-self._monitor_field['evidence_at'] <= 1.5)
-            if not fresh and not monitor_fresh and self._lock_layout and self._lock_layout['screen'] is not None:
-                self._invalidate_layout('stale_source')
             raw_age = (now-self._raw_received+self._raw_upstream_age
                        if self._raw_received is not None else None)
             projection = deepcopy(self._projection) if fresh else None
@@ -558,10 +563,11 @@ class VisionObserver:
         return self.projector.project(observation.result,
             observation.direct_evidence, frame_size=observation.frame_size)[0]
 
-    def _invalidate_layout(self, reason: str) -> None:
+    def _invalidate_layout(self, reason: str, *, preserve_geometry: bool = False) -> None:
         """Caller holds the condition; never alter detector/action observations."""
         if self._screen_lock is not None:
-            self._screen_lock.invalidate(reason)
+            if not preserve_geometry:
+                self._screen_lock.invalidate(reason)
             self._lock_layout = self._screen_lock.cached_layout()
             self._preview_epoch += 1
         if self._monitor is not None:

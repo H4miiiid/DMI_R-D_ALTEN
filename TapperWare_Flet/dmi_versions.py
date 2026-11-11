@@ -43,10 +43,11 @@ def comparison_diagnostics(version: str) -> dict:
     files.extend(p for p in (ROOT / "dmi_computer_vision/data/icons").rglob("*")
                  if p.suffix.lower() in {".png", ".jpg", ".jpeg", ".bmp"})
     files.append(ROOT / "TapperWare_Flet/DmiPositions.json")
+    files.append(ROOT / "dmi_robot_master/integration/screen_profiles.json")
     hashes = {str(p.relative_to(ROOT)): file_fingerprint(p) for p in sorted(files)}
     fingerprint = sha256(json.dumps(hashes, sort_keys=True, separators=(",", ":")).encode()).hexdigest()
     return {"selected_version": version, "source_fingerprint": fingerprint,
-            "source_fingerprint_scope": "GUI/integration/vision/common Python, icon images, DmiPositions.json; excludes tests/local data",
+            "source_fingerprint_scope": "GUI/integration/vision/common Python, icon images, DmiPositions.json, screen_profiles.json; excludes tests/local data",
             "source_files_sha256": hashes,
             "source_fingerprint_complete": all(value is not None for value in hashes.values()),
             "baseline_source_fingerprint": BASELINE_SOURCE_FINGERPRINT,
@@ -59,6 +60,6 @@ def comparison_diagnostics(version: str) -> dict:
                          "mirror_horizontal": False, "contrast_fallback": version == '2',
                          "progressive_layout_lock": version == '2',
                          "lock_confirmation_frames": 3, "lock_window_observations": 5,
-                         "lock_scope": "Driver ID/Level presentation only; action evidence requires full detection",
+                         "lock_scope": "JSON-profiled SENSE presentation only; action evidence requires full detection",
                          "selective_updates": version=='2', "full_audit_seconds": 1.,
                          "partial_retry_seconds": .5, "field_refresh_seconds": 1.}}

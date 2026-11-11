@@ -1,10 +1,54 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-10. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
+Updated 2026-11-11. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
+
+Phase 2/3 corrective extension — ACCEPTED OFFLINE for now by the user
+(2026-11-11); STATE update and commit/push of the latest reviewed updates are
+explicitly authorized. Phase 4 has not started and requires separate authorization.
+Version 2 uses editable `dmi_robot_master/integration/screen_profiles.json` for
+required/optional controls on both SENSE regions, title side, dynamic OCR and
+presentation-only confirmation roles. Supported vocabulary is validated; normal
+screens can reuse currently verified sidebar geometry. Train profiles add no
+informational summary OCR; existing Gamma/Lambda and validation field readers
+remain the dynamic-field exceptions to numbered/validation titles/buttons scope.
+Each control confirms independently from three consistent real detections in five.
+Confirmed median centers/bounding boxes persist through detection/OCR misses and
+observation expiry; uncertainty pauses acquisition without renewing action proof.
+Recognized screen changes, source/context changes, occlusion and incompatible
+measured geometry still invalidate under the existing guards. The six-native-pixel
+lock-only edge margin requires center-inside and at least 95% area containment;
+it changes no action, calibration or movement tolerance. Local G1/title/border
+corrections and the bounded No/Close retry remain SENSE-only. Version 1 and TWIN
+behavior and existing action permissions/freshness requirements are preserved.
+Accepted runtime fingerprint:
+`7bfa3220608f3ed83933e137accec80ed448e7e7c58e5ca215647cc0048ac42b`,
+based on HEAD `32609ba51aa111727620b74302891a9b8b81a450` plus reviewed updates.
+Canonical accepted evidence: `runs/phase23_persistent_lock/` (immutable
+pre-acceptance snapshot); inspect `summary.json`, `results.jsonl` and `contact.png`.
+Both final reviewers: PASS WITH WARNINGS.
+Checks: 231 tests plus 40 subtests; all 241 native Train Data detector/direct
+outputs equal the preceding reviewed baseline. Prior 30 exact V1/TWIN frame
+comparisons were reused; fake TWIN/action tests and recorded ROI probes reran.
+COMPLETE LOCK frames: Train Type 55/61, page 1 60/86, page 2 58/69, validation 0/25.
+Every required validation identity confirms at least once, but not all coexist:
+Yes fails the unchanged shape check after a 13-pixel corner difference; monitor
+geometry resets occur at frames 9/12/24; Close gets only two valid post-reset
+measurements before approximately 6.34-pixel overhangs exceed the unchanged margin.
+No now remains cached through nine subsequent missing/rejected measurements.
+Validation retains bounded full-detection fallback; no further thresholds were
+increased to force validation lock.
+Natural transitions, held-out office footage, live GUI/camera, calibration accuracy
+and physical pressing remain unverified. Local tests/evidence are ignored and
+require separate supply in a clean clone; runtime has no dependency on them.
+Next: operator Version 2 hardware validation under existing guards; further
+corrections or Phase 4 require separate authorization. PLAN's Phase 4 clarification
+is documentation only and does not accept or start its implementation.
+
+## Earlier roadmap milestones (historical)
 
 Phase 3 / G3 — COMPLETED OFFLINE; implementation accepted for now by the user
 (2026-11-10), with commit/push explicitly authorized for the reviewed Version 2

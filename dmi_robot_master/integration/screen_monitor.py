@@ -18,6 +18,7 @@ from dmi_computer_vision.src.dmi.detection.title_ocr import read_title, title_st
 from dmi_computer_vision.src.dmi.mode_observation import ModeHistory, observe_modes
 from dmi_computer_vision.src.dmi.temporal.smoothing import RightDisplayStabilizer
 from dmi_robot_master.integration.screen_lock import ScreenLock
+from dmi_robot_master.integration.screen_profiles import region_at
 
 
 @dataclass
@@ -65,21 +66,36 @@ def _activity(image: np.ndarray, region: dict) -> bool | None:
     return rd._level_button_active(interior, foreground)
 
 
-def _field_read(image: np.ndarray, result: dict, locked: dict, screen: str) -> dict | None:
+def _field_read(image: np.ndarray, result: dict, locked: dict, screen: str, *,
+                diagnostics: dict | None = None) -> dict | None:
     """Reuse current measured-field localization and unchanged digit recognition."""
     region = result['right_display']['geometry']
     corners = np.float32(region['corners'])
     geometry = DisplayGeometry(corners, np.float32(region.get('oriented_box', corners)), tuple(region['bbox']))
     rectified = rectify_display(image, geometry, rd.RECTIFIED_SIZE)
-    evidence = rd._field_evidence(image, geometry)
-    detected = rd._detect_data_field(rectified, contrast_fallback=True, evidence_frame=evidence)
+    if screen in {'Train Data', 'Validate Train Data'}:
+        detected = rd._detect_train_field(rectified, unique=screen == 'Validate Train Data')
+    elif screen in {'Driver ID', 'Level'}:
+        evidence = rd._field_evidence(image, geometry)
+        detected = rd._detect_data_field(rectified, contrast_fallback=True, evidence_frame=evidence)
+    else:
+        detected = rd._detect_data_field(rectified)
     if detected is None:
+        if diagnostics is not None:
+            diagnostics['reason'] = 'field_border_missing'
         return None
     field = rd._region_result(field_quad_from_contour(detected[1]), geometry, image.shape[:2])
     if (np.max(np.abs(np.asarray(field['center'])-locked['center'])) > 4 or
             np.max(np.abs(np.asarray(field['corners'])-locked['corners'])) > 4):
+        if diagnostics is not None:
+            diagnostics['reason'] = 'field_geometry_changed'
         return None
-    value = rd._read_digits(rd._crop_box(rectified, detected[0]), last_only=screen=='Level')
+    if screen == 'Train Data':
+        value = rd._read_train_field_value(rectified, detected[0], screen)
+    elif screen == 'Validate Train Data':
+        value = rd._read_validation_value(rd._crop_box(rectified, detected[0]))
+    else:
+        value = rd._read_digits(rd._crop_box(rectified, detected[0]), last_only=screen=='Level')
     field['value'] = f'Level {value}' if value is not None and screen=='Level' else value
     return field
 
@@ -100,6 +116,7 @@ class ScreenMonitor:
     def clear(self) -> None:
         self.active = False
         self._basis = self._result = self._layout = None
+        self._field_key = self._title_key = None
         self._refs = {}
         self._last_full = self._last_field = self._last_title = -math.inf
         self._field_seen = -math.inf
@@ -119,6 +136,16 @@ class ScreenMonitor:
             self.clear()
             self._last_full = packet.received_at
             return
+        profile = layout['profile']
+        field_key = tuple(profile['dynamic_ocr'].split('/')) if profile['dynamic_ocr'] else None
+        if field_key and (region_at(observation.result, field_key) is None or
+                          region_at(observation.layout_evidence or {}, field_key) is None):
+            # A lock may retain geometry through brief misses. That is not a
+            # current dynamic field; retry full analysis at the bounded partial
+            # cadence rather than fabricating a field or dereferencing None.
+            self.clear()
+            self._last_full = packet.received_at
+            return
         basis = (observation.source_id, observation.session_id, observation.frame_size,
                  layout['screen'], deepcopy(context))
         same = self._basis == basis and self._result is not None and all(
@@ -129,8 +156,11 @@ class ScreenMonitor:
             self.clear()
         self.active = True
         self._basis = basis
-        self._result = ScreenLock.measured_display(observation.result, observation.layout_evidence)
+        self._result = ScreenLock.measured_display(observation.result, observation.layout_evidence,
+                                                  layout=layout, frame_size=observation.frame_size)
         self._layout = deepcopy(layout)
+        self._field_key = field_key
+        self._title_key = profile['title_side'] + '_display/title'
         ScreenLock.apply_display(self._result, layout)
         self._last_full = packet.received_at
         self._full_upstream = observation.upstream_age_seconds
@@ -141,8 +171,7 @@ class ScreenMonitor:
         # A separate whole-monitor check detects overlays/changes outside known
         # controls. Dynamic ROIs are masked; their current crops are checked below.
         self._structure = self._structural(packet.image)
-        raw = (observation.layout_evidence or {}).get('right_display', {})
-        field = raw.get('data_field')
+        field = region_at(observation.layout_evidence or {}, self._field_key) if self._field_key else None
         if field is not None:
             self._accept_field(field, packet)
 
@@ -178,7 +207,7 @@ class ScreenMonitor:
     def field_snapshot(self) -> dict | None:
         if not self.active or not math.isfinite(self._field_seen):
             return None
-        return {'name':'level' if self._layout['screen']=='Level' else 'driver_id',
+        return {'name':self._layout['profile']['field_name'],
                 'value':self._field_value,'evidence_at':self._field_seen,
                 'pending_confirmation':self._pending_field,'presentation_only':True}
 
@@ -205,8 +234,10 @@ class ScreenMonitor:
             self.skipped += int(not due)
             return MonitorDecision(due,'partial_retry')
         age = now-packet.received_at+getattr(packet,'remote_capture_age_seconds',0.)+getattr(packet,'transport_round_trip_seconds',0.)
-        if not 0 <= age <= 1.5 or tuple(packet.image.shape[1::-1]) != self._basis[2]:
-            return MonitorDecision(True,'source_changed_or_stale',invalidate=True)
+        if tuple(packet.image.shape[1::-1]) != self._basis[2]:
+            return MonitorDecision(True,'source_changed',invalidate=True)
+        if not 0 <= age <= 1.5:
+            return MonitorDecision(True,'source_stale',invalidate=True)
         if packet.capture_index <= self._last_index:
             return MonitorDecision(False,'duplicate')
         self._last_index = packet.capture_index
@@ -215,8 +246,8 @@ class ScreenMonitor:
         descriptors = {key:self._region_descriptor(packet.image,key,region)
                        for key,region in self._layout['elements'].items()}
         changes = {key for key,desc in descriptors.items() if _changed(desc,self._refs[key])}
-        field_key = 'right_display/data_field'
-        title_key = 'right_display/title'
+        field_key = '/'.join(self._field_key) if self._field_key else None
+        title_key = self._title_key
         mode_keys = {'left_display/boxes/box_14','left_display/boxes/box_16'}
         # A blink/identity change is presentation evidence only; it also revokes
         # older full-observation action eligibility until an independent audit.
@@ -228,14 +259,21 @@ class ScreenMonitor:
             title=read_title(crop,(0,0,crop.shape[1],crop.shape[0]))
             self.title_reads+=1;self.title_seconds+=time.perf_counter()-start
             self._last_title=packet.received_at
-            if title_state(title) != self._layout['screen']:
-                return MonitorDecision(True,'title_changed_or_unknown',invalidate=True)
+            state = title_state(title)
+            if state != self._layout['screen']:
+                return MonitorDecision(True,'title_unreadable' if state == 'unknown' else 'title_changed',
+                                       invalidate=True)
             self._refs[title_key]=descriptors[title_key]
         elif title_key in changes:
             # A transition must not wait for a title timer to expire.
             return MonitorDecision(True,'title_change_before_audit',invalidate=True)
         unknown_changes = changes-{field_key,title_key}-mode_keys
         if unknown_changes:
+            if unknown_changes <= set(self._layout['profile']['optional']):
+                # Audit optional changes once without clearing unrelated locked
+                # geometry. A fresh full result supplies identity/action proof;
+                # subsequent audits release missing optional cells independently.
+                return MonitorDecision(True,'optional_control_changed',semantic_change=True)
             return MonitorDecision(True,'control_or_other_region_changed',invalidate=True)
         changed_field = field_key in changes
         if changed_field:
@@ -245,28 +283,33 @@ class ScreenMonitor:
             semantic=True
         interval = (self.field_retry_seconds if self._pending_field and self._unknown_field_reads < 3
                     else self.field_refresh_seconds)
-        due = packet.received_at-self._last_field >= interval
+        due = self._field_key is not None and packet.received_at-self._last_field >= interval
         full_due = packet.received_at-self._last_full >= self.full_audit_seconds
         if due and not full_due:
             start=time.perf_counter()
-            field=_field_read(packet.image,self._result,self._layout['elements'][field_key],self._layout['screen'])
+            diagnostics = {}
+            field=_field_read(packet.image,self._result,self._layout['elements'][field_key],self._layout['screen'],
+                              diagnostics=diagnostics)
             self.field_reads+=1;self.field_seconds+=time.perf_counter()-start
             if field is None:
-                return MonitorDecision(True,'field_border_missing_or_changed',invalidate=True)
+                return MonitorDecision(True,diagnostics.get('reason','field_border_missing_or_changed'),
+                                       invalidate=True)
             semantic |= self._accept_field(field,packet)
             self._refs[field_key]=descriptors[field_key]
         result=deepcopy(self._result)
-        result['right_display']['data_field']['value'] = self._field_value if 0 <= now-self._field_seen <= 1.5 else None
+        if self._field_key:
+            region_at(result, self._field_key)['value'] = self._field_value if 0 <= now-self._field_seen <= 1.5 else None
         if self._layout['screen']=='Level':
             for name,region in result['right_display']['buttons'].items():
                 active=_activity(packet.image,region)
                 semantic |= active != region.get('active')
                 region['active']=active
         # Only independently locked mode-box geometry is used for display reads.
-        boxes=result['left_display']['boxes']
-        result['left_display']['boxes']={name:region for name,region in boxes.items()
-            if 'left_display/boxes/'+name in self._layout['elements']}
-        icons=observe_modes(packet.image,result)
+        mode_result=deepcopy(result)
+        boxes=mode_result['left_display']['boxes']
+        mode_result['left_display']['boxes']={name:{**region, **self._layout['elements']['left_display/boxes/'+name]}
+            for name,region in boxes.items() if 'left_display/boxes/'+name in self._layout['elements']}
+        icons=observe_modes(packet.image,mode_result)
         geometry=[result[side]['geometry']['corners'] for side in ('left_display','right_display')] if icons else None
         modes=self._modes.update(packet.received_at,icons,geometry)
         modes['observations']=icons

@@ -1119,3 +1119,80 @@ and freshness first, then dry run, reviewed move-only alignment and one explicit
 selected physical press with newer-camera UI verification. Keep wider controls and
 the other screen uncalibrated until separately measured and validated. Offline
 completion does not establish camera compatibility, physical accuracy or pressing.
+
+# Editable SENSE screen locks (Version 2)
+
+Edit [`screen_profiles.json`](screen_profiles.json), then stop and restart
+observation. Profiles are loaded and validated once per observation session;
+there is no live configuration reload. Version 1 and separated TWIN detection
+retain their existing behavior. `LOCKED` in diagnostics means COMPLETE LOCK.
+
+Each entry has the detector's canonical `title` and `title_side` (`left` or
+`right`). Title matching ignores case and repeated whitespace, as the existing
+title recognizer does. The title itself always needs three consistent direct
+measurements. The Train Type selection screen's actual identity is **Train Data**;
+`Train Data (Train Type)` is not a supported recognized title.
+
+`left` and `right` each contain `required` and `optional` lists. Entries use actual
+detector paths relative to that region, for example `boxes/box_14`, `buttons/yes`,
+`buttons/digit_1`, `data_field`, or `speed_indicator`. Only listed controls take
+part in locking. Each needs three consistent real measurements within five full
+observations; tracked/predicted cells cannot establish a lock. Unlisted detections
+remain available to the detector and its geometry/identity checks. Missing optional
+controls do not prevent completion. Coordinates are always measured from images;
+the configuration contains no coordinate templates.
+
+The shipped profiles cover Main, Driver ID, Level, Train Running Number, Train
+Data, both numbered Train Data pages, and Validate Train Data. Normal screens
+require mode-box geometry 14/16 and make the remaining left boxes/speed indicator
+optional. The existing local Level choice of Level 0/1/2/Close is preserved as its
+required set; other supported Level controls are optional. Train Data and its
+numbered pages require the measured left `buttons/yes`. Validation instead requires
+right Yes/No/Close; its separately detected left Yes is optional. Informational
+Train Data summary text is neither OCR'd nor locked on this Version 2 path.
+
+`dynamic_ocr` is either `null` or an existing supported field reader, for example:
+
+```json
+"dynamic_ocr": {"region": "right_display/data_field", "name": "train_type"}
+```
+
+The field must also be required. Supported names are `driver_id`, `level`,
+`train_running_number`, `train_type` (Gamma/Lambda), and `confirmation` (validation
+Yes/No), on their corresponding screens. The monitor reuses the existing readers
+and value-confirmation rules. Numbered train pages and Main have no dynamic field.
+Mode-icon box/color rules remain unchanged.
+
+`confirmation` may be `"right_display/data_field"` on Driver ID/Level or `null`.
+This records the grey field's confirmation role for presentation only; it does
+not make the field actionable or change calibration/action authorization.
+
+`reuse_left_sidebar: true` allows already confirmed left boxes/speed geometry to
+survive changes between normal screens only when the new frame directly measures
+the same configured cells, within the existing geometry bounds and freshness
+limits. Right controls, titles, OCR values and action evidence never carry across.
+Train screens cannot enable this reuse. After COMPLETE LOCK, the existing ROI
+monitor and bounded full audits remain active; no cached layout renews action
+evidence.
+
+Unsupported titles, controls, title sides, duplicate entries, summary paths,
+unsupported OCR readers and misspelled keys produce a configuration error naming
+the file and entry. Adding a JSON profile cannot add a new recognition identity:
+new detector vocabulary still needs separately authorized implementation. The
+loader's supported vocabulary is in `screen_profiles.py`; required identities
+are defined only in JSON. Hardware transitions, blink behavior and physical
+accuracy require separate operator validation. A supported identity can still fail
+locking when its measured quad falls outside the monitor or varies beyond the
+existing confirmation bounds. Keep that control required if it is essential:
+the truthful result is PARTIAL_LOCK, not an invented or automatically optional
+control. SENSE lock validation permits at most six native pixels of corner
+overhang, with the center inside its measured display and at least 95% of the
+quad area inside. Three consistent real observations in five are still required.
+Controls excluded from the stricter detector target path can contribute through
+same-pass measured layout evidence only; confirmed preview geometry and ROI
+monitoring never add target/action evidence or change calibration limits.
+Validation No/Close have one local measured-border retry, restricted to glyphs
+inside the currently rejected measurements; larger unsupported fits remain
+rejected. The supplied validation recording still fails COMPLETE
+LOCK, so bounded full-detection retries remain active on that screen. Profile
+support alone does not establish recorded-camera COMPLETE LOCK on every screen.

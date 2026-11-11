@@ -171,12 +171,16 @@ def process_frame(
     left_rectified = (rectify_display(frame, left_geometry, LEFT_SIZE)
                       if left_geometry is not None else None)
     connected = diagnostics.get("path") == "connected"
-    train_left = (analyze_train_left_display(left_rectified, left_geometry, connected=connected)
+    train_left = (analyze_train_left_display(left_rectified, left_geometry, connected=connected,
+                  **({'read_summary': False} if connected and layout_evidence is not None else {}),
+                  **({'tight_title': True} if connected and contrast_fallback else {}))
                   if left_geometry is not None else None)
     train_state = train_left[0] if train_left is not None else None
+    edge_buttons = {} if connected and contrast_fallback and layout_evidence is not None else None
     right_content = (
         analyze_right_display(frame, right_geometry, train_state, connected=connected,
-                              **({'contrast_fallback': True} if connected and contrast_fallback else {}))
+                              **({'contrast_fallback': True} if connected and contrast_fallback else {}),
+                              **({'edge_buttons': edge_buttons} if edge_buttons is not None else {}))
         if right_geometry is not None
         else {
             "visibility": "unknown",
@@ -188,10 +192,12 @@ def process_frame(
     )
     if layout_evidence is not None:
         layout_evidence.clear()
-        if connected and right_content['state'] in {'Driver ID', 'Level'}:
+        if connected and right_content['state'] != 'unknown':
             # Optional same-pass geometry before legacy display smoothing. This
             # separate side channel never changes detection/target outputs.
             layout_evidence['right_display'] = deepcopy(right_content)
+            if edge_buttons is not None:
+                layout_evidence['edge_buttons'] = deepcopy(edge_buttons)
     if target_evidence is not None:
         target_evidence.clear()
         target_evidence.update({
@@ -215,6 +221,8 @@ def process_frame(
             )
     if train_left is not None:
         left_content = train_left[1]
+        if layout_evidence is not None and layout_evidence:
+            layout_evidence['left_display'] = deepcopy(left_content)
         if connected and target_evidence is not None:
             # Current SENSE completion controls, before temporal stabilization.
             # Separated/TWIN output and evidence remain unchanged.

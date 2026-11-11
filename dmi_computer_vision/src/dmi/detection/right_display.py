@@ -12,7 +12,7 @@ from numpy.typing import NDArray
 
 from dmi_computer_vision.src.dmi.detection.display_geometry import DisplayGeometry, Frame, rectify_display
 from dmi_computer_vision.src.dmi.detection.title_ocr import read_field, read_title, read_titles, title_state
-from dmi_computer_vision.src.dmi.detection.train_controls import train_button_cells
+from dmi_computer_vision.src.dmi.detection.train_controls import train_button_cells, refine_boundary_cells
 from dmi_computer_vision.src.dmi.detection.visibility import right_display_obstructed
 from dmi_computer_vision.src.dmi.detection.field_contrast import supported_field, detect_contrast_field
 from dmi_computer_vision.src.dmi.detection.right_layout import (
@@ -29,8 +29,11 @@ LOGGER = logging.getLogger(__name__)
 def analyze_right_display(
     frame: Frame, geometry: DisplayGeometry, state_hint: str | None = None,
     *, connected: bool = False, contrast_fallback: bool = False,
+    edge_buttons: dict | None = None,
 ) -> dict[str, Any]:
     """Recognize the visible right-display structure and original-frame boxes."""
+    if edge_buttons is not None:
+        edge_buttons.clear()
     rectified = rectify_display(frame, geometry, RECTIFIED_SIZE)
     if right_display_obstructed(rectified, train_workflow=state_hint is not None):
         return {"state": "unknown", "title": None, "buttons": {},
@@ -112,44 +115,7 @@ def analyze_right_display(
         elif validation:
             value = _read_validation_value(field_image)
         elif state in {"Train Data", "Validate Train Data"}:
-            x1, y1, x2, y2 = field_box
-            inset = round((y2 - y1) * .12)
-            if state == "Train Data":
-                # Locate the brightness step between the label and value.
-                # Including the divider can turn its border into an OCR letter.
-                gray = cv2.cvtColor(field_image[inset:-inset], cv2.COLOR_BGR2GRAY)
-                profile = np.median(gray, axis=0)
-                start, end = round(len(profile) * .45), round(len(profile) * .85)
-                contrast = profile[start + 3:end + 3] - profile[start - 3:end - 3]
-                divider = start + int(np.argmax(contrast))
-                value_box = (x1 + divider + inset, y1 + inset, x2 - inset, y2 - inset)
-                if contrast.max() >= 10:
-                    label = read_title(rectified, (x1+inset, y1+inset,
-                                                  x1+divider-inset, y2-inset))
-                    if label == "Train type":
-                        value_image = _crop_box(rectified, value_box)
-                        gray_value = cv2.cvtColor(value_image, cv2.COLOR_BGR2GRAY)
-                        ink = (gray_value < float(np.median(gray_value))-18).astype(np.uint8)
-                        _, _, parts, _ = cv2.connectedComponentsWithStats(ink)
-                        letters = [p for p in parts[1:] if p[4] >= 10
-                                   and gray_value.shape[0]*.15 < p[3] < gray_value.shape[0]*.9]
-                        if letters:
-                            lo = np.min([p[:2] for p in letters], axis=0)
-                            hi = np.max([p[:2]+p[2:4] for p in letters], axis=0)
-                            box = (max(0, int(lo[0])-5), max(0, int(lo[1])-5),
-                                   min(value_image.shape[1], int(hi[0])+5), min(value_image.shape[0], int(hi[1])+5))
-                            value = read_field(value_image, box)
-                        if value not in {"Gamma", "Lambda"}:
-                            # One bounded retry on the same current value area;
-                            # no supplied answer or retained value enters OCR.
-                            value = read_field(rectified, value_box)
-                        if value not in {"Gamma", "Lambda"}:
-                            value = None
-            else:
-                x2 = x1 + round((x2 - x1) * .33)
-                value = read_field(rectified, (x1, y1 + inset, x2, y2 - inset))
-            if value is not None:
-                value = value.strip(" |") or None
+            value = _read_train_field_value(rectified, field_box, state)
         data_field = _region_result(
             field_quad_from_contour(field_detection[1]),
             geometry,
@@ -173,10 +139,42 @@ def analyze_right_display(
                                   [width-1+margin, height-1+margin], [margin, height-1+margin]])
         expanded = cv2.warpPerspective(frame, cv2.getPerspectiveTransform(geometry.corners, destination),
                                        (width+2*margin, height+2*margin))
-        controls = {name: (quad-margin, None)
-                    for name, quad in _recognize_train_buttons(
-                        expanded, page_one=page_one, page_two=page_two,
-                        validation=validation).items()}
+        recognized = _recognize_train_buttons(expanded, page_one=page_one, page_two=page_two,
+            validation=validation, **({'contrast_fallback': True} if connected and contrast_fallback else {}))
+        if connected and contrast_fallback:
+            # Preserve every control that already passes the original-pixel
+            # containment check. Reuse this crop for one measured-face retry.
+            parent = np.rint(geometry.corners).astype(np.float32)
+            def protrusion(points):
+                native = _region_result(points-margin, geometry, frame.shape[:2])['corners']
+                return max(0., -min(cv2.pointPolygonTest(parent, tuple(map(float, p)), True) for p in native))
+            invalid_validation = {name for name, points in recognized.items()
+                                  if validation and name in {'no', 'close'} and protrusion(points) > 1}
+            if invalid_validation:
+                # One local, freshly recognized alternative. Preserve every
+                # already valid fit and accept a replacement only when its
+                # measured enclosure agrees better with the measured display.
+                alternatives = _recognize_train_buttons(expanded, validation=True, contrast_fallback=True,
+                    display_bounds=(margin, margin, width-1+margin, height-1+margin),
+                    search_regions=tuple(recognized[name] for name in sorted(invalid_validation)))
+                for name in invalid_validation:
+                    if name in alternatives and protrusion(alternatives[name]) < protrusion(recognized[name]):
+                        recognized[name] = alternatives[name]
+            measured = recognized.copy() if edge_buttons is not None else {}
+            outside = {name: points for name, points in recognized.items()
+                if any(cv2.pointPolygonTest(parent, tuple(map(float, p)), True) < -1
+                       for p in _region_result(points-margin, geometry, frame.shape[:2])['corners'])}
+            refined = refine_boundary_cells(expanded, outside,
+                (margin, margin, width-1+margin, height-1+margin)) if outside else {}
+            refined = {name: points for name, points in refined.items()
+                if all(cv2.pointPolygonTest(parent, tuple(map(float, p)), True) >= -1
+                       for p in _region_result(points-margin, geometry, frame.shape[:2])['corners'])}
+            recognized = {name: points for name, points in recognized.items() if name not in outside}
+            recognized.update(refined)
+            if edge_buttons is not None:
+                edge_buttons.update({name: _region_result(points-margin, geometry, frame.shape[:2])
+                                     for name, points in measured.items() if name not in recognized})
+        controls = {name: (quad-margin, None) for name, quad in recognized.items()}
     else:
         detected_buttons = (detect_button_quads(rectified, state, border_lines)
                             if state != "unknown" or title_text is not None else {})
@@ -192,6 +190,51 @@ def analyze_right_display(
         "buttons": buttons,
         "data_field": data_field,
     }
+
+
+def _read_train_field_value(rectified: Frame, field_box: tuple[int, int, int, int], state: str) -> str | None:
+    """Existing selected-value reader shared with SENSE presentation monitoring."""
+    field_image = _crop_box(rectified, field_box)
+    value = None
+    x1, y1, x2, y2 = field_box
+    inset = round((y2 - y1) * .12)
+    if state == "Train Data":
+        # Locate the brightness step between the label and value.
+        # Including the divider can turn its border into an OCR letter.
+        gray = cv2.cvtColor(field_image[inset:-inset], cv2.COLOR_BGR2GRAY)
+        profile = np.median(gray, axis=0)
+        start, end = round(len(profile) * .45), round(len(profile) * .85)
+        contrast = profile[start + 3:end + 3] - profile[start - 3:end - 3]
+        divider = start + int(np.argmax(contrast))
+        value_box = (x1 + divider + inset, y1 + inset, x2 - inset, y2 - inset)
+        if contrast.max() >= 10:
+            label = read_title(rectified, (x1+inset, y1+inset,
+                                          x1+divider-inset, y2-inset))
+            if label == "Train type":
+                value_image = _crop_box(rectified, value_box)
+                gray_value = cv2.cvtColor(value_image, cv2.COLOR_BGR2GRAY)
+                ink = (gray_value < float(np.median(gray_value))-18).astype(np.uint8)
+                _, _, parts, _ = cv2.connectedComponentsWithStats(ink)
+                letters = [p for p in parts[1:] if p[4] >= 10
+                           and gray_value.shape[0]*.15 < p[3] < gray_value.shape[0]*.9]
+                if letters:
+                    lo = np.min([p[:2] for p in letters], axis=0)
+                    hi = np.max([p[:2]+p[2:4] for p in letters], axis=0)
+                    box = (max(0, int(lo[0])-5), max(0, int(lo[1])-5),
+                           min(value_image.shape[1], int(hi[0])+5), min(value_image.shape[0], int(hi[1])+5))
+                    value = read_field(value_image, box)
+                if value not in {"Gamma", "Lambda"}:
+                    # One bounded retry on the same current value area;
+                    # no supplied answer or retained value enters OCR.
+                    value = read_field(rectified, value_box)
+                if value not in {"Gamma", "Lambda"}:
+                    value = None
+    else:
+        x2 = x1 + round((x2 - x1) * .33)
+        value = read_field(rectified, (x1, y1 + inset, x2, y2 - inset))
+    if value is not None:
+        value = value.strip(" |") or None
+    return value
 
 
 def _detect_train_field(
@@ -237,7 +280,9 @@ def _read_validation_value(field: Frame) -> str | None:
 
 def _recognize_train_buttons(
     frame: Frame, *, page_one: bool = False, page_two: bool = False,
-    validation: bool = False,
+    validation: bool = False, contrast_fallback: bool = False,
+    display_bounds: tuple[float, float, float, float] | None = None,
+    search_regions: tuple[NDArray, ...] | None = None,
 ) -> dict[str, NDArray]:
     """Read each measured cell; blank/ambiguous/duplicate identities are omitted."""
     result, duplicates, text_rows = {}, set(), []
@@ -255,6 +300,8 @@ def _recognize_train_buttons(
         words_allowed |= {"Out", "of"}
     for points in train_button_cells(
         frame, page_one=page_one, page_two=page_two, validation=validation,
+        **({'display_bounds': display_bounds} if display_bounds is not None else {}),
+        **({'search_regions': search_regions} if search_regions is not None else {}),
     ).values():
         size = tuple(max(20, round(np.linalg.norm(points[i]-points[0]))) for i in (1, 3))
         target = np.float32([[0, 0], [size[0]-1, 0], [size[0]-1, size[1]-1], [0, size[1]-1]])
@@ -306,6 +353,14 @@ def _recognize_train_buttons(
                     enlarged = cv2.resize(binary, None, fx=1.5, fy=1.5,
                                           interpolation=cv2.INTER_LINEAR)
                     words[index] = read_title(enlarged, (0, 0, enlarged.shape[1], enlarged.shape[0]))
+                if page_two and contrast_fallback and len(crops) == 1 and words[index] not in words_allowed:
+                    # A fixed ink cutoff can obscure the digit's fine detail,
+                    # leaving G1 read as Gl/Gi. One local Otsu retry preserves
+                    # current glyph evidence and the unchanged OCR confidence
+                    # gate; never alias an ambiguous string to a known label.
+                    binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
+                    binary = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
+                    words[index] = read_title(binary, (0, 0, binary.shape[1], binary.shape[0]))
         name = identities.get(" ".join(words)) if words and all(words) else None
         if name is not None:
             if name in result:
