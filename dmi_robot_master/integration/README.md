@@ -1226,3 +1226,91 @@ With the robot idle, change the camera pose: expect pending alignment, hidden
 cached annotations, then reacquisition. Reappearing annotations do not establish
 calibration accuracy or permission to press. Physical movement/accuracy and real
 transition coverage require separate hardware validation.
+
+## Version 2 fixed SENSE session registration
+
+With the existing experimental recorded mapping selected, Version 2 gathers three
+consistent, distinct, fresh full observations within five. It uses current measured
+joined monitor corners before detector smoothing, takes their median and computes
+one current-to-recorded registration matrix. Predictions then apply that fixed
+matrix followed by the unchanged saved homography. Screen titles do not define
+the physical touch plane: compatible Driver ID, Level and train views reuse the
+same session matrix. Strict/default mode retains the independent four-pixel
+saved-left-border agreement check. Version 1 retains its previous per-call registration.
+
+Mapping is unavailable during acquisition or uncertain alignment. In strict mode, an isolated
+corner outlier suspends output without replacing the matrix; three consistent
+movement observations beyond the existing four-pixel baseline bound latch it
+invalid. Geometry loss, occlusion and source/session/size changes also invalidate;
+returning to old pixels cannot silently restore it. Stop/start observation is the
+explicit recovery. Confirmed origin rebinding or a reloaded model requires fresh
+registration; action intent samples are bound to their registration identity.
+Model reload cannot clear an existing or concurrent invalidation latch.
+Geometry calculations use a detached state snapshot and an epoch-checked atomic
+commit; matrix readers take an atomic snapshot. Invalidation never waits for
+file validation or geometry fitting, and old work cannot restore cleared state.
+Projection and confirmation requests cannot count as new geometry observations.
+Existing full audits provide bounded current checks; ROI views do not renew them.
+
+For the operator-declared fixed camera/monitor tests, the GUI's experimental
+Version 2 route enables alignment recovery. Corner-fit excursions or temporary
+visibility loss suspend XY but retain the original matrix. Three fresh, consistent
+measurements in the existing five-observation window must agree with that original
+pose before XY becomes available again. For this operator-approved experiment,
+monitor-corner comparison allows at most 20 native pixels, covering the recorded
+17–18 pixel top-border fit jump while observed controls remain nearly stationary.
+Initial three-frame acquisition and recovery-sample consistency remain four pixels.
+A pose outside the experimental allowance stays blocked; there is no automatic
+refit or larger direct-target tolerance. Source/session/resolution/origin changes, Stop and bad
+model/reference data still invalidate and require explicit recovery. The existing
+fresh direct target, activity, calibration qualification and travel checks apply
+to every experimental Move and Click. Camera/monitor movement is not authorized
+by the stationary-setup assumption.
+
+The GUI's experimental Version 2 route also permits detected left buttons when
+registered left borders disagree with the saved left borders by more than four
+pixels. The target inspector displays the maximum absolute per-coordinate border
+disagreement in saved-image pixels, and press previews record it and the policy.
+This is diagnostic-only in that route: it enables later offset measurement, not
+validated left-region accuracy. Current connected geometry, the fixed-session
+20-pixel alignment check, current/transformed target containment, finite mapping,
+four-pixel direct-target agreement, 1.5-second freshness, source/origin, activity,
+readiness and configured travel checks remain mandatory. No offset or refit is
+applied. The internal policy defaults off and requires stable session registration.
+
+The selected-target inspector compares actual predictions with existing SENSE
+references: Train Data left Yes -> TRAIN_DATA_SCREEN/KEY_YES_1 (280,300 mm), and
+normal-screen left box_16 -> ACK_SCREEN/ACK (267,332 mm). References never replace
+detected pixels or homography command XY. Box_16 and left Yes can show a separately
+labelled read-only prediction and reference difference even when strict-mode left
+border agreement prevents action mapping. Experimental left buttons retain the
+existing 100 ms press; box_16 remains non-actionable. The
+database's 5000 ms ACK duration does not enable a physical hold. Source/origin
+invalidation clears those derived inspection predictions as well as action XY.
+
+For an offline/read-only or operator check, keep the monitor-to-robot mount and
+tool/origin convention unchanged, stop observation, select Version 2, select the
+existing experimental recorded mapping and restart SENSE. Wait for the acquisition
+message to clear before comparing predicted XY across supported screens. Check
+that missing/occluded geometry suspends mapping and that recovery uses the same
+matrix only after fresh measurements verify the original pose again.
+These checks require no press or movement command. Camera registration cannot
+detect every change in the physical monitor-to-robot relationship; moving the
+monitor relative to the robot requires new physical measurements, not merely a
+restart or new registration.
+
+The saved candidate remains rejected under ordinary calibration rules. Stable
+predictions, registration or successful earlier clicks do not verify accuracy or
+extend validated coverage. Preserve the existing experimental qualification and
+all fresh-target, activity, bounds, readiness and confirmation checks. Fields and
+icons gain no physical action permission. No calibration/reference file is rewritten.
+
+Physical acceptance requires independently measured geometric-center XY at
+distributed upper/lower/left/right positions, including Driver ID and Level.
+Record native pixels, current measured monitor geometry, source/frame transforms,
+model digest, origin/tool convention and repeated observations in the same fixed
+setup. Reserve whole controls/locations as holdouts; repeated frames of a fitted
+control do not add independent coverage. Use the existing affine/homography fit
+and inspection routines, report every residual and maximum, and require maximum
+held-out error at most 3 mm for normal acceptance. Current local recordings and
+reference-derived residuals do not supply these new physical measurements.

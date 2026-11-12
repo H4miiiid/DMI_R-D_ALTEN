@@ -69,8 +69,11 @@ class TargetInspector:
                 self.reason.value = 'Selection retained. Click Experimental move and click to check the latest direct coordinates.'
             return
         self.name.value = target_name(selected[2])
-        key = (selected, projection.get('calibration_id'), projection.get('calibration_provenance'))
+        inspection = target.get('mm') is None and target.get('inspection_xy_mm') is not None
+        key = (selected, projection.get('calibration_id'), projection.get('calibration_provenance'), inspection)
         mm = target.get('mm')
+        if inspection:
+            mm = target['inspection_xy_mm']
         if (key != self._coordinate_key or mm is None or self.display_mm is None
                 or any(abs(a-b) >= 2. for a, b in zip(mm, self.display_mm))):
             self.display_mm = tuple(mm) if mm is not None else None
@@ -83,6 +86,16 @@ class TargetInspector:
         self.age.value = f"Observation age: {view['age_seconds']:.2f} s"
         if projection.get('experimental_recorded_test') and target.get('mm') is None and not view.get('calibration_error'):
             self.xy.value = 'Robot XY estimate: unavailable · ' + target.get('mapping_error', 'no eligible button inside measured SENSE bounds')
+        if inspection:
+            self.xy.value = f'Read-only XY prediction: {format_mm(self.display_mm)} mm · unverified'
+        if target.get('reference_xy_mm') is not None:
+            self.xy.value += f"\nReference XY: {format_mm(target['reference_xy_mm'])} mm"
+            if target.get('reference_error_mm') is not None:
+                self.xy.value += f" · difference {target['reference_error_mm']:.1f} mm"
+        if target.get('left_border_disagreement_px') is not None:
+            policy = ('diagnostic only; experimental accuracy unverified'
+                      if projection.get('experimental_allow_unverified_left') else '4 px action limit')
+            self.xy.value += f"\nLeft-border disagreement: {target['left_border_disagreement_px']:.1f} px · {policy}"
         notes = []
         if target['kind'] != 'button':
             notes.append('This is an information field or mode box, not a normal press button.')
@@ -90,5 +103,7 @@ class TargetInspector:
             notes.append('The detected control is inactive or its activity is uncertain.')
         if view.get('calibration_error'):
             notes.append('Calibration: ' + view['calibration_error'])
+        if target.get('mapping_error'):
+            notes.append('Action mapping: ' + target['mapping_error'])
         notes.append('Move and click uses the latest valid target. Move without pressing remains optional.')
         self.reason.value = '\n'.join(notes)

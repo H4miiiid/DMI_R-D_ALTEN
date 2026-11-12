@@ -1,10 +1,56 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-11. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
+Updated 2026-11-12. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
+
+Phase 5 / G5 implementation and experimental fixed-setup corrections — ACCEPTED
+OFFLINE by the user (2026-11-12), with STATE update and commit/push authorized.
+Independent physical G5 accuracy/coverage acceptance remains pending.
+Version 2's existing recorded experimental route acquires one median monitor
+registration from three distinct, fresh, consistent full observations within five,
+then reuses it with the unchanged saved homography. Atomic epoch/context checks
+cancel stale work; source/session/resolution/origin/model changes invalidate it.
+The operator-approved fixed-setup route permits 20 native pixels of monitor-fit
+variation. Uncertain alignment suspends mapping; recovery requires three new
+consistent measurements, retains the original matrix and never refits it.
+Saved-left-border disagreement is diagnostic-only in this Version 2 experimental
+route, allowing eligible left buttons such as Yes. The inspector and action
+previews record the discrepancy. Strict/default and Version 1 retain the four-pixel
+left-border gate. Fresh direct-target agreement remains four pixels with a 1.5 s
+expiry; identity/activity, finite mapping, measured connected geometry, target
+containment, origin/source, readiness, travel and single-action checks remain.
+Existing experimental presses remain 100 ms. ACK/box_16 remains read-only with
+reference/predicted XY; its database duration enables no hold. References never
+replace detected pixels or homography command XY. No map, offset, JSON-profile,
+reference-database, detector, TWIN or normal calibration acceptance changes.
+Accepted runtime fingerprint:
+`f57dc010ba989c8ff46d87eea46ccbaca2aaad6b7378f18daaf93de774c0e614`,
+based on HEAD `20615683a1d1fbbece423be674185e5e636ee686` plus reviewed updates.
+Canonical final correction evidence: `runs/phase5_left_test_access/` (immutable
+pre-acceptance snapshot): `summary.json`, `results.jsonl`, `contact.png`.
+Earlier reviewed evidence remains in `runs/phase5_session_mapping/` and
+`runs/phase5_stationary_tests/`; their stricter historical failures are preserved.
+Both final reviewers: PASS WITH WARNINGS. Final focused checks: 230 tests plus
+57 subtests; 503 exact Version 1 projection comparisons and 503 unchanged right-XY
+comparisons. Recorded left-Yes action-sample candidates: Train Type 53/61,
+page 1 74/86, page 2 62/69, previously zero under the saved-left-border gate.
+Remaining frames fail acquisition or monitor-alignment checks; validation has no
+left Yes and is unaffected. Fake-wire tests cover predicted-XY 100 ms commands and
+negative guards. These are not physical readiness, accuracy or click-success results.
+Prior Phase 5 broad-suite baseline: 1,084 passed plus 346 subtests and five failures
+reproduced on HEAD; no full-suite rerun is claimed for the focused corrections.
+No model meets normal <=3 mm acceptance; physical left offsets, whole-monitor
+coverage, setup repeatability and live hardware/GUI behavior remain unverified.
+Local new tests, harnesses, calibration candidates and evidence are ignored and
+need separate supply in a clean clone; runtime depends on none of those files.
+Next: operator hardware checks when available, using the integration README's
+Version 2 recorded experimental procedure. Phase 6 has not started and requires
+separate implementation authorization. User-local PLAN edits remain unpublished.
+
+## Earlier roadmap milestones (historical)
 
 Phase 4 / G4 — ACCEPTED OFFLINE by the user (2026-11-11), with STATE update
 and commit/push explicitly authorized. Version 2 reuses the existing confirmed
@@ -44,10 +90,8 @@ retention, action suspension and reacquisition, not physical movement. Natural
 movement/transitions/blinking, live GUI/camera, calibration accuracy and physical
 pressing remain unverified. Local tests/harness/evidence are ignored and require
 separate supply in a clean clone; runtime has no dependency on them.
-Next: operator Version 2 hardware checks under existing guards, using the procedure
-in `dmi_robot_master/integration/README.md`. Phase 5 is not authorized.
-
-## Earlier roadmap milestones (historical)
+At this milestone Phase 5 was not yet authorized; it was subsequently implemented
+and accepted offline as recorded above.
 
 Phase 2/3 corrective extension — accepted offline for now by the user
 (2026-11-11), published in `e7f058d`. Phase 4 had not started at that milestone.

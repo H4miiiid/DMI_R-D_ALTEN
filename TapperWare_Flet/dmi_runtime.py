@@ -373,7 +373,10 @@ class ObservationRuntime:
             if calibration_path or context_path or kind != "remote_bridge":
                 raise ValueError("Experimental recorded mapping requires the live Pi camera and empty custom calibration fields")
             from dmi_robot_master.integration.recorded_test import RecordedTestProjector
-            observer.projector = RecordedTestProjector(info, DEFAULT_RECORDED_TEST_MAP, origin_epoch)
+            observer.projector = RecordedTestProjector(info, DEFAULT_RECORDED_TEST_MAP, origin_epoch,
+                                                       stable_registration=version == '2',
+                                                       recover_alignment=version == '2',
+                                                       allow_unverified_left=version == '2')
         with self._lifecycle:
             if generation != self._generation or self.running:
                 raise RuntimeError("Vision start cancelled by session change")

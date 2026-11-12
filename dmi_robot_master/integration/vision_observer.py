@@ -131,6 +131,8 @@ class VisionObserver:
             self._press_history.clear()
             self._raw_jpeg = self._annotation_jpeg = None
             self._mode = {}
+            if getattr(self.projector, 'stable_registration', False):
+                self.projector.invalidate_registration(state)
             self._invalidate_layout(state)
             self._preview_epoch += 1
             self._condition.notify_all()
@@ -202,6 +204,10 @@ class VisionObserver:
                     observation = session.process(packet)
                     with self._project_lock:
                         calibration_epoch = self._calibration_epoch
+                        if (getattr(self.projector, 'stable_registration', False)
+                                and not self._calibration_invalidated
+                                and observation.received_at-observation.upstream_age_seconds >= self._origin_bound_at):
+                            self.projector.observe_geometry(observation)
                         projection = self._project(observation)
                     # This API is observation-only, including for legacy valid fits.
                     for target in projection['targets'].values():
@@ -575,6 +581,9 @@ class VisionObserver:
         projection.update(calibration_valid=False, calibration_id=None, calibration_provenance=None)
         for target in projection['targets'].values():
             target.update(mm=None, usable=False)
+            target.pop('inspection_xy_mm', None)
+            target.pop('reference_error_mm', None)
+            target.pop('left_border_disagreement_px', None)
 
     def _project(self, observation):
         if self._calibration_invalidated:
@@ -617,19 +626,23 @@ class VisionObserver:
             self._calibration_epoch += 1
             self._calibration_invalidated = True
             self._press_history.clear()
+            if getattr(self.projector, 'stable_registration', False):
+                self.projector.invalidate_registration('Robot origin or connection invalidated')
             self._invalidate_layout('calibration_or_origin_changed')
             if self._projection:
                 self._clear_mm(self._projection)
 
     def bind_experimental_origin(self, origin_epoch):
-        """Called after confirmed homing; require new evidence without moving the camera anchor."""
+        """Confirmed homing requires new evidence; Version 2 reacquires registration."""
         from dmi_robot_master.integration.recorded_test import RecordedTestProjector
-        with self._condition:
+        with self._project_lock, self._condition:
             if type(self.projector) is not RecordedTestProjector or self._stop.is_set() or not origin_epoch:
                 return False
             self._calibration_epoch += 1
             self._origin_bound_at = time.monotonic()
             self.projector.origin_epoch = origin_epoch
+            if self.projector.stable_registration:
+                self.projector.reset_registration()
             self._calibration_invalidated = False
             self._press_history.clear()
             self._invalidate_layout('origin_rebound')
@@ -671,7 +684,8 @@ class VisionObserver:
             sample = None
             for misses, (observed, projected, source) in enumerate(reversed(self._press_history)):
                 if (not self._same_press_context(observed, latest) or source != self.source_info
-                        or projected.get('calibration_id') != projection.get('calibration_id')):
+                        or projected.get('calibration_id') != projection.get('calibration_id')
+                        or projected.get('experimental_registration_id') != projection.get('experimental_registration_id')):
                     break
                 target = deepcopy(projected['targets'].get(label))
                 if not target or target['kind'] != 'button':
@@ -692,6 +706,8 @@ class VisionObserver:
                     'direct_screen': observed.direct_evidence.get('right_state'),
                     'direct_visibility': observed.direct_evidence.get('right_visibility'),
                     'direct_buttons': deepcopy(direct), 'calibration_id': projected['calibration_id'],
+                    **({'experimental_registration_id': projected.get('experimental_registration_id')}
+                       if self.projector.stable_registration else {}),
                     'calibration_error': view['calibration_error'], 'capture_index': observed.capture_index,
                     'received_at': observed.received_at, 'upstream_age_seconds': observed.upstream_age_seconds,
                     'frame_size': list(observed.frame_size), 'source_info': deepcopy(source),
@@ -730,6 +746,8 @@ class VisionObserver:
                 'direct_visibility':observed.direct_evidence.get('right_visibility'),
                 'direct_buttons':deepcopy(observed.direct_evidence.get(f"{target['display']}_buttons", {})),
                 'calibration_id':view['projection'].get('calibration_id'),
+                **({'experimental_registration_id': view['projection'].get('experimental_registration_id')}
+                   if getattr(self.projector, 'stable_registration', False) else {}),
                 'calibration_error':view['calibration_error'],
                 'modes':deepcopy(self._mode),
                 'capture_index':observed.capture_index, 'received_at':observed.received_at,
