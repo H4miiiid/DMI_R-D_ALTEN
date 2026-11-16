@@ -10,7 +10,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from dmi_computer_vision.src.dmi.detection.icons import supported_icon_names
+from dmi_computer_vision.src.dmi.shared.detection.icons import supported_icon_names
 
 
 def _require(condition: bool, path: str, message: str) -> None:

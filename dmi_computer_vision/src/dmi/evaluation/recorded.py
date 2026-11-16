@@ -13,7 +13,7 @@ import time
 import cv2
 import numpy as np
 
-from dmi_computer_vision.src.dmi.pipeline.video import process_video
+from dmi_computer_vision.src.dmi.shared.pipeline.video import process_video
 from dmi_computer_vision.src.dmi.evaluation.compact import validate_compact
 from dmi_computer_vision.src.dmi.evaluation.baseline import read_recorded_frames
 from dmi_computer_vision.src.dmi.evaluation.validation import validate_results, compare_frames, compare_annotated_videos

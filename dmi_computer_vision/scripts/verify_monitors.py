@@ -21,13 +21,13 @@ import numpy as np
 ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT))
 
-from dmi_computer_vision.src.dmi.detection import title_ocr
+from dmi_computer_vision.src.dmi.shared.detection import title_ocr
 from dmi_computer_vision.src.dmi.evaluation.baseline import read_recorded_frames
 from dmi_computer_vision.src.dmi.evaluation.compact import validate_compact
 from dmi_computer_vision.src.dmi.evaluation.validation import validate_results
-from dmi_computer_vision.src.dmi.output.annotation import annotate_frame
-from dmi_computer_vision.src.dmi.output.json_writer import CompactWriter
-from dmi_computer_vision.src.dmi.pipeline.frame_processor import FrameProcessor
+from dmi_computer_vision.src.dmi.shared.output.annotation import annotate_frame
+from dmi_computer_vision.src.dmi.shared.output.json_writer import CompactWriter
+from dmi_computer_vision.src.dmi.shared.pipeline.frame_processor import FrameProcessor
 
 VISION = ROOT / 'dmi_computer_vision'
 VIDEOS = VISION / 'data/videos/dev'

@@ -18,6 +18,7 @@ from typing import Callable
 import xml.etree.ElementTree as ET
 
 from dmi_versions import comparison_diagnostics, file_fingerprint, validate_version
+from dmi_robot_master.integration.version_selection import resolve_version
 
 MODELS = ("SENSE TOUCHSCREEN", "SENSE SOFTKEY", "TWINS", "STEN")
 T9 = {
@@ -212,7 +213,7 @@ def compile_script(source: bytes, name: str, model: str, database: dict, *, y_of
 class RealBackend:
     """Small adapter to the shared owner; no flat protocol copies or extra sockets."""
     def __init__(self, config_path=None, *, simulation=False):
-        from dmi_robot_master.integration.robot_session import RobotSession, RobotSettings
+        from dmi_robot_master.integration.shared.actions.robot_session import RobotSession, RobotSettings
         if simulation and not config_path:
             settings = RobotSettings.demo()
         else:
@@ -261,8 +262,8 @@ class GuidedCalibrationRuntime:
         self.draft = None
 
     def start(self, context_path, origin_epoch):
-        from dmi_robot_master.integration.calibration import read_json
-        from dmi_robot_master.integration.guided_calibration import CalibrationDraft
+        from dmi_robot_master.integration.shared.calibration.calibration import read_json
+        from dmi_robot_master.integration.shared.calibration.guided_calibration import CalibrationDraft
         self.draft = CalibrationDraft(read_json(context_path), origin_epoch=origin_epoch)
 
     def invalidate(self):
@@ -334,9 +335,9 @@ class ObservationRuntime:
     def _start(self, kind, address, *, calibration_path, context_path, debug_jsonl,
                recorded_test, origin_epoch, generation, version, comparison_context):
         # Imported only on explicit observation start; demo startup needs no CV.
-        from dmi_robot_master.integration.camera import ReplayCamera, RemoteCamera, RobotCamera
-        from dmi_robot_master.integration.calibration import read_json
-        from dmi_robot_master.integration.vision_observer import VisionObserver
+        from dmi_robot_master.integration.shared.acquisition.camera import ReplayCamera, RemoteCamera, RobotCamera
+        from dmi_robot_master.integration.shared.calibration.calibration import read_json
+        from dmi_robot_master.integration.shared.observation.vision_observer import VisionObserver
         if kind == "recorded_replay":
             path = Path(address).expanduser().resolve()
             source, info = ReplayCamera(path), {"kind": kind, "path": str(path), "simulation": True}
@@ -353,6 +354,7 @@ class ObservationRuntime:
             raise ValueError("Unsupported vision source")
         info.update(rotation_clockwise=0, mirror_horizontal=False)
         context = read_json(context_path) if context_path else None
+        policy = resolve_version(version)
         comparison = comparison_diagnostics(version)
         mapping_path = calibration_path or (DEFAULT_RECORDED_TEST_MAP if recorded_test else None)
         comparison.update(source=info.copy(), origin_epoch=origin_epoch,
@@ -367,16 +369,13 @@ class ObservationRuntime:
         observer = VisionObserver(source, info, calibration_path=calibration_path or None,
                                   context=context, debug_jsonl=debug_jsonl, stable_preview=True,
                                   comparison=comparison, origin_epoch=origin_epoch,
-                                  contrast_fallback=version == '2', progressive_lock=version == '2',
-                                  selective_updates=version == '2', locked_actions=version == '2')
+                                  **policy.observer_options())
         if recorded_test:
             if calibration_path or context_path or kind != "remote_bridge":
                 raise ValueError("Experimental recorded mapping requires the live Pi camera and empty custom calibration fields")
-            from dmi_robot_master.integration.recorded_test import RecordedTestProjector
+            from dmi_robot_master.integration.shared.projection.recorded_test import RecordedTestProjector
             observer.projector = RecordedTestProjector(info, DEFAULT_RECORDED_TEST_MAP, origin_epoch,
-                                                       stable_registration=version == '2',
-                                                       recover_alignment=version == '2',
-                                                       allow_unverified_left=version == '2')
+                                                       **policy.projector_options())
         with self._lifecycle:
             if generation != self._generation or self.running:
                 raise RuntimeError("Vision start cancelled by session change")
@@ -452,7 +451,7 @@ class Runner:
     async def prepare_move(self, observer, selection, envelope_path):
         if self.busy or not self.initialized or not isinstance(self.backend,RealBackend):
             raise HardwareError('Connect/home the shared owner and wait for the active command')
-        from dmi_robot_master.integration.move_only import prepare_move
+        from dmi_robot_master.integration.shared.actions.move_only import prepare_move
         self.discard_move()
         generation = self._move_generation
         self.busy, self.phase = True, 'preparing_move'
@@ -495,7 +494,7 @@ class Runner:
                             experimental_one_click=False) -> dict:
         if self.busy or not self.initialized or not isinstance(self.backend,RealBackend):
             raise HardwareError('Initialize the shared owner and wait for the active action')
-        from dmi_robot_master.integration.pressing import prepare_press
+        from dmi_robot_master.integration.shared.actions.pressing import prepare_press
         self.discard_move()
         generation = self._move_generation
         self.busy, self.phase = True, 'preparing_press'
@@ -524,13 +523,13 @@ class Runner:
         if (pending is None or pending[0].token != token or self.backend is not pending[2]
                 or not self.initialized or self._shutdown):
             raise HardwareError('Press confirmation is missing, consumed or invalidated')
-        from dmi_robot_master.integration.pressing import HoldVerification, VERIFICATION_SECONDS
+        from dmi_robot_master.integration.shared.actions.pressing import HoldVerification, VERIFICATION_SECONDS
         plan,observer,backend = pending
         self.busy, self.phase = True, 'pressing_once'
         result = None
         try:
-            from dmi_robot_master.integration.physical_press import PhysicalPressPlan
-            from dmi_robot_master.integration.recorded_test import RecordedPressPlan
+            from dmi_robot_master.integration.shared.actions.physical_press import PhysicalPressPlan
+            from dmi_robot_master.integration.shared.projection.recorded_test import RecordedPressPlan
             execute = backend.session.press_physical_once if type(plan) in (PhysicalPressPlan, RecordedPressPlan) else backend.session.press_once
             result,cancelled = await self._owned_transaction(lambda:execute(plan,observer,
                 operator_confirmed=operator_confirmed,checks=checks))

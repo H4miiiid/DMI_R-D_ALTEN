@@ -1199,7 +1199,7 @@ class DmiControlPanel:
         if self.locked:
             return
         if isinstance(self.runner.backend,RealBackend) and not self.is_demo and not operator_confirmed:
-            from dmi_robot_master.integration.robot_session import HOMING_CHECKS
+            from dmi_robot_master.integration.shared.actions.robot_session import HOMING_CHECKS
             confirmed_backend = self.runner.backend
             confirmed_epoch = self.runner.origin_epoch
             confirmed_version_generation = self._version_change_generation
@@ -1226,7 +1226,7 @@ class DmiControlPanel:
         self.refresh()
         try:
             if self.is_demo and isinstance(self.runner.backend,RealBackend):
-                from dmi_robot_master.integration.robot_session import HOMING_CHECKS
+                from dmi_robot_master.integration.shared.actions.robot_session import HOMING_CHECKS
                 operator_confirmed,checks = True,{key:True for key in HOMING_CHECKS}
             await self.runner.initialize(operator_confirmed=operator_confirmed,checks=checks)
             self.axis_x.value = self.axis_y.value = "0"

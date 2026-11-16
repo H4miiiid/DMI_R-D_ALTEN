@@ -19,16 +19,16 @@ from unittest.mock import patch
 import cv2
 import numpy as np
 
-from dmi_computer_vision.src.dmi.detection.display_geometry import detect_displays, rectify_display
-from dmi_computer_vision.src.dmi.detection.right_display import _detect_data_field, RECTIFIED_SIZE
-from dmi_computer_vision.src.dmi.detection import title_ocr
+from dmi_computer_vision.src.dmi.shared.detection.display_geometry import detect_displays, rectify_display
+from dmi_computer_vision.src.dmi.shared.detection.right_display import _detect_data_field, RECTIFIED_SIZE
+from dmi_computer_vision.src.dmi.shared.detection import title_ocr
 from dmi_computer_vision.src.dmi.evaluation.compact import validate_compact
 from dmi_computer_vision.src.dmi.evaluation.validation import validate_results
-from dmi_computer_vision.src.dmi.pipeline import frame_processor
-from dmi_robot_master.integration.camera import ReplayCamera
+from dmi_computer_vision.src.dmi.shared.pipeline import frame_processor
+from dmi_robot_master.integration.shared.acquisition.camera import ReplayCamera
 from dmi_robot_master.integration.observe import observe, AnnotationSink
-from dmi_robot_master.integration.processing_policy import DetectionPolicy
-from dmi_robot_master.integration.targets import atomic_json
+from dmi_robot_master.integration.shared.observation.processing_policy import DetectionPolicy
+from dmi_robot_master.integration.shared.projection.targets import atomic_json
 
 ROOT = Path(__file__).resolve().parents[2]
 VISION = ROOT / 'dmi_computer_vision'

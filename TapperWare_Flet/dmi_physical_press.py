@@ -68,7 +68,7 @@ class PhysicalPressControls:
             return
         app.ui_busy = True; app.refresh()
         experimental = experimental_selection(self._view, app._vision_selection_key)
-        from dmi_robot_master.integration.physical_press import PHYSICAL_PRESS_CHECKS
+        from dmi_robot_master.integration.shared.actions.physical_press import PHYSICAL_PRESS_CHECKS
         try:
             preview = await app.runner.prepare_press(app.vision.observer, app._vision_selection_key,
                 app.move_ui.envelope.value, kind='single_press', experimental_one_click=experimental)

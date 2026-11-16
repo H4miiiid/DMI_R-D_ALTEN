@@ -1,3 +1,47 @@
+## Version package ownership
+
+The GUI still runs one shared observer/detector. `version_selection.resolve_version`
+selects immutable `v1/policy.py` or `v2/policy.py` options; Version 1 remains the
+launch default. These options do not select a camera, bypass measured SENSE
+geometry, authorize actions or change TWIN behavior.
+
+Version 2 owns `v2/screen_lock.py`, `v2/screen_monitor.py` and
+`v2/screen_profiles.py` with its adjacent editable JSON. Comparison provenance
+lives in `shared/provenance.py`; `TapperWare_Flet/dmi_versions.py` remains its
+GUI-facing compatibility import. Existing Python imports for the moved modules
+resolve to the same module objects, including private helpers and patch points.
+The old root JSON has moved: edit only `v2/screen_profiles.json` and restart
+observation. Recorded source fingerprints change with the directory migration;
+historical evidence and baseline fingerprints remain unchanged.
+
+Stage 2a extracts Version 2 recognition helpers in the vision package. Stage 2b
+places detached registration calculations in `v2/registration.py` and locked
+button-proof, generation and inspection-geometry checks in `v2/locked_targets.py`.
+`RecordedTestProjector` and `VisionObserver` keep the existing synchronization,
+state/cache ownership, freshness, calibration and command checks. Their existing
+methods remain entrypoints; V1 uses its unchanged per-frame registration and
+direct destinations. The stable registration and locked-target helpers add no
+action permission or new evidence. The common implementations now live in:
+
+- `shared/acquisition/`: camera adapters and frame bridge.
+- `shared/observation/`: observation workers and processing policy.
+- `shared/calibration/`: existing keypad/SENSE/guided fitting and validation.
+- `shared/projection/`: targets, publication and the recorded experimental route.
+- `shared/actions/`: session, transport, commands, preparation and safety checks.
+
+Old Python imports alias these canonical modules, preserving class identity,
+mutable state and test patch points. CLI entrypoints stay at integration root;
+the moved frame bridge also keeps its old `python -m` entrypoint. There is no
+second V1 implementation. Deployment must include the shared/version packages,
+not just a compatibility facade. Existing launch commands remain valid.
+
+Both reference databases keep their original distinct locations: the legacy
+keypad reference in `dmi_robot_master/DmiPositions.json`, and the intended SENSE
+reference in `TapperWare_Flet/DmiPositions.json`. Local configuration/calibrations,
+GUI assets, protocol, hardware code and legacy references are not relocated or
+rewritten. Version switching, calibration qualification and action permissions
+retain their existing contracts.
+
 # Robot/CV integration
 
 ## SENSE offline calibration inspection
@@ -1122,7 +1166,7 @@ completion does not establish camera compatibility, physical accuracy or pressin
 
 # Editable SENSE screen locks (Version 2)
 
-Edit [`screen_profiles.json`](screen_profiles.json), then stop and restart
+Edit [`v2/screen_profiles.json`](v2/screen_profiles.json), then stop and restart
 observation. Profiles are loaded and validated once per observation session;
 there is no live configuration reload. Version 1 and separated TWIN detection
 retain their existing behavior. `LOCKED` in diagnostics means COMPLETE LOCK.

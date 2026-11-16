@@ -57,7 +57,7 @@ class MoveControls:
             or not self.app.runner.initialized or not view.get('fresh') or not eligible)
 
     async def request(self,e=None):
-        from dmi_robot_master.integration.move_only import MOVE_CHECKS
+        from dmi_robot_master.integration.shared.actions.move_only import MOVE_CHECKS
         if self.app.locked or not self.enabled.value or not self.app._vision_selection_key:
             return
         self.app.ui_busy = True;self.app.refresh()

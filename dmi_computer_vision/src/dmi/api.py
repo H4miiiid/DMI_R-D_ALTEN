@@ -11,11 +11,11 @@ import time
 from uuid import uuid4
 from typing import Any
 
-from dmi_computer_vision.src.dmi.io.camera import CapturedFrame
-from dmi_computer_vision.src.dmi.output.latest_state import LatestState
-from dmi_computer_vision.src.dmi.pipeline.frame_processor import FrameProcessor, FrameResult
-from dmi_computer_vision.src.dmi.pipeline.live import LiveRunSummary, process_live
-from dmi_computer_vision.src.dmi.utils.image_ops import validate_frame
+from dmi_computer_vision.src.dmi.shared.io.camera import CapturedFrame
+from dmi_computer_vision.src.dmi.shared.output.latest_state import LatestState
+from dmi_computer_vision.src.dmi.shared.pipeline.frame_processor import FrameProcessor, FrameResult
+from dmi_computer_vision.src.dmi.shared.pipeline.live import LiveRunSummary, process_live
+from dmi_computer_vision.src.dmi.shared.utils.image_ops import validate_frame
 
 __all__ = ["CapturedFrame", "LatestState", "LiveRunSummary", "Observation",
            "VisionSession", "process_live"]

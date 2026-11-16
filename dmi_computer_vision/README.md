@@ -1,3 +1,25 @@
+## Version package ownership
+
+Both GUI versions use the existing `api.py` / `FrameProcessor` path. Immutable
+vision options live in `v1/settings.py` and `v2/settings.py`, using the common
+`shared/settings.py` type. Version 2's contrast-field helper lives in
+`src/dmi/v2/detection/field_contrast.py`; its old Python import remains compatible.
+Version 2 field fallback/evidence, measured train-button refinement, bounded
+train-label retry and tight title geometry now live under `src/dmi/v2/detection/`.
+Shared analyzers retain the baseline algorithms, primary OCR/mapping and explicit
+version/connected-geometry gates; existing field helper entrypoints delegate to
+the extracted functions. Shared implementations now live under
+`src/dmi/shared/{detection,pipeline,temporal,io,output,utils}/`, with mode
+observation in `shared/mode_observation.py`. `api.py` remains the public interface.
+The old module paths are thin aliases to the same canonical module objects, so
+classes, OCR session context, mutable globals and existing test patches are shared.
+The old pipeline/temporal package exports remain compatible; canonical package
+exports are lazy to avoid import cycles.
+Current GUI Version 1/2 ownership follows runtime selection, not historical “V2”
+labels in the older vision design documents. Assets and reference data stay put;
+icon loading still uses `dmi_computer_vision/data/icons`. Source fingerprints
+truthfully change with the relocation; frozen evidence is never rewritten.
+
 # Python vision interface
 
 Use `dmi_computer_vision.src.dmi.api` from a Python application. The repository

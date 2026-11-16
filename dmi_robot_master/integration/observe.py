@@ -12,16 +12,16 @@ from threading import Event
 
 import cv2
 
-from dmi_computer_vision.src.dmi.io.preview import LivePreview
-from dmi_computer_vision.src.dmi.io.latest_frames import LatestFrames
-from dmi_computer_vision.src.dmi.output.latest_state import LatestState
-from dmi_computer_vision.src.dmi.pipeline.live import process_live
-from dmi_robot_master.integration.camera import ReplayCamera, RobotCamera, RemoteCamera
-from dmi_robot_master.integration.processing_policy import DetectionPolicy
-from dmi_robot_master.integration.targets import TargetProjector, TargetFiles, CurrentTargets, utc_time
-from dmi_robot_master.integration.calibration import read_json
-from dmi_robot_master.integration.publication import ChangePublisher, StatusHeartbeat, project_pixels
-from dmi_computer_vision.src.dmi.output.json_writer import write_record
+from dmi_computer_vision.src.dmi.shared.io.preview import LivePreview
+from dmi_computer_vision.src.dmi.shared.io.latest_frames import LatestFrames
+from dmi_computer_vision.src.dmi.shared.output.latest_state import LatestState
+from dmi_computer_vision.src.dmi.shared.pipeline.live import process_live
+from dmi_robot_master.integration.shared.acquisition.camera import ReplayCamera, RobotCamera, RemoteCamera
+from dmi_robot_master.integration.shared.observation.processing_policy import DetectionPolicy
+from dmi_robot_master.integration.shared.projection.targets import TargetProjector, TargetFiles, CurrentTargets, utc_time
+from dmi_robot_master.integration.shared.calibration.calibration import read_json
+from dmi_robot_master.integration.shared.projection.publication import ChangePublisher, StatusHeartbeat, project_pixels
+from dmi_computer_vision.src.dmi.shared.output.json_writer import write_record
 
 
 class AnnotationSink:

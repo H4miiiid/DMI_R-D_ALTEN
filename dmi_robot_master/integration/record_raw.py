@@ -8,7 +8,7 @@ import time
 
 import cv2
 
-from dmi_robot_master.integration.camera import RemoteCamera
+from dmi_robot_master.integration.shared.acquisition.camera import RemoteCamera
 
 
 def record(source: RemoteCamera, directory: Path, *, seconds: float = 30, playback_fps: float = 5,

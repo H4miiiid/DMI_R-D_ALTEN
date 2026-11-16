@@ -6,7 +6,7 @@ import json
 from pathlib import Path
 import sys
 
-from dmi_robot_master.integration.calibration import (
+from dmi_robot_master.integration.shared.calibration.calibration import (
     KeypadObservations, REFERENCE_PATH, fit_calibration, read_json, save_calibration,
     unique_object,
 )
@@ -78,7 +78,7 @@ def main(argv=None) -> int:
     args = parser.parse_args(argv)
     try:
         if args.sense_points is not None:
-            from dmi_robot_master.integration.sense_calibration import fit_offline
+            from dmi_robot_master.integration.shared.calibration.sense_calibration import fit_offline
             document = fit_offline(read_json(args.sense_points))
             save_calibration(document, args.output)
             print('OFFLINE SENSE INSPECTION ONLY — no hardware verification or actions.')

@@ -13,14 +13,14 @@ import cv2
 
 from dmi_computer_vision.src.dmi.evaluation.compact import validate_compact
 from dmi_computer_vision.src.dmi.evaluation.validation import validate_results
-from dmi_computer_vision.src.dmi.output.latest_state import LatestState
-from dmi_robot_master.integration.action_transport import FakeTransport, RobotLink
-from dmi_robot_master.integration.actions import LabelActions, SessionMode
+from dmi_computer_vision.src.dmi.shared.output.latest_state import LatestState
+from dmi_robot_master.integration.shared.actions.action_transport import FakeTransport, RobotLink
+from dmi_robot_master.integration.shared.actions.actions import LabelActions, SessionMode
 from dmi_robot_master.integration.calibrate import calibrate_replay
-from dmi_robot_master.integration.camera import ReplayCamera
+from dmi_robot_master.integration.shared.acquisition.camera import ReplayCamera
 from dmi_robot_master.integration.observe import observe
-from dmi_robot_master.integration.processing_policy import DetectionPolicy
-from dmi_robot_master.integration.targets import CurrentTargets, atomic_json
+from dmi_robot_master.integration.shared.observation.processing_policy import DetectionPolicy
+from dmi_robot_master.integration.shared.projection.targets import CurrentTargets, atomic_json
 
 
 ROOT = Path(__file__).resolve().parents[2]

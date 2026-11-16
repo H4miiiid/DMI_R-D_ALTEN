@@ -6,6 +6,58 @@ steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
 
+Directory restructuring — Stage 3 ACCEPTED by the user (2026-11-16).
+The approved restructuring plan is complete: 25 vision and 18 integration core
+modules now live under shared responsibility packages; Version 1/2 extensions
+remain separate, with one GUI/pipeline and same-object legacy import facades.
+Public/CLI entrypoints, original icon/reference paths, configuration, hardware,
+calibration and safety contracts are preserved. Accepted runtime fingerprint:
+`a887527c777a8c4a3574d0836f89a804c0cf71f417d0d8293d62c1b36b4bc457`,
+based on HEAD `01bbd6d` plus the accepted cumulative restructuring diff.
+Evidence: `runs/version_structure_stage3/` (`summary.json`, `results.jsonl`,
+`contact.png`), immutable after acceptance. All 126 native sampled comparisons
+match Stage 2b, including mapping/proof results and 28 TWIN SENSE-map rejections;
+20 leading TWIN cases also match frozen evidence. Full suite before/after:
+1,191 -> 1,204 passed plus 346 subtests; the same five GUI/XML/press-expectation
+failures (identical assertion diagnostics) and one historical-evidence skip remain.
+Focused checks: 194 passed/56 subtests; structure checks: 13 passed. Both final
+reviewers: PASS WITH WARNINGS for unchanged failures and offline/sample limits.
+No full-video/live/physical or speedup claim; local tests/harness/evidence remain
+ignored and need separate supply in a clean clone. The user separately authorized
+commit/push of the reviewed restructuring (2026-11-16); the actual publication
+result is reported in chat.
+Next: choose a separately named task; there is no remaining restructuring stage.
+PLAN Phase 7 and fixes to the pre-existing failures require their own scope;
+physical accuracy/coverage and hardware comparison remain pending with the user.
+
+### Accepted restructuring milestones
+
+- Stage 2b (2026-11-16): registration/locked-target calculations extracted while
+  existing owners retain locks, state, freshness and guards, fingerprint
+  `b0532acd098595d94f7c2467e5ca2b872875c91979a0fa0e3e0d0a8a3423d9f2`;
+  `runs/version_structure_stage2b/`. 126 sampled matches, 28 TWIN rejections,
+  139 eligible locked proof samples (not clicks); 210 tests plus 56 subtests.
+  code_review PASS; step_checker PASS WITH WARNINGS. Fake mean method-cost
+  differences below 0.02 ms do not establish live speedup or physical accuracy.
+- Stage 2a (2026-11-16): recognition helpers extracted, fingerprint
+  `d3e759b58e01013cc83c8cb2b52553d8c5802ceb7ab1596d45321c70e3122584`;
+  `runs/version_structure_stage2a/`. 126 exact sampled comparisons; 190 tests plus
+  15 subtests, one pre-existing skipped historical-scratch case. code_review PASS;
+  step_checker PASS WITH WARNINGS. No live, full-video or physical claim.
+- Stage 1 (2026-11-16): standalone V2 modules/profiles, immutable policies, shared
+  provenance and compatible imports, fingerprint
+  `d533a55648c87ce67894be95ae049fbac9de49e9323c2cabc938b55795d17d5c`;
+  `runs/version_structure_stage1/`, based on HEAD `01bbd6d` plus the accepted diff.
+  126 sampled matches including 28 TWIN checks and 20 leading frozen-TWIN matches;
+  232 focused + 85 compatibility tests/79 subtests; final structure recheck 24.
+  Four local utility profile paths corrected. code_review PASS; step_checker PASS
+  WITH WARNINGS. Tests/evidence stay ignored/local; physical validation pending.
+
+These packages remain immutable; restructuring publication was separately
+authorized by the user (2026-11-16).
+
+## Runtime baseline — accepted Phase 6
+
 Phase 6 / G6 — ACCEPTED OFFLINE by the user (2026-11-16), with STATE update
 and commit/push explicitly authorized. Version 2's existing recorded experimental
 SENSE route reuses confirmed median button centers with independent full-detection

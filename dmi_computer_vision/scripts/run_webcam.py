@@ -13,10 +13,10 @@ import cv2
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from dmi_computer_vision.src.dmi.io.camera import LatestCamera  # noqa: E402
-from dmi_computer_vision.src.dmi.pipeline.live import process_live
-from dmi_computer_vision.src.dmi.io.preview import LivePreview  # noqa: E402
-from dmi_computer_vision.src.dmi.pipeline.frame_processor import FrameProcessor  # noqa: E402
+from dmi_computer_vision.src.dmi.shared.io.camera import LatestCamera  # noqa: E402
+from dmi_computer_vision.src.dmi.shared.pipeline.live import process_live
+from dmi_computer_vision.src.dmi.shared.io.preview import LivePreview  # noqa: E402
+from dmi_computer_vision.src.dmi.shared.pipeline.frame_processor import FrameProcessor  # noqa: E402
 
 
 def main() -> int:

@@ -10,7 +10,7 @@ import sys
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPOSITORY_ROOT / "src"))
 
-from dmi_computer_vision.src.dmi.pipeline.video import process_video  # noqa: E402
+from dmi_computer_vision.src.dmi.shared.pipeline.video import process_video  # noqa: E402
 
 
 def parse_args() -> argparse.Namespace:

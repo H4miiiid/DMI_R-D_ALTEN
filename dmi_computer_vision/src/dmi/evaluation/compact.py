@@ -5,7 +5,7 @@ import json
 import math
 from pathlib import Path
 
-from dmi_computer_vision.src.dmi.output.json_writer import compact_state
+from dmi_computer_vision.src.dmi.shared.output.json_writer import compact_state
 
 
 def assert_equivalent(actual, expected, tolerance, path="state"):

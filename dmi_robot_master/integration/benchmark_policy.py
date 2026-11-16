@@ -8,10 +8,10 @@ from pathlib import Path
 
 import cv2
 
-from dmi_robot_master.integration.camera import ReplayCamera
+from dmi_robot_master.integration.shared.acquisition.camera import ReplayCamera
 from dmi_robot_master.integration.observe import observe
-from dmi_robot_master.integration.processing_policy import DetectionPolicy
-from dmi_robot_master.integration.publication import project_pixels
+from dmi_robot_master.integration.shared.observation.processing_policy import DetectionPolicy
+from dmi_robot_master.integration.shared.projection.publication import project_pixels
 from dmi_computer_vision.src.dmi.evaluation.validation import validate_results
 from dmi_computer_vision.src.dmi.evaluation.compact import validate_compact
 

@@ -13,8 +13,8 @@ import time
 
 import cv2
 
-from dmi_computer_vision.src.dmi.io.camera import CapturedFrame
-from dmi_computer_vision.src.dmi.pipeline.live import process_live
+from dmi_computer_vision.src.dmi.shared.io.camera import CapturedFrame
+from dmi_computer_vision.src.dmi.shared.pipeline.live import process_live
 from dmi_computer_vision.src.dmi.evaluation.validation import validate_results
 from dmi_computer_vision.src.dmi.evaluation.compact import validate_compact
 from dmi_computer_vision.src.dmi.evaluation.baseline import read_recorded_frames

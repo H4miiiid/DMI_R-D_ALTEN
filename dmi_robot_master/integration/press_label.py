@@ -9,17 +9,17 @@ from pathlib import Path
 import sys
 from threading import Event, Lock, Thread
 
-from dmi_computer_vision.src.dmi.io.preview import LivePreview
-from dmi_computer_vision.src.dmi.output.latest_state import LatestState
+from dmi_computer_vision.src.dmi.shared.io.preview import LivePreview
+from dmi_computer_vision.src.dmi.shared.output.latest_state import LatestState
 from dmi_robot_common.ComProtocol import ComProtocol
 from dmi_robot_common.YamlCfg import YamlCfg
-from dmi_robot_master.integration.actions import LabelActions, SessionMode, check_hardware_readiness
-from dmi_robot_master.integration.action_transport import FakeTransport, RobotLink
-from dmi_robot_master.integration.camera import ReplayCamera, RobotCamera, RemoteCamera
-from dmi_robot_master.integration.calibration import read_json
+from dmi_robot_master.integration.shared.actions.actions import LabelActions, SessionMode, check_hardware_readiness
+from dmi_robot_master.integration.shared.actions.action_transport import FakeTransport, RobotLink
+from dmi_robot_master.integration.shared.acquisition.camera import ReplayCamera, RobotCamera, RemoteCamera
+from dmi_robot_master.integration.shared.calibration.calibration import read_json
 from dmi_robot_master.integration.observe import observe, check_target_source
-from dmi_robot_master.integration.processing_policy import DetectionPolicy
-from dmi_robot_master.integration.targets import CurrentTargets
+from dmi_robot_master.integration.shared.observation.processing_policy import DetectionPolicy
+from dmi_robot_master.integration.shared.projection.targets import CurrentTargets
 
 PROMPT = 'KEY_n or quit> '
 

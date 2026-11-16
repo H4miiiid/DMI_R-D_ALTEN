@@ -59,7 +59,7 @@ class PressControls:
         await self.request('mode_hold')
 
     async def request(self,kind):
-        from dmi_robot_master.integration.pressing import PRESS_CHECKS
+        from dmi_robot_master.integration.shared.actions.pressing import PRESS_CHECKS
         if self.app.locked or not self.enabled.value or not self.app._vision_selection_key:return
         backend = self.app.runner.backend
         if not hasattr(backend, 'session') or backend.session.simulation is not True:

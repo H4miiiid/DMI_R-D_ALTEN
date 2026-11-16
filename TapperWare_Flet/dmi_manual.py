@@ -1,8 +1,8 @@
 """Small fixed-step XY controls sharing the existing serialized robot owner."""
 import flet as ft
 
-from dmi_robot_master.integration.move_only import MOVE_CHECKS
-from dmi_robot_master.integration.robot_session import MANUAL_STEP_MM
+from dmi_robot_master.integration.shared.actions.move_only import MOVE_CHECKS
+from dmi_robot_master.integration.shared.actions.robot_session import MANUAL_STEP_MM
 
 
 class ManualControls:
