@@ -53,7 +53,7 @@ def comparison_diagnostics(version: str) -> dict:
             "baseline_source_fingerprint": BASELINE_SOURCE_FINGERPRINT,
             "enabled_improvements": ["sense_field_contrast_fallback", "sense_progressive_layout_lock",
                                      "sense_selective_updates", "sense_stable_coordinates",
-                                     "sense_session_registration"] if version == '2' else [],
+                                     "sense_session_registration", "sense_locked_action_destination"] if version == '2' else [],
             "improvement_scope": "SENSE connected geometry only; TWIN retains baseline in both versions",
             "settings": {"optimize": True, "max_gap_seconds": 1.0, "stable_preview": True,
                          "processing": ("ROI checks with bounded full audits" if version=='2'
@@ -61,7 +61,7 @@ def comparison_diagnostics(version: str) -> dict:
                          "mirror_horizontal": False, "contrast_fallback": version == '2',
                          "progressive_layout_lock": version == '2',
                          "lock_confirmation_frames": 3, "lock_window_observations": 5,
-                         "lock_scope": "JSON-profiled SENSE presentation only; action evidence requires full detection",
+                         "lock_scope": "JSON-profiled SENSE geometry; experimental destinations require independent full evidence",
                          "selective_updates": version=='2', "full_audit_seconds": 1.,
                          "stable_coordinates": version=='2', "movement_confirmation_frames": 3,
                          "stable_registration": version=='2', "registration_confirmation_frames": 3,
@@ -69,5 +69,8 @@ def comparison_diagnostics(version: str) -> dict:
                          "alignment_recovery": version=='2',
                          "experimental_monitor_tolerance_px": 20 if version=='2' else 4,
                          "experimental_allow_unverified_left": version=='2',
+                         "locked_actions": version=='2',
+                         "experimental_action_match_px": 10 if version=='2' else 4,
+                         "experimental_action_evidence_seconds": 2. if version=='2' else 1.5,
                          "movement_reference": "original lock baseline; presentation only",
                          "partial_retry_seconds": .5, "field_refresh_seconds": 1.}}

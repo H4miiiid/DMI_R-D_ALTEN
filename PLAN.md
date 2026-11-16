@@ -387,31 +387,6 @@ Homography and pixel-to-millimeter accuracy are handled in Phase 5.
 
 ---
 
-### Testing Strategy for Phases 2–4
-
-Keep testing simple, focused, and token-efficient.
-
-1. Check that an element detected in 3 different consistent frames
-   becomes locked, even when the frames are not consecutive.
-2. Check that confirmed elements remain stable while missing elements
-   continue being detected.
-3. Check that partial lock becomes complete lock when all required
-   elements are confirmed.
-4. Check that missing elements never receive invented coordinates
-   and that retries do not continue indefinitely.
-5. Check that annotations remain fixed despite temporary detector misses.
-6. Check that digit clicks update the field without restarting
-   full-screen detection.
-7. Check that screen changes and real monitor movement reset the lock.
-8. Check that dynamic icons and Level button activity still update.
-9. Check that cached coordinates cannot bypass fresh-evidence checks.
-10. Verify that existing TWIN behavior remains unchanged.
-
-Run focused tests during implementation. Run the full regression
-suite at the end or whenever a change makes broader testing necessary.
-
----
-
 ### Phase 5 — One SENSE monitor-plane homography and stable registration
 
 **Primary:** `dmi_robot_master/integration/recorded_test.py`; reuse `sense_calibration.py`, `calibration.py`, relevant calibration tests. No change to motion driver.
@@ -427,20 +402,93 @@ suite at the end or whenever a change makes broader testing necessary.
 
 **Exit:** One stable mapping per fixed-camera session; independent physical error table and map coverage; pixel-to-mm output remains consistent across same-plane screen changes. Physical acceptance stays pending unless the actual held-out measurements pass.
 
-### Phase 6 — Minimal guarded action integration (requires explicit authorization)
+### Phase 6 — Lightweight Move & Click Integration (requires explicit authorization)
 
-**Why this is a separate phase:** User wants immediate reuse of locked coordinates. Currently the GUI/experimental press route requires a **fresh `VisionSession` observation and direct center match**, which expires at 1.5 s. A persistent cache alone cannot satisfy that contract; disabling the guard would make the system less safe.
+Authorized 2026-11-16 with 10 px direct matching and 2-second action freshness
+for Version 2 SENSE recorded experimental presses. This is the explicit exception
+to the earlier 4 px / 1.5 s action contract in this plan; all other paths and
+geometry/calibration/publication limits remain unchanged. No physical accuracy
+or hardware validation is implied by the numerical policy change.
 
-1. First support locked screen presentation and **read-only XY inspection** while expensive detection is idle. Do not claim click readiness from cache freshness.
-2. Evaluate a **fast, fresh, direct ROI verification** for the selected button, run against the newest real camera packet when a click is requested (or against an already-verified sufficiently recent packet): check correct screen/context, monitor anchor, measured target border, image label/active state where needed, unoccluded region, and locked vs measured geometry. Use the original algorithm's measured-border/identity principles or a validated equivalent. Do not use only a thumbnail hash or an old screenshot as proof of button identity. Limit image age to the current contract.
-3. This ROI verification may be cheaper than full-screen OCR. It must emit **its own genuinely current evidence with source frame index and original capture timestamp**, without modifying old `Observation` timestamps. An action adapter may then use the locked center only if current direct proof and calibrated mm accuracy/uncertainty/bounds all agree.
-4. Before such a verifier is formally tested and approved, fall back to a **single on-demand full detection** for the specific click. Never skip current evidence entirely, forge a recent observation, or increase existing 1.5 s lifetime to make the button enable.
-5. Maintain the 4 px direct-match requirement until a new physically bounded tolerance/uncertainty rule is independently measured and explicitly approved. The user-suggested ±10 X/±5 Y is a hypothesis, **not** action authorization. Any policy adjustment must be justified with real pixel-to-mm uncertainty and new negative tests.
-6. An action event hook (if authorized) may minimally tell `VisionObserver` that a press **finished** and which semantic control was attempted. Reuse the existing runner callback/result path. It must not assume the DMI accepted the press. Unknown outcome, failed return, missed contact or timeout means more conservative visual revalidation. Don't modify the robot UDP/controller, physical press duration, safety limits or GPIO code.
-7. `right/field/input` is currently exported as `kind='field'`, and the existing experimental `RecordedTestProjector` maps only `kind='button'` targets for pressing. The grey confirmation field being visually button-like does **not** authorize making that field physically pressable in this plan. Support its **visual transition semantics** now; adding an action type/eligibility for it requires separate explicit review.
-8. Preserve action readiness, busy/no queue, no automatic retries, origin/calibration verification, frame source, and movement envelopes. Successful on-screen observation does not certify physical movement/contact/retraction.
+**Goal:** Reuse confirmed locked coordinates and stable homography
+for Move & Click, without unnecessary full detection or repeated
+coordinate calculations.
 
-**Exit:** Cached geometry gives stable preview and fast selection; where a fresh independent ROI check is validated, on-demand full detection is avoided. All negative/expiry/occlusion/identity tests still block unsafe actions. If exact required evidence cannot be obtained cheaply, keep the on-demand full detector.
+**Primary:** Reuse existing `screen_lock.py`, `vision_observer.py`,
+and experimental pressing functions. No change to the motion driver.
+
+**Implementation:**
+
+1. Use the confirmed median pixel centers from Phases 2–4
+   and the stable homography from Phase 5.
+   - Do not recalculate button coordinates for each click.
+   - Do not introduce another coordinate cache or smoothing system.
+
+2. When COMPLETE LOCK is active:
+   - Keep using locked coordinates for button selection and
+     read-only XY inspection.
+   - Continue the existing lightweight screen monitoring.
+   - Do not run full detection solely to maintain the lock.
+
+3. When Move & Click is requested:
+   - Verify that the current screen is still the correct screen.
+   - Verify that the selected button still exists, has the
+     correct identity, and is eligible for clicking.
+   - Reuse the existing monitor-alignment status from Phase 4/5.
+   - Avoid a separate full-screen detection when valid fresh
+     evidence is already available.
+
+4. Use the locked center and stable pixel-to-mm mapping
+   for the robot destination.
+   - Do not update locked coordinates using new detections.
+   - Do not introduce another coordinate cache.
+   - Use a 10 native-pixel direct-match tolerance instead
+     of the previous 4 px, once validated.
+   - Keep the selected button identity, current screen,
+     and monitor alignment checks.
+   - Verify that the 10 px tolerance cannot incorrectly
+     match adjacent buttons or unsafe target positions.
+   - Keep calibration and robot movement limits unchanged.
+
+5. Use a 2-second action-evidence freshness requirement:
+   - Allow fresh detection evidence up to 2 seconds old.
+   - COMPLETE LOCK coordinates do not expire after 2 seconds.
+   - Reuse valid existing evidence without unnecessary full detection.
+   - If evidence is expired, perform on-demand verification.
+   - Keep screen identity, button eligibility, monitor alignment,
+     and all other robot safety checks unchanged.
+
+6. After Move & Click:
+   - Continue lightweight monitoring.
+   - If the screen changes, reacquire screen-specific controls.
+   - If the screen remains unchanged, retain the valid lock.
+   - Do not assume command completion proves that the button
+     was physically pressed successfully.
+
+7. Keep existing safety and compatibility requirements:
+   - Preserve calibration, source, origin and movement limits.
+   - Preserve busy/no-queue behavior and no automatic retries.
+   - Keep existing action eligibility and physical press durations.
+   - Do not modify robot UDP/controller or GPIO code.
+   - Keep the grey confirmation field non-actionable unless
+     separately authorized.
+   - Preserve Version 1 and TWIN behavior.
+
+**Expected Result:**
+
+- Locked buttons can be selected using stable pixel and XY positions.
+- Normal monitoring remains lightweight.
+- Full detection is avoided when sufficient fresh action evidence
+  already exists.
+- Move & Click continues using the existing guarded action path.
+- No additional ROI verification subsystem is introduced.
+- Cached coordinates never authorize physical actions by themselves.
+
+**Exit:**
+Stable locked coordinates are reused for Move & Click.
+Current screen, button identity, eligibility and monitor alignment
+remain verified. Existing safety and freshness checks continue to
+block invalid or uncertain actions.
 
 ### Phase 7 — Full evaluation, optimization and acceptance
 

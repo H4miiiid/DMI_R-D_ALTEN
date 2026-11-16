@@ -30,7 +30,7 @@ from dmi_activity import ExecutionActivity, motion
 from dmi_commissioning import ConnectionControls, CalibrationControls
 from dmi_move import MoveControls
 from dmi_press import PressControls
-from dmi_target import TargetInspector, target_name, format_pixels, format_mm, experimental_selection
+from dmi_target import TargetInspector, target_name, format_pixels, format_mm, experimental_selection, inspection_projection
 from dmi_physical_press import PhysicalPressControls
 from dmi_manual import ManualControls
 
@@ -600,16 +600,24 @@ class DmiControlPanel:
         self._vision_selection_key = None
         self.calibration_ui.use_selected_target(None, None, None)
         try:
-            target = await asyncio.to_thread(observer.inspect_target,
+            target = await asyncio.to_thread(getattr(observer, 'inspect_selection', observer.inspect_target),
                                             session_id, screen, target_label)
             if observer is not self.vision.observer:
                 return
-            current = observer.snapshot()
-            if (not current['fresh'] or current['session_id'] != session_id
-                    or current['capture_index'] != target['capture_index']):
+            current = await asyncio.to_thread(getattr(observer, 'inspection_snapshot', observer.snapshot))
+            if observer is not self.vision.observer:
+                return
+            cached = current.get('locked_inspection') or {}
+            valid = (cached.get('session_id') == session_id and cached.get('screen') == screen
+                     and cached.get('lock_generation') == target.get('lock_generation')) if target.get('cached_geometry') else (
+                         current['fresh'] and current['session_id'] == session_id
+                         and current['capture_index'] == target['capture_index'])
+            if not valid:
                 raise ValueError("Osservazione cambiata durante la selezione")
             self._vision_selection_key = (session_id, screen, target_label)
-            self.calibration_ui.use_selected_target(session_id, screen, target_label)
+            if (not target.get('cached_geometry') or (current['fresh']
+                    and target.get('direct_capture_index') == current['capture_index'])):
+                self.calibration_ui.use_selected_target(session_id, screen, target_label)
             self.target_ui.update(current)
             self.vision_selection.value = (f"{screen} · {target_label} · px {format_pixels(target['pixel'])} · "
                 f"XY previsto {format_mm(self.target_ui.display_mm)} mm · età {target['age_seconds']:.2f} s · conferma separata richiesta")
@@ -620,7 +628,9 @@ class DmiControlPanel:
                 return
             self._vision_selection_key = None
             self.vision_selection.value = f"Selezione invalidata: {exc}"
-        current = observer.snapshot()
+        current = await asyncio.to_thread(getattr(observer, 'inspection_snapshot', observer.snapshot))
+        if observer is not self.vision.observer:
+            return
         self.target_ui.update(current)
         self.physical_press_ui.update(current)
         if not self.disposed:
@@ -629,7 +639,10 @@ class DmiControlPanel:
     async def vision_clock(self):
         while not self.disposed:
             if self.vision.observer:
-                view = self.vision.observer.snapshot()
+                observer = self.vision.observer
+                view = await asyncio.to_thread(getattr(observer, 'inspection_snapshot', observer.snapshot))
+                if self.disposed or observer is not self.vision.observer:
+                    continue
                 self.render_vision(view)
                 running = self.vision.running
                 if running != self._vision_running:
@@ -681,32 +694,36 @@ class DmiControlPanel:
         if modes.get('replacement_verified'):
             self.vision_mode.value += " · stessa icona lampeggiante ora stabile al posto di power (solo osservazione)"
         self.target_ui.update(view)
-        signature = (view['session_id'], view['capture_index'])
+        inspected = inspection_projection(view)
+        inspection_session = (inspected or {}).get('session_id', view['session_id'])
+        signature = (inspection_session, (inspected or {}).get('capture_index', view['capture_index']),
+                     (inspected or {}).get('lock_generation'), bool(view['projection']))
         if signature != self._vision_signature:
             self._vision_signature = signature
             self.vision_targets.controls.clear()
-            if projection:
-                screen = projection['screen']
-                for name, target in projection['targets'].items():
+            if inspected:
+                screen = inspected['screen']
+                for name, target in inspected['targets'].items():
                     query = (self.target_search.value or '').strip().casefold()
                     if query and query not in (target_name(name) + ' ' + name).casefold():
                         continue
                     text = f"{target_name(name)} · {name} · px {format_pixels(target['pixel'])}"
+                    if target.get('cached_geometry'):
+                        text += ' · locked geometry only; verify on click'
                     if 'active' in target:
                         text += f" · active={target['active']}"
                     if target['kind']=='box':
                         text += ' · stima non verificata; nessuna autorizzazione fisica'
-                    async def select(e, sid=view['session_id'], state=screen, identity=name):
+                    async def select(e, sid=inspection_session, state=screen, identity=name):
                         await self.select_vision_target(sid, state, identity)
                     self.vision_targets.controls.append(ft.TextButton(text, on_click=select))
             self.target_empty.visible = not bool(self.vision_targets.controls)
             self.target_empty.value = ('No matching detected key. Try another name.' if projection
                                        else 'Waiting for fresh detections. Old results cannot be selected.')
         selected = self._vision_selection_key
-        if (view['fresh'] and selected and projection
-                and selected[:2] == (view['session_id'], projection['screen'])
-                and selected[2] in projection['targets']):
-            target = projection['targets'][selected[2]]
+        if (selected and inspected and selected[:2] == (inspection_session, inspected['screen'])
+                and selected[2] in inspected['targets']):
+            target = inspected['targets'][selected[2]]
             self.vision_selection.value = (f"{selected[1]} · {selected[2]} · px {format_pixels(target['pixel'])} · "
                 f"XY previsto {format_mm(self.target_ui.display_mm)} mm · età {age} · "
                 + ('one-click experimental test' if experimental_selection(view, selected) else 'conferma separata richiesta'))

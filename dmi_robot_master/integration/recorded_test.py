@@ -487,13 +487,20 @@ def _xy(observer, sample, document, origin_epoch):
         raise ValueError('Selected button is inactive, uncertain or outside measured SENSE monitor bounds')
     name = f"digit_{target['label'][4:]}" if target['label'].startswith('KEY_') else target['label'].rsplit('/', 1)[-1]
     raw = sample.get('direct_buttons', {}).get(name)
+    tolerance, _ = _action_limits(observer)
     if (raw is None or len(raw) != 2 or not all(math.isfinite(v) for v in raw)
-            or max(abs(a-b) for a,b in zip(raw, target['pixel'])) > 4):
+            or max(abs(a-b) for a,b in zip(raw, target['pixel'])) > tolerance):
         raise ValueError('Selected button lacks matching current direct evidence')
+    if 'lock_generation' in sample:
+        observer.validate_locked_sample(sample)
     xy = transform_point(document['models']['homography']['matrix'], recorded_pixel)
     if target.get('mm') is None or not np.allclose(target['mm'], xy, atol=1e-6, rtol=1e-6):
         raise ValueError('Current target has no matching experimental XY')
     return xy
+
+
+def _action_limits(observer):
+    return observer.experimental_action_limits() if hasattr(observer, 'experimental_action_limits') else (4., 1.5)
 
 
 @dataclass(frozen=True)
@@ -517,6 +524,8 @@ class RecordedPressPlan:
         anchor = json.loads(self.anchor_json)
         return {'token': self.token, 'selection': list(self.selection),
             'pixel': anchor['target']['pixel'], 'predicted_xy_mm': list(self.predicted_xy),
+            **({key: anchor[key] for key in ('lock_generation', 'locked_element',
+                    'action_match_tolerance_px', 'action_evidence_seconds') if key in anchor}),
             **({key: anchor[key] for key in ('experimental_monitor_tolerance_px', 'experimental_alignment_recovery')
                 if key in anchor}),
             **({key: anchor[key] for key in ('experimental_allow_unverified_left',
@@ -543,6 +552,9 @@ class RecordedPressPlan:
                   else observer.calibration_sample(*self.selection))
         anchor = json.loads(self.anchor_json)
         if (sample['source_info'] != anchor['source_info']
+                or sample.get('lock_generation') != anchor.get('lock_generation')
+                or sample.get('locked_element') != anchor.get('locked_element')
+                or ('lock_generation' in anchor and sample['target']['pixel'] != anchor['target']['pixel'])
                 or sample.get('experimental_registration_id') != anchor.get('experimental_registration_id')
                 or sample['target'].get('active') != anchor['target'].get('active')
                 or (not self.one_click and max(abs(a-b) for a,b in zip(sample['target']['pixel'], anchor['target']['pixel'])) > 4)
@@ -561,21 +573,27 @@ class RecordedPressPlan:
         if position is not None and math.dist(position, command) > math.hypot(*(v-1 for v in limits)):
             raise ValueError('Movement distance exceeds configured robot travel')
         age = time.monotonic()-sample['received_at']+sample['upstream_age_seconds']
-        current = observer.snapshot()
-        if (not 0 <= age <= 1.5 or not current['fresh'] or current['session_id'] != self.selection[0]
+        _, lifetime = _action_limits(observer)
+        current = (observer.snapshot(experimental_action=True) if lifetime == 2. else observer.snapshot())
+        if (not 0 <= age <= lifetime or not current['fresh'] or current['session_id'] != self.selection[0]
                 or current['capture_index'] != sample.get('latest_capture_index', sample['capture_index'])
                 or current.get('calibration_error')
                 or current['projection']['screen'] != self.selection[1]):
             raise ValueError('Direct target evidence expired before experimental press')
+        if 'lock_generation' in sample:
+            observer.validate_locked_sample(sample)
         return (command, sample) if with_sample else command
 
 
 def prepare_recorded_press(observer, selection, *, origin_epoch, limits, one_click=False):
     document, digest = observer.projector.load()
-    sample = (observer.experimental_press_sample(*selection) if one_click
+    sample = (observer.prepare_experimental_sample(*selection) if one_click and hasattr(observer, 'prepare_experimental_sample')
+              else observer.experimental_press_sample(*selection) if one_click
               else observer.calibration_sample(*selection))
     xy = _xy(observer, sample, document, origin_epoch)
     if observer.projector.stable_registration:
+        tolerance, lifetime = _action_limits(observer)
+        sample.update(action_match_tolerance_px=tolerance, action_evidence_seconds=lifetime)
         sample.update(experimental_alignment_recovery=observer.projector.recover_alignment,
                       experimental_monitor_tolerance_px=20 if observer.projector.recover_alignment else 4,
                       experimental_allow_unverified_left=observer.projector.allow_unverified_left)

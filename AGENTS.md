@@ -407,6 +407,16 @@ motor offsets or physical commands in this phase.
 
 ### Phase 6 — Minimal guarded action integration (PLAN Phase 6 / G6)
 
+Session authorization (2026-11-16): the user authorized Phase 6 implementation
+with 10 native pixels per coordinate for direct-target matching and a 2-second
+direct action-evidence lifetime in the Version 2 SENSE recorded experimental
+route. This overrides the 4 px / 1.5 s action limits below for that route only.
+Version 1, TWIN, ordinary calibration/actions, lock acquisition, geometry checks,
+publication and display evidence retain their existing limits. Confirmed locked
+centers may supply destinations only with independent current button proof;
+expired/missing proof requires one on-demand full scan or rejection. This is
+implementation authorization, not acceptance, publication or physical validation.
+
 Requires explicit authorization distinct from read-only locking and projection.
 A locked cache cannot authorize actions. Retain on-demand full detection until a
 fresh, independent target-ROI verifier is implemented, validated and approved.

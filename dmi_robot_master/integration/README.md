@@ -1261,7 +1261,7 @@ monitor-corner comparison allows at most 20 native pixels, covering the recorded
 17–18 pixel top-border fit jump while observed controls remain nearly stationary.
 Initial three-frame acquisition and recovery-sample consistency remain four pixels.
 A pose outside the experimental allowance stays blocked; there is no automatic
-refit or larger direct-target tolerance. Source/session/resolution/origin changes, Stop and bad
+refit. Phase 6's separately authorized direct-target policy is described below. Source/session/resolution/origin changes, Stop and bad
 model/reference data still invalidate and require explicit recovery. The existing
 fresh direct target, activity, calibration qualification and travel checks apply
 to every experimental Move and Click. Camera/monitor movement is not authorized
@@ -1274,7 +1274,7 @@ disagreement in saved-image pixels, and press previews record it and the policy.
 This is diagnostic-only in that route: it enables later offset measurement, not
 validated left-region accuracy. Current connected geometry, the fixed-session
 20-pixel alignment check, current/transformed target containment, finite mapping,
-four-pixel direct-target agreement, 1.5-second freshness, source/origin, activity,
+Phase 6's 10-pixel direct-target agreement and 2-second action freshness, source/origin, activity,
 readiness and configured travel checks remain mandatory. No offset or refit is
 applied. The internal policy defaults off and requires stable session registration.
 
@@ -1314,3 +1314,31 @@ control do not add independent coverage. Use the existing affine/homography fit
 and inspection routines, report every residual and maximum, and require maximum
 held-out error at most 3 mm for normal acceptance. Current local recordings and
 reference-derived residuals do not supply these new physical measurements.
+
+## Phase 6: locked Version 2 experimental action destinations
+
+The user authorized 10 native pixels per coordinate for direct-target agreement
+and a 2-second action-evidence lifetime for the Version 2 recorded experimental
+SENSE route. Version 1 retains its original direct-coordinate behavior and
+4 px / 1.5 s limits. Ordinary calibration/actions, lock acquisition, monitor
+alignment, publication and display-only evidence retain their existing limits.
+This policy does not establish physical accuracy or promote the rejected fit.
+
+A confirmed button uses its existing median original-pixel center and fixed
+session mapping. Current full-detection identity/activity, measured button
+containment and unique direct support within 10 px are still required. Cached
+geometry supplies no evidence or timestamp. A missing/expired sample requests
+one new full scan from the existing analysis worker during preparation, with a
+three-second timeout; no second camera or processing path is created. Dispatch
+rechecks source, registration, lock generation, direct evidence, origin,
+readiness, single-use ownership and travel after reading controller position.
+If proof expires then, the request is rejected without a command retry.
+
+The GUI separately exposes read-only locked pixels/XY, even between full audits.
+These predictions cannot collect calibration points or make ordinary actions
+ready. Unconfirmed detected buttons preserve the existing experimental direct
+route. Fields/icons remain non-actionable; experimental duration stays 100 ms.
+See [the operator comparison procedure](../../TapperWare_Flet/README.md#version-2-locked-experimental-move-and-click-phase-6).
+After a command, visual monitoring continues; DONE does not prove contact or a
+page change. Hardware tolerance, whole-monitor error, live GUI behavior and
+physical success remain pending independent operator measurements.

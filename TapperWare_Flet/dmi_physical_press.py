@@ -45,8 +45,11 @@ class PhysicalPressControls:
         if not app.is_demo:
             app.target_ui.hardware_press.content = ('Experimental move and click · 100 ms' if experimental else 'Move and click selected key · 100 ms')
         if eligible and experimental:
-            app.target_ui.reason.value = ('One click requests one experimental press using the latest direct coordinates '
-                '(at most two missed updates / 1.5 s old). Clicking confirms the tool and return path are clear and the physical stop is ready. No second dialog.')
+            locked = (view.get('locked_inspection') or {}).get('cached_geometry')
+            app.target_ui.reason.value = (('One click requests a press at the locked center with direct evidence '
+                '(10 px / 2 s); an expired sample requests one full verification. ' if locked else
+                'One click requests one experimental press using current direct coordinates. ')
+                + 'Clicking confirms the tool and return path are clear and the physical stop is ready. No second dialog.')
             if view.get('calibration_error'):
                 app.target_ui.reason.value = 'Mapping currently blocked: ' + view['calibration_error']
         elif eligible:

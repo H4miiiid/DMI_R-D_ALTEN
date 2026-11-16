@@ -18,6 +18,20 @@ def target_name(identity: str) -> str:
     return leaf.replace('_', ' ').capitalize()
 
 
+def inspection_projection(view):
+    """GUI-only geometry; never pass this to calibration or action resolution."""
+    fresh = (view or {}).get('projection')
+    cached = (view or {}).get('locked_inspection')
+    if not fresh or not cached:
+        return cached or fresh
+    # Preserve every fresh field, box and unconfirmed control. Only confirmed
+    # geometry overrides pixels/XY; activity still comes from the fresh target.
+    targets = dict(fresh['targets'])
+    for label, target in cached['targets'].items():
+        targets[label] = {**targets.get(label, {}), **target}
+    return {**fresh, **cached, 'targets': targets}
+
+
 def experimental_selection(view, selected):
     """Keep an operator's button identity; coordinates are checked only on click."""
     projection = (view or {}).get('projection') or {}
@@ -50,11 +64,11 @@ class TargetInspector:
         ], spacing=9)
 
     def update(self, view=None):
-        projection = (view or {}).get('projection')
+        projection = inspection_projection(view)
         selected = self.app._vision_selection_key
         target = None
-        if (view and view.get('fresh') and projection and selected
-                and selected[:2] == (view['session_id'], projection['screen'])):
+        if (view and projection and (view.get('fresh') or projection.get('cached_geometry')) and selected
+                and selected[:2] == (projection.get('session_id', view['session_id']), projection['screen'])):
             target = projection['targets'].get(selected[2])
         if target is None:
             self._coordinate_key = self.display_mm = None
@@ -70,7 +84,8 @@ class TargetInspector:
             return
         self.name.value = target_name(selected[2])
         inspection = target.get('mm') is None and target.get('inspection_xy_mm') is not None
-        key = (selected, projection.get('calibration_id'), projection.get('calibration_provenance'), inspection)
+        key = (selected, projection.get('calibration_id'), projection.get('calibration_provenance'), inspection,
+               projection.get('lock_generation'))
         mm = target.get('mm')
         if inspection:
             mm = target['inspection_xy_mm']
@@ -79,6 +94,8 @@ class TargetInspector:
             self.display_mm = tuple(mm) if mm is not None else None
         self._coordinate_key = key
         self.pixel.value = f"Camera centre: {format_pixels(target['pixel'])} px (original image)"
+        if target.get('cached_geometry'):
+            self.pixel.value += ' · locked geometry only'
         self.xy.value = (f"Robot XY estimate: {format_mm(self.display_mm)} mm · unverified"
                          if target.get('mm') is not None else 'Robot XY estimate: unavailable · load a matching calibration')
         if target.get('mm') is None and view.get('calibration_error'):

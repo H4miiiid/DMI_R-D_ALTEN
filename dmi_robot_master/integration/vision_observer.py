@@ -59,7 +59,7 @@ class VisionObserver:
                  context=None, geometry_tolerance_px=4., debug_jsonl=None,
                  session_factory=VisionSession, stable_preview=False, comparison=None,
                  origin_epoch=None, contrast_fallback=False, progressive_lock=False,
-                 selective_updates=False):
+                 selective_updates=False, locked_actions=False):
         self.source, self.source_info = source, deepcopy(source_info)
         self.projector = TargetProjector(source_info=source_info, calibration_path=calibration_path,
             context=context, geometry_tolerance_px=geometry_tolerance_px, origin_epoch=origin_epoch)
@@ -67,6 +67,8 @@ class VisionObserver:
         self.stable_preview = stable_preview
         self.debug_jsonl = Path(debug_jsonl) if debug_jsonl else None
         self._comparison = deepcopy(comparison)
+        self._locked_actions = locked_actions
+        self._action_full_request = None
         self._contrast_fallback = contrast_fallback
         self._screen_lock = ScreenLock() if progressive_lock else None
         self._lock_layout = None
@@ -189,9 +191,10 @@ class VisionObserver:
                         layout_epoch = self._calibration_epoch
                         monitor_epoch = self._monitor_epoch
                         current_layout = deepcopy(self._lock_layout)
+                        action_request = self._action_full_request
                     started = time.monotonic()
-                    decision = self._check_monitored_packet(
-                        session, packet, monitor_epoch, current_layout, history)
+                    decision = (None if action_request is not None else self._check_monitored_packet(
+                        session, packet, monitor_epoch, current_layout, history))
                     if decision is not None and not decision.full:
                         if stream and not self._stop.is_set():
                             stream.write(json.dumps({'type':'monitor_update',
@@ -266,6 +269,8 @@ class VisionObserver:
                         self._projection = projection
                         self._mode = mode
                         self._state = 'observed'
+                        if self._action_full_request == action_request:
+                            self._action_full_request = None
                         self._condition.notify_all()
                     if stream:
                         # Explicit debugging only; no runtime consumer reads this.
@@ -454,13 +459,14 @@ class VisionObserver:
         except Exception as exc:
             self.invalidate('preview_error', str(exc))
 
-    def snapshot(self) -> dict:
+    def snapshot(self, *, experimental_action: bool = False) -> dict:
         """Fresh action observations and a separate display-only live composite."""
         now = time.monotonic()
         with self._condition:
             observed = self._observation[0] if self._observation else None
             age = observed.age_seconds() if observed else None
-            fresh = (observed is not None and 0 <= age <= 1.5 and not self._stop.is_set()
+            lifetime = self.experimental_action_limits()[1] if experimental_action else 1.5
+            fresh = (observed is not None and 0 <= age <= lifetime and not self._stop.is_set()
                      and observed.capture_index >= self._action_invalidated_capture
                      and (not self._lock_layout or self._lock_layout.get('alignment_valid', True)))
             monitor_fresh = (self._monitor_fresh(self._monitor_view, now) and not self._stop.is_set())
@@ -576,6 +582,65 @@ class VisionObserver:
                           capture_index=view['capture_index'], age_seconds=view['age_seconds'])
             return target
 
+    def inspection_snapshot(self) -> dict:
+        """GUI-only locked pixels/XY, separate from fresh targets and calibration.
+
+        Derive from the single lock cache on demand; store no second coordinate
+        cache and never synthesize an Observation or direct evidence.
+        """
+        view = self.snapshot()
+        with self._condition:
+            layout = deepcopy(self._lock_layout)
+            observed = self._observation[0] if self._observation else None
+            epoch = self._calibration_epoch
+            if (not self._locked_actions or not getattr(self.projector, 'stable_registration', False)
+                    or observed is None or not layout or not layout.get('alignment_valid')
+                    or layout.get('screen') != observed.result['right_display']['state']
+                    or self._stop.is_set() or self._calibration_invalidated
+                    or not (0 <= observed.age_seconds() <= 2.
+                            or self._monitor_fresh(self._monitor_view, time.monotonic()))):
+                return view
+            result = deepcopy(observed.result)
+            for side in ('left_display', 'right_display'):
+                result[side]['buttons'] = {}
+                result[side]['boxes'] = {}
+                result[side]['data_field'] = None
+                for path, region in layout['elements'].items():
+                    parts = path.split('/')
+                    if len(parts) == 3 and parts[:2] == [side, 'buttons']:
+                        result[side]['buttons'][parts[2]] = deepcopy(region)
+            session_id = observed.session_id
+        with self._project_lock:
+            projection = self.projector.project(result, {}, frame_size=observed.frame_size)[0]
+        with self._condition:
+            if (self._stop.is_set() or epoch != self._calibration_epoch or self._calibration_invalidated
+                    or not self._lock_layout or layout != self._lock_layout
+                    or self._observation is None or self._observation[0] is not observed
+                    or projection.get('calibration_id') is None):
+                return view
+            for target in projection['targets'].values():
+                target.update(usable=False, action_ready=False, cached_geometry=True,
+                              lock_generation=layout['generation'])
+                target.pop('active', None)  # Static cache has no activity evidence.
+            projection.update(session_id=session_id, capture_index=observed.capture_index,
+                              lock_generation=layout['generation'], cached_geometry=True)
+            view['locked_inspection'] = projection
+        return view
+
+    def inspect_selection(self, session_id: str, screen: str, label: str) -> dict:
+        """Selection/inspection only; calibration still calls inspect_target."""
+        view = self.inspection_snapshot()
+        cached = view.get('locked_inspection') or {}
+        target = cached.get('targets', {}).get(label)
+        if (target is not None and cached.get('session_id') == session_id and cached.get('screen') == screen):
+            try:
+                direct = self.inspect_target(session_id, screen, label)
+            except ValueError:
+                direct = None
+            return {**target, 'capture_index': cached['capture_index'], 'age_seconds': view['age_seconds'],
+                    'direct_capture_index': direct['capture_index'] if direct else None}
+        return self.inspect_target(session_id, screen, label)
+
     @staticmethod
     def _clear_mm(projection):
         projection.update(calibration_valid=False, calibration_id=None, calibration_provenance=None)
@@ -666,12 +731,63 @@ class VisionObserver:
                                   - np.asarray(b.result[f'{side}_display']['geometry']['corners']))) <= 4
                     for side in ('left', 'right')))
 
+    def experimental_action_limits(self) -> tuple[float, float]:
+        """Version 2 SENSE experiment only; calibration/publication keep their limits."""
+        with self._condition:
+            enabled = (self._locked_actions and getattr(self.projector, 'stable_registration', False)
+                       and self._observation is not None and connected_regions(self._observation[0].result))
+            return (10., 2.) if enabled else (4., 1.5)
+
+    def prepare_experimental_sample(self, session_id, screen, label) -> dict:
+        """Reuse direct evidence, or ask the sole worker for one full verification.
+
+        No camera is opened here and no old observation is renewed. Timeout/loss
+        fails this request; there is no retry loop or physical command.
+        """
+        if not self._locked_actions:
+            return self.experimental_press_sample(session_id, screen, label)
+        try:
+            return self.experimental_press_sample(session_id, screen, label)
+        except ValueError:
+            with self._condition:
+                if self._stop.is_set() or self._calibration_invalidated or not self.running:
+                    raise
+                if self._action_full_request is not None:
+                    raise ValueError('An action verification is already running')
+                request = object()
+                baseline = self._last_taken
+                self._action_full_request = request
+                self._condition.notify_all()
+                try:
+                    completed = self._condition.wait_for(lambda: self._stop.is_set() or (
+                        self._action_full_request is not request and self._observation is not None
+                        and self._observation[0].capture_index > baseline), timeout=3.)
+                    if not completed or self._stop.is_set():
+                        raise ValueError('No fresh full action verification; no press sent')
+                finally:
+                    if self._action_full_request is request:
+                        self._action_full_request = None
+            return self.experimental_press_sample(session_id, screen, label)
+
+    def validate_locked_sample(self, sample: dict) -> None:
+        """Recheck the same cache generation; a cache never supplies direct proof."""
+        if 'lock_generation' not in sample:
+            return
+        with self._condition:
+            layout = self._lock_layout or {}
+            region = layout.get('elements', {}).get(sample['locked_element'])
+            if (not self._locked_actions or not layout.get('alignment_valid')
+                    or layout.get('screen') != sample['screen']
+                    or layout.get('generation') != sample['lock_generation'] or region is None
+                    or region['center'] != sample['target']['pixel']):
+                raise ValueError('Locked target changed during the press request')
+
     def experimental_press_sample(self, session_id, screen, label):
-        """Latest direct button, through at most two misses and the original 1.5 s lifetime."""
+        """Direct button proof with an independently confirmed V2 destination."""
         from dmi_robot_master.integration.recorded_test import RecordedTestProjector
         from dmi_robot_master.integration.calibration import transform_point
         with self._condition:
-            view = self.snapshot()
+            view = self.snapshot(experimental_action=True)
             projection = view.get('projection') or {}
             if (type(self.projector) is not RecordedTestProjector or not view['fresh']
                     or view['session_id'] != session_id or projection.get('screen') != screen
@@ -696,11 +812,32 @@ class VisionObserver:
                 if pixel is None:
                     continue
                 age = time.monotonic() - observed.received_at + observed.upstream_age_seconds
-                if (not 0 <= age <= 1.5 or target.get('active', True) is not True
+                tolerance, lifetime = self.experimental_action_limits()
+                if (not 0 <= age <= lifetime or target.get('active', True) is not True
                         or projected.get('calibration_id') is None):
                     raise ValueError('Latest direct button evidence expired or is ineligible')
                 # Use precise direct coordinates, never a displayed/retained annotation centre.
                 target['pixel'] = list(pixel)
+                locked = None
+                element = f"{target['display']}_display/buttons/{name}"
+                layout = self._lock_layout or {}
+                if (self._locked_actions and self.projector.stable_registration
+                        and layout.get('screen') == screen and layout.get('alignment_valid')
+                        and layout.get('frame_size') == observed.frame_size):
+                    locked = layout.get('elements', {}).get(element)
+                if locked is not None:
+                    center = np.asarray(locked['center'], float)
+                    region = (observed.layout_evidence or {}).get(f"{target['display']}_display", {}).get('buttons', {}).get(name)
+                    quad = np.asarray((region or {}).get('corners', []), np.float32)
+                    if (center.shape != (2,) or not np.isfinite(center).all()
+                            or np.max(np.abs(center-pixel)) > tolerance
+                            or quad.shape != (4, 2) or not np.isfinite(quad).all()
+                            or not cv2.isContourConvex(quad)
+                            or cv2.pointPolygonTest(quad, tuple(center), False) < 0
+                            or any(other != name and np.max(np.abs(center-point)) <= tolerance
+                                   for other, point in direct.items())):
+                        raise ValueError('Locked center lacks unique current measured button support')
+                    target['pixel'] = center.tolist()
                 sample = {'session_id': session_id, 'screen': screen, 'target': target,
                     'visibility': projected['visibility'],
                     'direct_screen': observed.direct_evidence.get('right_state'),
@@ -714,6 +851,8 @@ class VisionObserver:
                     'geometry': {side: deepcopy(observed.result[f'{side}_display']['geometry']['corners'])
                                  for side in ('left', 'right')},
                     'latest_capture_index': latest.capture_index, 'missed_updates': misses}
+                if locked is not None:
+                    sample.update(lock_generation=layout['generation'], locked_element=element)
                 break
             if sample is None:
                 raise ValueError('Selected button missing from the latest three detections; no press sent')

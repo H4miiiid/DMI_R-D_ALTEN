@@ -80,6 +80,51 @@ comparison results remain operator checks. Any already authorized experimental
 button test retains its existing freshness, mapping, readiness and bounds guards;
 each action still requires its normal explicit request/confirmation.
 
+### Version 2 locked experimental Move and Click (Phase 6)
+
+For the existing recorded experimental SENSE mapping, Version 2 uses the confirmed
+median center of the selected button as its destination. This applies during a
+partial lock once that button is confirmed, as well as a complete lock. The
+inspector labels these coordinates **locked geometry only**. Its XY is a read-only
+prediction from the unchanged saved homography and fixed session registration;
+it does not validate accuracy, activity or physical readiness. Unconfirmed detected
+buttons retain the existing direct-coordinate experimental route.
+
+Each request still needs independent full-detection button identity/activity and
+clear screen/monitor evidence. The user-approved Version 2 experimental limits
+are **10 native pixels per coordinate** between locked and direct centers, and
+**2 seconds** of direct evidence age including upstream age. The locked center
+must also lie inside that observation's measured button, and another directly
+recognized button cannot compete within the matching tolerance. Evidence may
+bridge at most two compatible missed detections without renewing its timestamp.
+Version 1 retains 4 px / 1.5 s and newest direct coordinates. Ordinary calibration,
+ordinary actions, TWIN, display expiry and publication thresholds are unchanged.
+
+To compare on the fixed setup, finish any action, stop the camera, select the
+version and restart explicitly. In Version 2, wait for the selected button's
+confirmed lock, then compare its displayed pixel/XY with later readings. Select
+it for inspection; no motion is sent. Only request an already authorized
+experimental button press after checking the physical stop, tool and return path.
+One click remains confirmation for one 100 ms experimental press.
+
+Fresh valid direct evidence is reused without an extra scan. If proof is missing
+or expired at preparation, the existing analysis worker requests **one full scan**
+of a new frame, waiting at most three seconds. A timeout, unknown/inactive button,
+unsupported geometry or failed guard rejects the request. The worker, camera owner
+and latest-frame slot are shared with observation. There is no new ROI verifier,
+physical retry or action queue. Evidence, lock generation, source, mapping/origin,
+readiness and travel are rechecked after the controller-position query; expiry
+at dispatch rejects the press. Selecting a cached point cannot refresh evidence or supply calibration pixels.
+Fresh unconfirmed buttons, fields and icon boxes remain selectable. Guided
+calibration uses a separate current direct sample when available, retaining its
+ordinary freshness and matching requirements. A changed lock invalidates the pending intent.
+
+After a command, monitoring continues. A changed page reacquires its controls;
+an unchanged page keeps compatible confirmed geometry. DONE remains protocol
+completion, with contact and the UI result unconfirmed. New 10 px / 2 s policy
+checks are offline; physical tolerance, coverage and accuracy remain pending.
+No ordinary calibration has gained <=3 mm acceptance.
+
 ### Shared live preview for SENSE and TWIN
 
 Select **SENSE TOUCHSCREEN / superiore** or **TWINS / inferiore**, then start the

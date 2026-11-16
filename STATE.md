@@ -1,10 +1,55 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-12. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
+Updated 2026-11-16. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
+
+Phase 6 / G6 — ACCEPTED OFFLINE by the user (2026-11-16), with STATE update
+and commit/push explicitly authorized. Version 2's existing recorded experimental
+SENSE route reuses confirmed median button centers with independent full-detection
+proof. The user approved 10 native pixels per coordinate for direct matching and
+a 2-second action-evidence lifetime including upstream age. The locked center
+must be inside the current measured button with no competing direct identity;
+at most two compatible misses never renew evidence age. Unconfirmed detected
+buttons retain the existing direct-coordinate experimental route in both regions.
+Missing/expired proof requests one full scan from the existing analysis worker
+at preparation, with a three-second timeout. Final checks after reading controller
+position reject expired proof, changed locks/context and failed safety guards.
+No new camera owner, queue, ROI verifier, coordinate cache, automatic physical
+retry, action type or registration refit is introduced. Experimental presses
+remain 100 ms; fields and icons remain non-actionable. Version 1, frozen TWIN,
+ordinary calibration/actions, publication and display evidence retain their limits.
+The GUI shows read-only locked pixel/XY estimates alongside fresh unconfirmed
+buttons, fields, boxes and activity. Guided calibration uses separate current
+direct samples; cached geometry cannot supply calibration pixels or action proof.
+Accepted runtime fingerprint:
+`d8d01ba23419f20a36dc35a0019c7ab803e05e4db62bacbed4a8548983e7db74`,
+based on HEAD `dda0097368c153338d2ba9764fb5e0d9a1e9e72e` plus reviewed updates.
+Canonical accepted evidence: `runs/phase6_guarded_actions/` (immutable
+pre-acceptance snapshot): `summary.json`, `results.jsonl`, `contact.png`.
+Both final reviewers: PASS WITH WARNINGS after correcting fresh-target listing
+and calibration selection. Checks: 354 focused tests plus 36 subtests, followed
+by 77 passing affected checks. Seven SENSE sources supplied 503 native frames,
+4,347 supported locked button samples and 503 exact old/new Version 1 projection
+comparisons. All 495 decodable TWIN frames match frozen results/direct evidence.
+Replay is full-frame measurement, not selective-runtime or live performance.
+Matched GUI inspection adds 1.10–1.68 ms mean per 200 ms poll on three recorded
+locked layouts; synthetic projection-worker contention P95 is at most 3.23 ms.
+The known ordinary-press test expects 100 ms while its unchanged implementation
+sends 300 ms; that unrelated mismatch remains disclosed. No full-suite rerun.
+Physical validation of 10 px / 2 s, whole-monitor accuracy, live GUI/camera,
+natural transitions, contact/retraction/return and hardware operation remain
+pending. No model meets ordinary <=3 mm acceptance or verified full-plane coverage.
+New tests, harnesses and evidence remain ignored/local and require separate supply
+in a clean clone; runtime depends on none of them. Reviewed PLAN changes are
+included in this publication. No Phase 7 implementation is authorized.
+Next: operator hardware comparison using `TapperWare_Flet/README.md`,
+"Version 2 locked experimental Move and Click (Phase 6)"; Phase 7 needs separate
+authorization. Acceptance, publication and physical validation remain distinct.
+
+## Earlier roadmap milestones (historical)
 
 Phase 5 / G5 implementation and experimental fixed-setup corrections — ACCEPTED
 OFFLINE by the user (2026-11-12), with STATE update and commit/push authorized.
@@ -46,11 +91,10 @@ No model meets normal <=3 mm acceptance; physical left offsets, whole-monitor
 coverage, setup repeatability and live hardware/GUI behavior remain unverified.
 Local new tests, harnesses, calibration candidates and evidence are ignored and
 need separate supply in a clean clone; runtime depends on none of those files.
-Next: operator hardware checks when available, using the integration README's
-Version 2 recorded experimental procedure. Phase 6 has not started and requires
-separate implementation authorization. User-local PLAN edits remain unpublished.
-
-## Earlier roadmap milestones (historical)
+At this milestone, Phase 6 had not started and user-local PLAN edits remained
+unpublished. Phase 6 was subsequently authorized and accepted offline as above;
+its 10 px / 2 s experimental action policy supersedes the earlier 4 px / 1.5 s
+limits only in that Version 2 route. Earlier physical-validation gaps remain.
 
 Phase 4 / G4 — ACCEPTED OFFLINE by the user (2026-11-11), with STATE update
 and commit/push explicitly authorized. Version 2 reuses the existing confirmed
