@@ -125,6 +125,54 @@ completion, with contact and the UI result unconfirmed. New 10 px / 2 s policy
 checks are offline; physical tolerance, coverage and accuracy remain pending.
 No ordinary calibration has gained <=3 mm acceptance.
 
+### Final Version 1 / Version 2 hardware comparison (Phase 7)
+
+The software evaluation distinguishes all-frame recorded audits, receipt-paced
+worker replay, and physical results. Lower full-detector FPS in selective mode
+can mean fewer expensive calls; compare result age, OCR cost, freshness and
+recognition as well as call counts. Recorded playback FPS and preview callbacks
+are not camera, bridge or native GUI paint rates. Version 1 stays available as
+the diagnostic baseline; selecting Version 2 grants no new action permission.
+
+For the operator retest, use the existing comparison procedure above and:
+
+1. Keep one camera, lighting, monitor/robot mount, tool and origin fixed. Record
+   source/settings, selected version, source fingerprint and mapping digest using
+   the existing diagnostics. Stop observation and finish execution before switching;
+   restart explicitly and wait for fresh geometry/registration in the new mode.
+2. In each version, start directly on Driver ID, Level and each supported train
+   page. Check titles, button identities, current values and Level activity. Record
+   omissions and unexpected labels, including any legacy identity on a blank Main
+   row. Blank/unreadable controls are not useful physical accuracy targets.
+3. Manually change digits while retaining the title, change Level selection and
+   observe mode icons, then change pages with supported confirmation/close controls.
+   Check that unknown values clear old text, blinking is not frozen or mistaken
+   for acknowledgement, and temporary losses recover without fabricated controls.
+   Include a brief occlusion and an explicit camera stop/restart. Measure natural
+   change latency from receipt/frame times; synthetic cuts do not establish it.
+4. Compare fixed locked pixel/XY inspection with fresh direct detections. Cached
+   geometry must not collect calibration points or authorize an action. In the
+   approved experimental Version 2 route, direct evidence expires after two seconds
+   and must agree within ten native pixels per coordinate plus measured button
+   containment. Version 1 and ordinary paths retain their existing limits. Missing
+   proof requests one verification scan or rejects; no physical retry is automatic.
+5. Only within the existing authorized experimental button scope, confirm physical
+   readiness and request one 100 ms press at a time. Independently observe contact,
+   retraction, return and the DMI response; DONE is insufficient. Grey fields and
+   icons remain non-actionable. GUI Stop cannot interrupt blocking receiver motion.
+6. Separately measure exact physical centers at distributed upper/lower/left/right
+   locations, including Driver ID and Level. Reserve whole controls/locations as
+   independent holdouts, retain camera/origin/tool conventions and compare the
+   existing affine/homography fits. Normal acceptance still requires maximum
+   held-out error <=3 mm and verified coverage. Stable annotations, reference
+   coordinates and earlier Key 1/Key 4 success do not establish this accuracy.
+
+Raw natural-transition/blink footage, independent physical holdout measurements,
+live GUI behavior and physical results remain operator checks. The offline
+comparison does not promote the saved rejected experimental fit or claim whole
+monitor calibration. Preserve the ignored local models/settings/evidence separately
+when deploying; they are not supplied by a clean source checkout.
+
 ### Shared live preview for SENSE and TWIN
 
 Select **SENSE TOUCHSCREEN / superiore** or **TWINS / inferiore**, then start the
