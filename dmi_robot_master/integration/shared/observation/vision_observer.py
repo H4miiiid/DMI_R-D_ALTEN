@@ -791,11 +791,13 @@ class VisionObserver:
                         or projected.get('experimental_registration_id') != projection.get('experimental_registration_id')):
                     break
                 target = deepcopy(projected['targets'].get(label))
-                if not target or target['kind'] != 'button':
+                confirmation = bool(target and self._locked_actions and self.projector.stable_registration
+                                    and v2_targets.is_confirmation(target, screen))
+                if not target or (target['kind'] != 'button' and not confirmation):
                     continue
                 name = f'digit_{label[4:]}' if label.startswith('KEY_') else label.rsplit('/', 1)[-1]
                 direct = observed.direct_evidence.get(f"{target['display']}_buttons", {})
-                pixel = direct.get(name)
+                pixel = observed.direct_evidence.get('right_field') if confirmation else direct.get(name)
                 if pixel is None:
                     continue
                 age = time.monotonic() - observed.received_at + observed.upstream_age_seconds
@@ -806,12 +808,16 @@ class VisionObserver:
                 # Use precise direct coordinates, never a displayed/retained annotation centre.
                 target['pixel'] = list(pixel)
                 locked = None
-                element = f"{target['display']}_display/buttons/{name}"
+                element = "right_display/data_field" if confirmation else f"{target['display']}_display/buttons/{name}"
                 layout = self._lock_layout or {}
                 if self._locked_actions and self.projector.stable_registration:
                     locked = v2_targets.locked_center(
                         layout, screen=screen, observation=observed, display=target['display'],
-                        name=name, pixel=pixel, direct=direct, tolerance=tolerance)
+                        name=name, pixel=pixel, direct=({'input': pixel, **{f'button/{key}': value for key, value in direct.items()}}
+                                if confirmation else direct),
+                        tolerance=tolerance, field=confirmation)
+                if confirmation and locked is None:
+                    raise ValueError('Input confirmation field is not locked yet')
                 if locked is not None:
                     target['pixel'] = locked
                 sample = {'session_id': session_id, 'screen': screen, 'target': target,
@@ -827,6 +833,8 @@ class VisionObserver:
                     'geometry': {side: deepcopy(observed.result[f'{side}_display']['geometry']['corners'])
                                  for side in ('left', 'right')},
                     'latest_capture_index': latest.capture_index, 'missed_updates': misses}
+                if confirmation:
+                    sample['direct_field'] = deepcopy(pixel)
                 if locked is not None:
                     sample.update(lock_generation=layout['generation'], locked_element=element)
                 break

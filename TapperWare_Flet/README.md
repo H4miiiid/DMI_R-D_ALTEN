@@ -80,6 +80,49 @@ comparison results remain operator checks. Any already authorized experimental
 button test retains its existing freshness, mapping, readiness and bounds guards;
 each action still requires its normal explicit request/confirmation.
 
+### Locked-control testing across supported SENSE screens (Version 2)
+
+Select any detected button in the target list after its geometry confirms. The
+existing experimental request route supports buttons in both measured SENSE
+regions across all recognized screens; it is not restricted to Driver ID.
+A compatible locked inspector can keep the request available between full
+observations. Every click still needs fresh independent identity/activity and
+measured geometry, and checks registration, origin/source, travel and readiness.
+Inactive or uncertain buttons are not forced active, and no cache-only clicks,
+automatic navigation or physical retries are added. A blocked callback now shows
+**Press not started: ...** instead of silently returning. Verification progress
+and backend rejections also appear in the main status banner, with details
+retained in the Activity log.
+
+The explicitly supported grey confirmation fields are **Driver ID**, **Level**
+and **Train Running Number**, using the same **10 px / 2 s** experimental limits.
+Wait for the field lock, select **Input / confirmation field**, then request
+**Experimental move and click · 100 ms**. Cached field selection now also works
+in the 1.5–2 s window when the ordinary displayed observation has expired but
+independent experimental evidence is still eligible. Missing/expired proof asks
+for the existing one full verification or rejects; geometry alone never grants
+permission. The Train Running Number profile now describes its confirmation role.
+Other informational fields and mode icons remain read-only; V1/TWIN behavior and
+ordinary calibration/action policies are unchanged. If no motion is sent, inspect
+the displayed reason and Activity log. Physical validation remains with the user.
+
+### Driver ID input/confirmation field (Version 2)
+
+The Driver ID grey input field is also the confirmation control. After its
+existing three-in-five geometry lock, select **Input / confirmation field** in
+the detected-target list. Its locked pixel/XY estimate is visible, and the
+existing **Experimental move and click · 100 ms** requests one confirmation.
+This originally Driver-ID-only extension now also covers Level and Train Running
+Number on the same Version 2 SENSE recorded experimental route. Train Data and
+other informational fields, Version 1 and TWIN retain their previous restrictions. The operator authorized the same 10 native pixels / 2 s
+direct-evidence limits; current measured field containment and no competing
+button identity are required. An unlocked field cannot be pressed. Stale/missing
+proof triggers the existing one-scan request or rejection, never a cached click.
+All existing origin, registration, source, travel, readiness and final checks
+remain in force. The saved map remains unverified; offline tests do not verify
+physical contact, accuracy or successful navigation. No new motor commands,
+field aliases, reference coordinates or automatic navigation are introduced.
+
 ### Version 2 locked experimental Move and Click (Phase 6)
 
 For the existing recorded experimental SENSE mapping, Version 2 uses the confirmed

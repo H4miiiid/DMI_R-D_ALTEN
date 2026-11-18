@@ -1,5 +1,6 @@
 """Presentation of a current target; never resolves or authorizes robot actions."""
 import flet as ft
+from dmi_robot_master.integration.v2.policy import CONFIRMATION_SCREENS
 
 
 def format_pixels(point) -> str:
@@ -12,6 +13,8 @@ def format_mm(point) -> str:
 
 def target_name(identity: str) -> str:
     """Friendly text alongside the unchanged, region-qualified identity."""
+    if identity == 'right/field/input':
+        return 'Input / confirmation field'
     leaf = identity.rsplit('/', 1)[-1]
     if leaf.startswith('KEY_') and leaf[4:].isdigit():
         return f'Key {leaf[4:]}'
@@ -38,9 +41,15 @@ def experimental_selection(view, selected):
     context = (view or {}).get('experimental_context')
     if projection.get('experimental_recorded_test'):
         context = [(view or {}).get('session_id'), projection.get('screen')]
+    cached = (view or {}).get('locked_inspection') or {}
+    if cached.get('experimental_recorded_test') and cached.get('calibration_id'):
+        context = [cached.get('session_id'), cached.get('screen')]
+    field = bool(selected and selected[1] in CONFIRMATION_SCREENS and selected[2] == 'right/field/input'
+                 and (view.get('locked_inspection') or {}).get('targets', {}).get(selected[2])
+                 and (cached.get('experimental_registration_id') or projection.get('experimental_registration_id')))
     return bool(selected and context and context[0] == selected[0]
                 and context[1] in (selected[1], 'unknown')
-                and (selected[2].startswith('KEY_') or '/button/' in selected[2]))
+                and (selected[2].startswith('KEY_') or '/button/' in selected[2] or field))
 
 
 class TargetInspector:
@@ -114,7 +123,9 @@ class TargetInspector:
                       if projection.get('experimental_allow_unverified_left') else '4 px action limit')
             self.xy.value += f"\nLeft-border disagreement: {target['left_border_disagreement_px']:.1f} px · {policy}"
         notes = []
-        if target['kind'] != 'button':
+        if target['kind'] == 'field' and experimental_selection(view, selected):
+            notes.append('Input confirmation field · locked geometry with independent direct proof required.')
+        elif target['kind'] != 'button':
             notes.append('This is an information field or mode box, not a normal press button.')
         if 'active' in target and target['active'] is not True:
             notes.append('The detected control is inactive or its activity is uncertain.')

@@ -58,15 +58,31 @@ class PhysicalPressControls:
         elif selected and not app.is_demo:
             if not app.runner.initialized or not status.get('homed'):
                 app.target_ui.reason.value = 'Connect and initialize the robot first; camera detection alone does not initialize it.'
+            elif status.get('connection') != 'connected':
+                app.target_ui.reason.value = 'Connect to the controller first.'
+            elif status.get('legacy_xml_armed'):
+                app.target_ui.reason.value = 'Finish the legacy XML operation before a selected-control press.'
             elif view.get('calibration_error'):
                 app.target_ui.reason.value = 'Mapping blocked: ' + view['calibration_error']
+            elif not experimental_selection(view, selected):
+                app.target_ui.reason.value = 'No compatible experimental control context; wait for fresh detection and select the control again.'
 
     async def request(self, e=None):
         app = self.app
         self.refresh()
         if app.locked or app.is_demo or not app._vision_selection_key or app.target_ui.hardware_press.disabled:
+            reason = ('Another operation is running; wait for it to finish.' if app.locked else
+                      'Demo mode does not move the physical robot.' if app.is_demo else
+                      'Select a detected control first.' if not app._vision_selection_key else
+                      app.target_ui.reason.value or 'The selected control is not ready; check connection and mapping.')
+            self.message.value = 'Press not started: ' + reason
+            app.log('Physical press', self.message.value)
+            app.status('Press not started', reason, color='#FF8F98')
+            app.page.update()
             return
-        app.ui_busy = True; app.refresh()
+        app.ui_busy = True
+        app.status('Checking selected control', 'Verifying current detection, mapping and robot readiness.')
+        app.refresh()
         experimental = experimental_selection(self._view, app._vision_selection_key)
         from dmi_robot_master.integration.shared.actions.physical_press import PHYSICAL_PRESS_CHECKS
         try:
@@ -80,6 +96,7 @@ class PhysicalPressControls:
                 return
         except Exception as exc:
             self.message.value = f'Press not completed: {exc}'
+            app.status('Press not completed', str(exc), color='#FF8F98')
             app.log('Physical press', str(exc)); return
         finally:
             app.ui_busy = False; app.refresh()

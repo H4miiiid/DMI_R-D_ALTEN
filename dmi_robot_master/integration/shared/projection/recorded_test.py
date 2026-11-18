@@ -24,10 +24,11 @@ from dmi_robot_master.integration.shared.projection.publication import project_p
 from dmi_robot_master.integration.shared.calibration.sense_calibration import ALIASES, MODEL, REFERENCE_PATH, _geometry, validate_offline
 from dmi_robot_master.integration.shared.projection.targets import TargetProjector
 from dmi_robot_master.integration.v2 import registration as v2_registration
+from dmi_robot_master.integration.v2.locked_targets import is_confirmation
 
 
-def _covered(document, target, recorded_pixel):
-    if target['kind'] != 'button' or target['display'] not in ('left', 'right'):
+def _covered(document, target, recorded_pixel, *, confirmation=False):
+    if (target['kind'] != 'button' and not confirmation) or target['display'] not in ('left', 'right'):
         return False
     return cv2.pointPolygonTest(np.asarray(document['geometry'][target['display']], np.float32),
                                tuple(map(float, recorded_pixel)), False) >= 0
@@ -381,7 +382,8 @@ class RecordedTestProjector(TargetProjector):
                                 self.registration(document, geometry, frame_size, require_left=True)
                             except ValueError as exc:
                                 target['mapping_error'] = str(exc)
-                if target['kind'] != 'button' or target['display'] not in ('left', 'right'):
+                confirmation = self.stable_registration and is_confirmation(target, snapshot['screen'])
+                if (target['kind'] != 'button' and not confirmation) or target['display'] not in ('left', 'right'):
                     continue
                 current_region = np.asarray(geometry[target['display']], np.float32)
                 if cv2.pointPolygonTest(current_region, tuple(map(float, target['pixel'])), False) < 0:
@@ -395,7 +397,7 @@ class RecordedTestProjector(TargetProjector):
                 # Output pixel centres stay in the current original image. Only
                 # the transform input/coverage test uses registered coordinates.
                 recorded_pixel = transform_point(registration, target['pixel'])
-                if _covered(document, target, recorded_pixel):
+                if _covered(document, target, recorded_pixel, confirmation=confirmation):
                     target['mm'] = transform_point(document['models']['homography']['matrix'], recorded_pixel)
             if self.stable_registration:
                 with self._registration_lock:
@@ -454,14 +456,21 @@ def _xy(observer, sample, document, origin_epoch):
             or sample['screen'] == 'unknown' or sample.get('direct_screen') != sample['screen']):
         raise ValueError('No clear current direct screen evidence')
     recorded_pixel = transform_point(registration, target['pixel'])
-    if not _covered(document, target, recorded_pixel) or target.get('active', True) is not True:
+    confirmation = (getattr(observer, '_locked_actions', False) and projector.stable_registration
+                    and is_confirmation(target, sample['screen']))
+    if confirmation and ('lock_generation' not in sample or sample.get('locked_element') != 'right_display/data_field'):
+        raise ValueError('Input confirmation requires a confirmed field lock')
+    if not _covered(document, target, recorded_pixel, confirmation=confirmation) or target.get('active', True) is not True:
         raise ValueError('Selected button is inactive, uncertain or outside measured SENSE monitor bounds')
     name = f"digit_{target['label'][4:]}" if target['label'].startswith('KEY_') else target['label'].rsplit('/', 1)[-1]
-    raw = sample.get('direct_buttons', {}).get(name)
+    raw = sample.get('direct_field') if confirmation else sample.get('direct_buttons', {}).get(name)
     tolerance, _ = _action_limits(observer)
     if (raw is None or len(raw) != 2 or not all(math.isfinite(v) for v in raw)
             or max(abs(a-b) for a,b in zip(raw, target['pixel'])) > tolerance):
         raise ValueError('Selected button lacks matching current direct evidence')
+    if confirmation and any(np.max(np.abs(np.asarray(point)-target['pixel'])) <= tolerance
+                            for point in sample.get('direct_buttons', {}).values()):
+        raise ValueError('Confirmation field competes with a directly recognized button')
     if 'lock_generation' in sample:
         observer.validate_locked_sample(sample)
     xy = transform_point(document['models']['homography']['matrix'], recorded_pixel)

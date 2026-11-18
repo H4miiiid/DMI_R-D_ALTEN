@@ -230,7 +230,7 @@
         "region": "right_display/data_field",
         "name": "train_running_number"
       },
-      "confirmation": null,
+      "confirmation": "right_display/data_field",
       "reuse_left_sidebar": true
     },
     {

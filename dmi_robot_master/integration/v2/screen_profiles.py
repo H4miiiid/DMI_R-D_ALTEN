@@ -8,6 +8,7 @@ import json
 from pathlib import Path
 
 from dmi_computer_vision.src.dmi.shared.detection.title_ocr import title_state
+from dmi_robot_master.integration.v2.policy import CONFIRMATION_SCREENS
 
 PROFILE_PATH = Path(__file__).with_name('screen_profiles.json')
 KEYPAD = {f'digit_{i}' for i in range(10)} | {'delete', 'decimal'}
@@ -143,10 +144,10 @@ def load_profiles(path: str | Path = PROFILE_PATH) -> dict[str, ScreenProfile]:
                     raise ValueError(f'{title}: unsupported dynamic_ocr; use required right data_field '
                                      f'and name {FIELD_NAMES.get(title)!r}')
             confirmation = entry['confirmation']
-            if confirmation is not None and (title not in {'Driver ID', 'Level'}
+            if confirmation is not None and (title not in CONFIRMATION_SCREENS
                     or confirmation != '/'.join(field_key) or field_key not in allowed):
                 raise ValueError(f'{title}: confirmation role requires configured right data_field '
-                                 'on Driver ID/Level; it grants no action permission')
+                                 'on Driver ID/Level/Train Running Number; it grants no action permission')
             profiles[title] = ScreenProfile(title, side, frozenset(required), frozenset(allowed),
                 field_key if dynamic else None, dynamic['name'] if dynamic else None,
                 field_key if confirmation else None, entry['reuse_left_sidebar'])

@@ -1,10 +1,24 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-16. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
+Updated 2026-11-17. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
+
+Driver ID confirmation field — ACCEPTED by the user (2026-11-17), who reports
+successfully pressing the field and reaching Level. This is an operator-reported
+result, not independent whole-plane accuracy/contact validation. V2's existing
+experimental recorded route permits only the locked Driver ID input field with
+independent direct proof, 10 px / 2 s limits and all existing guards. Fingerprint:
+`53d7c88a45871922774dc25fe2cfe600ddbc3552f27834794f6f62924b710e69`;
+accepted evidence: `runs/driver_id_confirmation/` (`summary.json`, `results.jsonl`,
+`contact.png`), immutable after acceptance. 195 focused tests pass; both reviewers
+PASS WITH WARNINGS after correcting right-only inspection assignment. 126 native
+comparisons retain existing controls; seven offline field proofs become eligible.
+No commit/push is authorized for this fix. Next authorized task: extend Level/TRN
+confirmation support and investigate the reported Level button press rejection.
+No permission to force inactive/uncertain controls or bypass freshness/mapping.
 
 Directory restructuring — Stage 3 ACCEPTED by the user (2026-11-16).
 The approved restructuring plan is complete: 25 vision and 18 integration core
