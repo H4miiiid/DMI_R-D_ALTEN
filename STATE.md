@@ -1,10 +1,50 @@
 # Current handoff — SENSE vision and robot integration
 
-Updated 2026-11-17. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
+Updated 2026-11-18. Read `AGENTS.md` and `PLAN.md` for the current phased roadmap and working rules.
 This file records current facts and approved progress, not a claim that the future
 steps are implemented. Git history retains the earlier detailed handoffs.
 
 ## Resume here
+
+V2 fixed-setup follow-up — ACCEPTED OFFLINE by the user (2026-11-18),
+with STATE update, commit and push explicitly authorized. Corrected measured Level
+activity under colour casts and retained independently recognized train controls
+under the existing lock enclosure limits. The V2 SENSE recorded experimental route
+now freezes confirmed geometry, activity, title, OCR values and mode observations
+at complete lock: no detection, OCR, image monitoring or pre-press scan while held.
+Move and Click uses the saved enabled locked control with mapping/origin/readiness,
+travel and single-action checks. Successful completion/return resumes acquisition
+and independent partial/full locking; a rejected preparation preserves the valid
+snapshot, while uncertain actions require recovery. Stop/source/context changes
+invalidate it. Ordinary actions, V1/TWIN, homography and motor/return code retain
+their existing behavior. This explicit fixed-setup authorization supersedes the
+older current-proof requirement only for this completed-snapshot experimental route;
+cached observations keep their original timestamps and are never called fresh.
+
+Accepted source fingerprint:
+`92b678c02c310bf13bf4ae837481f859f076f7f5a6a1a85eb303890c90935b87`,
+based on HEAD `556f3ae` plus the reviewed working diff. Immutable local evidence:
+`runs/v2_fixed_setup_followup/` (`summary.json`, `results.jsonl`, `contact.png`).
+All 294 native frames replayed; all five recordings reached complete lock.
+Fifteen matched cold comparisons recover previously omitted controls. All 77 unique
+sampled regression rows match (63 V1 / 28 TWIN rows overlap); 43 of 48 native locked
+action preparations qualify, with five disabled Level controls correctly rejected.
+These are preparations without physical commands, not successful physical clicks.
+427 focused tests / 17 subtests passed before final lifecycle corrections; 193
+final affected tests passed afterward. Both final reviewers PASS WITH WARNINGS;
+the code reviewer independently found 197 passes and the known unchanged ordinary
+press test mismatch (100 ms expected versus existing 300 ms implementation).
+
+Limits: exact new-office Level footage and connected TRN footage remain absent;
+colour-cast tests reproduce the activity failure, and acquisition still has some
+misses. Manual screen/setup changes are invisible while frozen: stop/restart
+observation before pressing after either. Live operation, physical accuracy,
+contact and return-home validation of this follow-up remain pending. The saved
+homography remains experimentally qualified; no whole-plane accuracy promotion.
+New tests/harnesses/evidence remain local and ignored, unavailable in a clean clone
+without separate supply; runtime does not depend on them. Next: operator retest of
+this accepted V2 implementation; no further implementation phase is authorized.
+Publication outcome is reported in chat with the resulting commit/destination.
 
 Driver ID confirmation field — ACCEPTED by the user (2026-11-17), who reports
 successfully pressing the field and reaching Level. This is an operator-reported
@@ -16,9 +56,10 @@ accepted evidence: `runs/driver_id_confirmation/` (`summary.json`, `results.json
 `contact.png`), immutable after acceptance. 195 focused tests pass; both reviewers
 PASS WITH WARNINGS after correcting right-only inspection assignment. 126 native
 comparisons retain existing controls; seven offline field proofs become eligible.
-No commit/push is authorized for this fix. Next authorized task: extend Level/TRN
-confirmation support and investigate the reported Level button press rejection.
-No permission to force inactive/uncertain controls or bypass freshness/mapping.
+This historical Driver ID fix and subsequent Level/TRN confirmation support are
+present in HEAD `556f3ae`. The later accepted fixed-setup follow-up above records
+the explicitly authorized change to snapshot action evidence; inactive/uncertain
+controls and incompatible mappings remain blocked.
 
 Directory restructuring — Stage 3 ACCEPTED by the user (2026-11-16).
 The approved restructuring plan is complete: 25 vision and 18 integration core

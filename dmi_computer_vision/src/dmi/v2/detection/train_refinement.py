@@ -45,6 +45,14 @@ def refine_train_buttons(
                for p in region_result(points-margin, geometry, frame_shape)['corners'])}
     recognized = {name: points for name, points in recognized.items() if name not in outside}
     recognized.update(refined)
+    # The accepted lock already admits independently measured border faces with
+    # <=6 native-pixel overhang and >=95% enclosure. Retain these same controls
+    # in V2 recognition too, rather than dropping their identities at a stricter
+    # one-pixel projection boundary. Never clip, extend or invent their borders.
+    for name, points in outside.items():
+        native = np.asarray(region_result(points-margin, geometry, frame_shape)['corners'], np.float32)
+        if measured_edge_control(native, parent):
+            recognized.setdefault(name, points)
     if edge_buttons is not None:
         edge_buttons.update({name: region_result(points-margin, geometry, frame_shape)
                              for name, points in measured.items() if name not in recognized})
@@ -56,3 +64,18 @@ def retry_train_label(gray: NDArray, reader: Callable[..., str | None]) -> str |
     binary = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)[1]
     binary = cv2.cvtColor(binary, cv2.COLOR_GRAY2BGR)
     return reader(binary, (0, 0, binary.shape[1], binary.shape[0]))
+
+
+EDGE_MARGIN_PX = 6.
+MIN_INSIDE_FRACTION = .95
+
+def measured_edge_control(points: np.ndarray, parent: np.ndarray) -> bool:
+    """The existing lock enclosure rule, using unchanged native measured quads."""
+    if (points.shape != (4,2) or parent.shape != (4,2) or not np.isfinite(points).all()
+            or not np.isfinite(parent).all() or not cv2.isContourConvex(points)
+            or not cv2.isContourConvex(parent) or abs(cv2.contourArea(points)) < 1):
+        return False
+    inside, _ = cv2.intersectConvexConvex(points, parent)
+    return bool(inside/abs(cv2.contourArea(points)) >= MIN_INSIDE_FRACTION
+        and cv2.pointPolygonTest(parent, tuple(map(float, points.mean(axis=0))), False) >= 0
+        and all(cv2.pointPolygonTest(parent, tuple(map(float,p)), True) >= -EDGE_MARGIN_PX for p in points))

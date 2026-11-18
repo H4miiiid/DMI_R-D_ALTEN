@@ -366,10 +366,18 @@ class ObservationRuntime:
                           recorded_test=recorded_test)
         comparison['settings'].update(request_fps=10. if kind == 'remote_bridge' else None,
                                       replay_rate='native source FPS' if kind == 'recorded_replay' else None)
+        observer_options = policy.observer_options()
+        observer_options['freeze_on_lock'] = policy.freeze_on_lock and recorded_test
+        comparison['settings']['freeze_on_lock'] = observer_options['freeze_on_lock']
+        if policy.freeze_on_lock and not recorded_test:
+            comparison['settings'].update(processing='ROI checks with bounded full audits',
+                full_audit_seconds=1., lock_scope='JSON-profiled SENSE geometry; experimental destinations require independent full evidence',
+                experimental_action_authorization='current direct evidence',
+                experimental_action_evidence_seconds=2.)
         observer = VisionObserver(source, info, calibration_path=calibration_path or None,
                                   context=context, debug_jsonl=debug_jsonl, stable_preview=True,
                                   comparison=comparison, origin_epoch=origin_epoch,
-                                  **policy.observer_options())
+                                  **observer_options)
         if recorded_test:
             if calibration_path or context_path or kind != "remote_bridge":
                 raise ValueError("Experimental recorded mapping requires the live Pi camera and empty custom calibration fields")
@@ -527,7 +535,12 @@ class Runner:
         plan,observer,backend = pending
         self.busy, self.phase = True, 'pressing_once'
         result = None
+        frozen_action = 'locked_snapshot_token' in plan.preview()
+        frozen_started = False
         try:
+            if frozen_action:
+                observer.begin_locked_action()
+                frozen_started = True
             from dmi_robot_master.integration.shared.actions.physical_press import PhysicalPressPlan
             from dmi_robot_master.integration.shared.projection.recorded_test import RecordedPressPlan
             execute = backend.session.press_physical_once if type(plan) in (PhysicalPressPlan, RecordedPressPlan) else backend.session.press_once
@@ -557,6 +570,8 @@ class Runner:
                 result.update(ui_outcome='unconfirmed',verification_reason='UI task cancelled; no acknowledgement claimed')
             raise
         finally:
+            if frozen_started:
+                observer.end_locked_action(uncertain=result is None)
             if result is not None:self.emit('press_result',result=result)
             if not backend.session.status()['homed']:
                 self.initialized = False

@@ -1470,3 +1470,21 @@ di destinazione. Non è una dichiarazione di collaudo dell'hardware.
 - [flet-dropzone](https://github.com/shiena/flet-dropzone)
 
 </details>
+
+### V2 fixed-setup snapshot testing (pending operator acceptance)
+
+Start Version 2 observation on the selected SENSE screen and wait for complete
+geometry lock. Partial lock still acquires missing controls. Once locked, live
+video continues but title, field values, button activity and measured geometry
+are held; no detection, OCR or monitoring runs. Select an enabled locked control
+and use Experimental move and click. It uses the saved locked centre without a
+pre-click scan, retaining mapping, origin, readiness, movement bounds and one-action
+ownership. After a successful click and return home, full acquisition resumes
+until the next complete lock. Failed/uncertain physical actions require recovery.
+
+This explicitly authorized V2 experimental mode supersedes the earlier fresh-proof
+instructions above only for completed snapshots. It assumes a fixed camera/DMI
+and no manual screen interaction while frozen. If the setup or screen changes
+manually, Stop camera and restart observation before pressing. Displayed values
+are labelled as a locked snapshot, not fresh evidence. The saved homography is
+unchanged and remains experimentally qualified; no whole-plane accuracy claim.

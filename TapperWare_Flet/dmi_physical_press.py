@@ -41,12 +41,16 @@ class PhysicalPressControls:
             eligible = (not app.is_demo and app.runner.initialized and status.get('homed')
                         and status.get('connection') == 'connected' and not status.get('legacy_xml_armed')
                         and experimental_selection(view, selected))
+        if experimental and view.get('freeze_on_lock'):
+            held_target = (view.get('locked_inspection') or {}).get('targets', {}).get(selected[2]) if selected else None
+            eligible = (eligible and view.get('locked_snapshot') and held_target
+                        and held_target.get('mm') is not None and held_target.get('active', True) is True)
         app.target_ui.hardware_press.disabled = bool(app.locked or not eligible or (not experimental and not app.move_ui.envelope.value))
         if not app.is_demo:
             app.target_ui.hardware_press.content = ('Experimental move and click · 100 ms' if experimental else 'Move and click selected key · 100 ms')
         if eligible and experimental:
             locked = (view.get('locked_inspection') or {}).get('cached_geometry')
-            app.target_ui.reason.value = (('One click requests a press at the locked center with direct evidence '
+            app.target_ui.reason.value = (('One click presses the saved locked centre; no new detection. ' if view.get('locked_snapshot') else 'One click requests a press at the locked center with direct evidence '
                 '(10 px / 2 s); an expired sample requests one full verification. ' if locked else
                 'One click requests one experimental press using current direct coordinates. ')
                 + 'Clicking confirms the tool and return path are clear and the physical stop is ready. No second dialog.')
@@ -64,6 +68,10 @@ class PhysicalPressControls:
                 app.target_ui.reason.value = 'Finish the legacy XML operation before a selected-control press.'
             elif view.get('calibration_error'):
                 app.target_ui.reason.value = 'Mapping blocked: ' + view['calibration_error']
+            elif view.get('freeze_on_lock') and not view.get('locked_snapshot'):
+                app.target_ui.reason.value = 'Wait for complete geometry lock before pressing.'
+            elif view.get('locked_snapshot') and held_target and held_target.get('active', True) is not True:
+                app.target_ui.reason.value = 'The locked control is inactive or uncertain.'
             elif not experimental_selection(view, selected):
                 app.target_ui.reason.value = 'No compatible experimental control context; wait for fresh detection and select the control again.'
 
@@ -81,7 +89,8 @@ class PhysicalPressControls:
             app.page.update()
             return
         app.ui_busy = True
-        app.status('Checking selected control', 'Verifying current detection, mapping and robot readiness.')
+        app.status('Checking selected control', 'Checking saved lock, mapping and robot readiness.'
+                   if (self._view or {}).get('locked_snapshot') else 'Verifying current detection, mapping and robot readiness.')
         app.refresh()
         experimental = experimental_selection(self._view, app._vision_selection_key)
         from dmi_robot_master.integration.shared.actions.physical_press import PHYSICAL_PRESS_CHECKS

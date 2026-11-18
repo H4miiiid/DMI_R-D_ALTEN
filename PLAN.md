@@ -9,6 +9,23 @@
 
 ---
 
+## Operator-authorized V2 test follow-up — 2026-11-18
+
+The user explicitly authorized correcting Level activity, improving the four train
+screens, and replacing idle monitoring with **freeze until action** in the V2
+SENSE experimental route. After complete lock, hold measured coordinates and the
+recognized title/values/activity with no OCR, image monitoring or pre-press scan.
+Move and Click uses that snapshot under the existing mapping/origin/readiness,
+bounds and single-action checks. Successful completion/return triggers new full
+acquisition and independent lock confirmations. Stop/context changes invalidate;
+uncertain actions require recovery. This narrow fixed-setup authorization supersedes
+this roadmap's periodic-monitoring/current-proof requirement for that route only.
+The older direct-evidence route, ordinary actions, V1 and TWIN retain their limits.
+Cached observations keep their original timestamps and are not called fresh.
+Manual touches and unexpected screen/geometry changes are invisible while frozen:
+the operator must stop/restart observation after either. This is implementation
+scope, not acceptance, publication, independent accuracy or physical validation.
+
 ## 0. Instructions to the implementation agent
 
 Read `AGENTS.md`, `STATE.md`, the current source and tests **before making changes**. `AGENTS.md` is the repository's governing working procedure. Follow its per-step approval, reviewer, artifact, calibration, and TWIN regression requirements. **This plan is not permission to implement every phase in one request or to commit/push.** Implement only the phase explicitly authorized by the user; provide evidence, request acceptance, and proceed to the next phase only after permission. If a recommendation below conflicts with current `AGENTS.md` or an accepted runtime contract, preserve the contract, report the conflict, and seek a decision rather than silently weakening it.

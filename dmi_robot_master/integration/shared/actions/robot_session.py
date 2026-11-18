@@ -335,6 +335,10 @@ class RobotSession:
                     'predicted_xy_mm': list(sample['target']['mm']),
                     'evidence_capture_index': sample['capture_index'],
                     'missed_detection_updates': sample.get('missed_updates', 0)}
+                if 'locked_snapshot_token' in sample:
+                    resolved.update(action_authorization=sample['authorization'],
+                        locked_snapshot_token=sample['locked_snapshot_token'],
+                        lock_generation=sample['lock_generation'])
             else:
                 xy = plan.resolve(observer, origin_epoch=self._state['origin_epoch'],
                     limits=self.settings.xy_limits_mm, position=position)

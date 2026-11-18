@@ -22,8 +22,9 @@ GEOMETRY_FIELDS = ('center', 'corners', 'bbox', 'oriented_box')
 # 9 native px. This 10-px DISPLAY compatibility bound is not an action tolerance
 # or a physical movement claim. Acquisition still requires 4-px agreement.
 CACHE_CENTER_GUARD_PX = 10.
-LOCK_EDGE_MARGIN_PX = 6.
-LOCK_MIN_INSIDE_FRACTION = .95
+from dmi_computer_vision.src.dmi.v2.detection.train_refinement import (
+    EDGE_MARGIN_PX as LOCK_EDGE_MARGIN_PX, MIN_INSIDE_FRACTION as LOCK_MIN_INSIDE_FRACTION,
+)
 MONITOR_KEYS = (('left_display', 'geometry'), ('right_display', 'geometry'))
 
 

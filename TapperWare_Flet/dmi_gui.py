@@ -663,13 +663,15 @@ class DmiControlPanel:
                 control.src = value or b""
         projection = view['projection']
         fields = view.get('ocr_fields', {})
-        if not view['fresh'] and not view.get('display_fresh'):
+        if not view['fresh'] and not view.get('display_fresh') and not view.get('locked_snapshot'):
             self.vision_fields.value = ('OCR values stale — waiting for fresh detections.'
                 if view['state'] == 'stale' else 'Waiting for fresh OCR values.')
         else:
             self.vision_fields.value = '\n'.join(
                 f"{target_name(name)}: {value if value is not None and str(value).strip() else '— unreadable / awaiting confirmation'}"
                 for name, value in fields.items()) or 'No OCR fields available in the latest detection.'
+        if view.get('locked_snapshot'):
+            self.vision_fields.value += '\nLocked snapshot · held until Move and Click'
         self.vision_empty.visible = view['annotation_jpeg'] is None
         self.calibration_ui.update_targets(view)
         self.move_ui.update(view)
@@ -697,7 +699,7 @@ class DmiControlPanel:
         inspected = inspection_projection(view)
         inspection_session = (inspected or {}).get('session_id', view['session_id'])
         signature = (inspection_session, (inspected or {}).get('capture_index', view['capture_index']),
-                     (inspected or {}).get('lock_generation'), bool(view['projection']))
+                     (inspected or {}).get('lock_generation'), bool(view.get('locked_snapshot') or view['projection']))
         if signature != self._vision_signature:
             self._vision_signature = signature
             self.vision_targets.controls.clear()
@@ -709,7 +711,8 @@ class DmiControlPanel:
                         continue
                     text = f"{target_name(name)} · {name} · px {format_pixels(target['pixel'])}"
                     if target.get('cached_geometry'):
-                        text += ' · locked geometry only; verify on click'
+                        text += (' · locked snapshot; press saved centre' if view.get('locked_snapshot')
+                                 else ' · locked geometry only; verify on click')
                     if 'active' in target:
                         text += f" · active={target['active']}"
                     if target['kind']=='box':

@@ -3,7 +3,9 @@
 The original candidate is validated for integrity, never promoted or rewritten.
 Numerical accuracy and keypad-only coverage are waived for the operator-authorized
 whole-SENSE test. Live evidence, measured monitor bounds and robot travel remain
-mandatory. Extrapolated accuracy is never presented as validated coverage.
+mandatory. The explicitly authorized V2 fixed-setup snapshot route replaces
+direct freshness with completed-lock authorization; it never renews evidence age.
+Extrapolated accuracy is never presented as validated coverage.
 """
 from copy import deepcopy
 from collections import deque
@@ -452,7 +454,10 @@ def _xy(observer, sample, document, origin_epoch):
         raise ValueError('Selected target belongs to another session registration')
     registration = projector.registration(document, sample['geometry'], sample['frame_size'],
                                           require_left=target['display'] == 'left')
-    if (sample.get('visibility') != 'clear' or sample.get('direct_visibility') != 'clear'
+    frozen = 'locked_snapshot_token' in sample
+    if frozen:
+        observer.validate_frozen_sample(sample)
+    if not frozen and (sample.get('visibility') != 'clear' or sample.get('direct_visibility') != 'clear'
             or sample['screen'] == 'unknown' or sample.get('direct_screen') != sample['screen']):
         raise ValueError('No clear current direct screen evidence')
     recorded_pixel = transform_point(registration, target['pixel'])
@@ -465,10 +470,10 @@ def _xy(observer, sample, document, origin_epoch):
     name = f"digit_{target['label'][4:]}" if target['label'].startswith('KEY_') else target['label'].rsplit('/', 1)[-1]
     raw = sample.get('direct_field') if confirmation else sample.get('direct_buttons', {}).get(name)
     tolerance, _ = _action_limits(observer)
-    if (raw is None or len(raw) != 2 or not all(math.isfinite(v) for v in raw)
+    if not frozen and (raw is None or len(raw) != 2 or not all(math.isfinite(v) for v in raw)
             or max(abs(a-b) for a,b in zip(raw, target['pixel'])) > tolerance):
         raise ValueError('Selected button lacks matching current direct evidence')
-    if confirmation and any(np.max(np.abs(np.asarray(point)-target['pixel'])) <= tolerance
+    if confirmation and not frozen and any(np.max(np.abs(np.asarray(point)-target['pixel'])) <= tolerance
                             for point in sample.get('direct_buttons', {}).values()):
         raise ValueError('Confirmation field competes with a directly recognized button')
     if 'lock_generation' in sample:
@@ -504,7 +509,7 @@ class RecordedPressPlan:
         anchor = json.loads(self.anchor_json)
         return {'token': self.token, 'selection': list(self.selection),
             'pixel': anchor['target']['pixel'], 'predicted_xy_mm': list(self.predicted_xy),
-            **({key: anchor[key] for key in ('lock_generation', 'locked_element',
+            **({key: anchor[key] for key in ('locked_snapshot_token', 'authorization', 'lock_generation', 'locked_element',
                     'action_match_tolerance_px', 'action_evidence_seconds') if key in anchor}),
             **({key: anchor[key] for key in ('experimental_monitor_tolerance_px', 'experimental_alignment_recovery')
                 if key in anchor}),
@@ -531,7 +536,8 @@ class RecordedPressPlan:
         sample = (observer.experimental_press_sample(*self.selection) if self.one_click
                   else observer.calibration_sample(*self.selection))
         anchor = json.loads(self.anchor_json)
-        if (sample['source_info'] != anchor['source_info']
+        if (sample.get('locked_snapshot_token') != anchor.get('locked_snapshot_token')
+                or sample['source_info'] != anchor['source_info']
                 or sample.get('lock_generation') != anchor.get('lock_generation')
                 or sample.get('locked_element') != anchor.get('locked_element')
                 or ('lock_generation' in anchor and sample['target']['pixel'] != anchor['target']['pixel'])
@@ -552,14 +558,17 @@ class RecordedPressPlan:
             raise ValueError('Starting position exceeds configured robot travel')
         if position is not None and math.dist(position, command) > math.hypot(*(v-1 for v in limits)):
             raise ValueError('Movement distance exceeds configured robot travel')
-        age = time.monotonic()-sample['received_at']+sample['upstream_age_seconds']
-        _, lifetime = _action_limits(observer)
-        current = (observer.snapshot(experimental_action=True) if lifetime == 2. else observer.snapshot())
-        if (not 0 <= age <= lifetime or not current['fresh'] or current['session_id'] != self.selection[0]
-                or current['capture_index'] != sample.get('latest_capture_index', sample['capture_index'])
-                or current.get('calibration_error')
-                or current['projection']['screen'] != self.selection[1]):
-            raise ValueError('Direct target evidence expired before experimental press')
+        if 'locked_snapshot_token' in sample:
+            observer.validate_frozen_sample(sample)
+        else:
+            age = time.monotonic()-sample['received_at']+sample['upstream_age_seconds']
+            _, lifetime = _action_limits(observer)
+            current = (observer.snapshot(experimental_action=True) if lifetime == 2. else observer.snapshot())
+            if (not 0 <= age <= lifetime or not current['fresh'] or current['session_id'] != self.selection[0]
+                    or current['capture_index'] != sample.get('latest_capture_index', sample['capture_index'])
+                    or current.get('calibration_error')
+                    or current['projection']['screen'] != self.selection[1]):
+                raise ValueError('Direct target evidence expired before experimental press')
         if 'lock_generation' in sample:
             observer.validate_locked_sample(sample)
         return (command, sample) if with_sample else command
@@ -573,7 +582,8 @@ def prepare_recorded_press(observer, selection, *, origin_epoch, limits, one_cli
     xy = _xy(observer, sample, document, origin_epoch)
     if observer.projector.stable_registration:
         tolerance, lifetime = _action_limits(observer)
-        sample.update(action_match_tolerance_px=tolerance, action_evidence_seconds=lifetime)
+        sample.update(action_match_tolerance_px=None if "locked_snapshot_token" in sample else tolerance,
+                      action_evidence_seconds=None if "locked_snapshot_token" in sample else lifetime)
         sample.update(experimental_alignment_recovery=observer.projector.recover_alignment,
                       experimental_monitor_tolerance_px=20 if observer.projector.recover_alignment else 4,
                       experimental_allow_unverified_left=observer.projector.allow_unverified_left)

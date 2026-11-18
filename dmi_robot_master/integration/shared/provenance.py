@@ -49,13 +49,16 @@ def comparison_diagnostics(version: str) -> dict:
             "enabled_improvements": list(policy.enabled_improvements),
             "improvement_scope": "SENSE connected geometry only; TWIN retains baseline in both versions",
             "settings": {"optimize": True, "max_gap_seconds": 1.0, "stable_preview": True,
-                         "processing": ("ROI checks with bounded full audits" if policy.selective_updates
+                         "processing": ("full acquisition then frozen until action" if policy.freeze_on_lock else
+                                        "ROI checks with bounded full audits" if policy.selective_updates
                                         else "full detection per consumed frame"), "rotation_clockwise": 0,
                          "mirror_horizontal": False, "contrast_fallback": policy.vision.contrast_fallback,
                          "progressive_layout_lock": policy.progressive_lock,
                          "lock_confirmation_frames": 3, "lock_window_observations": 5,
-                         "lock_scope": "JSON-profiled SENSE geometry; experimental destinations require independent full evidence",
-                         "selective_updates": policy.selective_updates, "full_audit_seconds": 1.,
+                         "lock_scope": ("completed SENSE snapshot; operator fixed-setup action authorization" if policy.freeze_on_lock
+                                        else "JSON-profiled SENSE geometry; experimental destinations require independent full evidence"),
+                         "freeze_on_lock": policy.freeze_on_lock,
+                         "selective_updates": policy.selective_updates, "full_audit_seconds": None if policy.freeze_on_lock else 1.,
                          "stable_coordinates": policy.progressive_lock, "movement_confirmation_frames": 3,
                          "stable_registration": policy.stable_registration, "registration_confirmation_frames": 3,
                          "registration_scope": "experimental recorded SENSE mapping; no calibration promotion",
@@ -64,6 +67,7 @@ def comparison_diagnostics(version: str) -> dict:
                          "experimental_allow_unverified_left": policy.allow_unverified_left,
                          "locked_actions": policy.locked_actions,
                          "experimental_action_match_px": 10 if policy.locked_actions else 4,
-                         "experimental_action_evidence_seconds": 2. if policy.locked_actions else 1.5,
+                         "experimental_action_evidence_seconds": None if policy.freeze_on_lock else 2. if policy.locked_actions else 1.5,
+                         "experimental_action_authorization": "completed lock until action/context invalidation" if policy.freeze_on_lock else "current direct evidence",
                          "movement_reference": "original lock baseline; presentation only",
                          "partial_retry_seconds": .5, "field_refresh_seconds": 1.}}

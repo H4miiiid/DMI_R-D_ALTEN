@@ -16,6 +16,7 @@ from dmi_computer_vision.src.dmi.shared.detection.train_controls import train_bu
 from dmi_computer_vision.src.dmi.shared.detection.visibility import right_display_obstructed
 from dmi_computer_vision.src.dmi.v2.detection import field_detection as v2_fields
 from dmi_computer_vision.src.dmi.v2.detection import train_refinement as v2_train
+from dmi_computer_vision.src.dmi.v2.detection.level_activity import classify as classify_level_activity
 from dmi_computer_vision.src.dmi.shared.detection.right_layout import (
     detect_border_lines,
     detect_button_quads,
@@ -130,7 +131,8 @@ def analyze_right_display(
         detected_buttons = detect_button_quads(
             rectified, state, border_lines, level_read_cells=level_read_cells,
         )
-        controls = _recognize_level_buttons(rectified, detected_buttons, read_cells=level_read_cells)
+        controls = _recognize_level_buttons(rectified, detected_buttons, read_cells=level_read_cells,
+            adaptive_activity=connected and contrast_fallback)
     elif state == "Train Data" or buttons_only:
         # Include real source pixels just outside the geometry enclosure so a
         # border clipped by rectification can still be independently measured.
@@ -384,12 +386,14 @@ def _train_arrow(mask: Frame, *, rounded_tip: bool = False) -> str | None:
 
 def _recognize_level_buttons(
     frame: Frame, cells: dict[str, NDArray], *, read_cells: dict[str, NDArray] | None = None,
+    adaptive_activity: bool = False,
 ) -> dict[str, tuple[NDArray, bool | None]]:
     """Read identities inside measured cells; omit blank/uncertain/duplicate labels."""
     identities = {**{f"LEVEL {i}": f"level_{i}" for i in range(4)},
                   **{name.upper(): name for name in ("pzb", "kvb", "scmt", "lzb", "memor")},
                   "ATC-2": "atc_2", "TBL1+": "tbl1_plus"}
     result, duplicates = {}, set()
+    activity_samples = {}
     readings = []
     for cell, measured_quad in cells.items():
         # Both quads come from current validated borders. Keep the established
@@ -443,6 +447,10 @@ def _recognize_level_buttons(
             if name in result:
                 duplicates.add(name)
             result[name] = (measured_quad, _level_button_active(interior, foreground))
+            activity_samples[name] = (interior, foreground)
+    if adaptive_activity:
+        activities = classify_level_activity(activity_samples, {n: v[1] for n,v in result.items()})
+        result = {n:(q, activities[n]) for n,(q,_) in result.items()}
     return {name: q for name, q in result.items() if name not in duplicates}
 
 

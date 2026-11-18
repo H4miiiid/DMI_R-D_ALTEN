@@ -18,6 +18,7 @@ from dmi_robot_master.integration.shared.acquisition.camera import IntegrationFr
 from dmi_robot_master.integration.shared.projection.targets import TargetProjector
 from dmi_robot_master.integration.shared.projection.publication import project_pixels
 from dmi_robot_master.integration.v2.screen_lock import ScreenLock
+from dmi_robot_master.integration.v2.frozen_screen import FrozenScreen
 from dmi_robot_master.integration.v2 import locked_targets as v2_targets
 from dmi_robot_master.integration.v2.screen_monitor import MonitorDecision, ScreenMonitor
 from dmi_robot_master.integration.shared.calibration.calibration import REFERENCE_PATH as KEYPAD_REFERENCE_PATH
@@ -60,7 +61,7 @@ class VisionObserver:
                  context=None, geometry_tolerance_px=4., debug_jsonl=None,
                  session_factory=VisionSession, stable_preview=False, comparison=None,
                  origin_epoch=None, contrast_fallback=False, progressive_lock=False,
-                 selective_updates=False, locked_actions=False):
+                 selective_updates=False, locked_actions=False, freeze_on_lock=False):
         self.source, self.source_info = source, deepcopy(source_info)
         self.projector = TargetProjector(source_info=source_info, calibration_path=calibration_path,
             context=context, geometry_tolerance_px=geometry_tolerance_px, origin_epoch=origin_epoch)
@@ -68,6 +69,11 @@ class VisionObserver:
         self.stable_preview = stable_preview
         self.debug_jsonl = Path(debug_jsonl) if debug_jsonl else None
         self._comparison = deepcopy(comparison)
+        if freeze_on_lock and not (progressive_lock and locked_actions):
+            raise ValueError("Frozen actions require progressive locking and locked actions")
+        self._freeze_on_lock = freeze_on_lock
+        self._frozen = None
+        self._frozen_action = False
         self._locked_actions = locked_actions
         self._action_full_request = None
         self._contrast_fallback = contrast_fallback
@@ -184,7 +190,8 @@ class VisionObserver:
                 while not self._stop.is_set():
                     with self._condition:
                         self._condition.wait_for(lambda: self._stop.is_set() or (
-                            self._packet is not None and self._packet.capture_index > self._last_taken))
+                            self._packet is not None and self._packet.capture_index > self._last_taken
+                            and self._frozen is None and not self._frozen_action))
                         if self._stop.is_set():
                             break
                         packet = self._packet
@@ -270,6 +277,15 @@ class VisionObserver:
                         self._projection = projection
                         self._mode = mode
                         self._state = 'observed'
+                        if (self._freeze_on_lock and lock_layout and lock_layout['state'] == 'LOCKED'
+                                and lock_layout.get('alignment_valid') and connected_regions(observation.result)
+                                and projection.get('experimental_registration_id')
+                                and projection.get('calibration_id') and not self.projector.error
+                                and 0 <= observation.age_seconds() <= 2.):
+                            self._frozen = FrozenScreen(observation, lock_layout, self._frozen_context(), mode,
+                                history=[item[0] for item in self._press_history])
+                            self._frozen.fields = _ocr_fields(observation)
+                            self._state = 'locked_snapshot'
                         if self._action_full_request == action_request:
                             self._action_full_request = None
                         self._condition.notify_all()
@@ -348,6 +364,7 @@ class VisionObserver:
                     layout = deepcopy(self._lock_layout)
                     monitor_view = deepcopy(self._monitor_view)
                     monitor_epoch = self._monitor_epoch
+                    frozen = self._valid_frozen()
                 if epoch != last_epoch:
                     preview.clear()
                     last_epoch = epoch
@@ -379,7 +396,15 @@ class VisionObserver:
                     and self._monitor_fresh(monitor_view, time.monotonic())
                     and 0 <= time.monotonic()-monitor_view['full_received_at']+
                         monitor_view['full_upstream_age_seconds'] <= 1.5)
-                if monitor_valid:
+                frozen_composite = frozen is not None and packet is not None
+                if frozen_composite:
+                    image = annotate_frame(packet.image, frozen.result)
+                    ScreenLock.draw_missing(image, frozen.result, layout)
+                    self._draw_display_modes(image, frozen.modes)
+                    cv2.putText(image, "SENSE LOCKED SNAPSHOT | analysis paused until action",
+                                (20, image.shape[0]-25), cv2.FONT_HERSHEY_SIMPLEX, .8, (0,190,255), 2)
+                    annotated = _jpeg(image)
+                elif monitor_valid:
                     if packet.capture_index != annotation_index or not self._annotation_from_monitor:
                         image = annotate_frame(packet.image, monitor_view['result'])
                         if layout:
@@ -429,6 +454,12 @@ class VisionObserver:
                                                  + getattr(packet, 'transport_round_trip_seconds', 0.))
                         self._render_count += 1
                     if annotated is not None:
+                        if frozen_composite:
+                            if frozen is self._frozen and epoch == self._preview_epoch:
+                                self._annotation_jpeg = annotated
+                                self._annotation_index = packet.capture_index
+                                self._annotation_epoch = epoch
+                            continue
                         if monitor_composite:
                             if (monitor_epoch == self._monitor_epoch and self._monitor_view is not None
                                     and monitor_view['capture_index'] == self._monitor_view['capture_index']):
@@ -464,6 +495,7 @@ class VisionObserver:
         """Fresh action observations and a separate display-only live composite."""
         now = time.monotonic()
         with self._condition:
+            frozen = self._valid_frozen()
             observed = self._observation[0] if self._observation else None
             age = observed.age_seconds() if observed else None
             lifetime = self.experimental_action_limits()[1] if experimental_action else 1.5
@@ -495,6 +527,8 @@ class VisionObserver:
                 annotation = (self._annotation_jpeg if fresh and
                               self._annotation_index == observed.capture_index and
                               (not self.stable_preview or self._annotation_epoch == self._preview_epoch) else None)
+            if frozen is not None and raw is not None and self._annotation_epoch == self._preview_epoch:
+                annotation = self._annotation_jpeg or raw
             experimental = getattr(self.projector, 'experimental_recorded_test', False)
             calibration_error = self.projector.error
             if self._calibration_invalidated:
@@ -503,7 +537,8 @@ class VisionObserver:
             elif observed and observed.received_at - observed.upstream_age_seconds < self._origin_bound_at:
                 calibration_error = 'Waiting for a fresh detection after robot initialization'
             elapsed = max(.001, now-self._started) if self._started else 1.
-            return {'state': 'stale' if observed and not fresh else self._state,
+            return {'state': 'locked_snapshot' if frozen else 'stale' if observed and not fresh else self._state,
+                'locked_snapshot': frozen is not None, 'freeze_on_lock': self._freeze_on_lock,
                 'error': self._error, 'fresh': fresh, 'age_seconds': age,
                 'session_id': observed.session_id if fresh else None,
                 'capture_index': observed.capture_index if fresh else None,
@@ -511,11 +546,13 @@ class VisionObserver:
                 # Identity continuity only: this never authorizes a press or extends evidence age.
                 'experimental_context': ([observed.session_id, self._projection['screen']]
                     if observed and self._projection and experimental else None),
-                'ocr_fields': ({self._monitor_field['name']:self._monitor_field['value']}
+                'ocr_fields': (deepcopy(frozen.fields) if frozen else {self._monitor_field['name']:self._monitor_field['value']}
                     if field_fresh else _ocr_fields(observed) if fresh and self._monitor_field is None else {}),
                 **({'display_fresh':monitor_fresh or field_fresh,
-                    'display_modes':deepcopy(self._monitor_view['modes']) if monitor_fresh else {}}
-                    if self._monitor else {}),
+                    'display_held': frozen is not None,
+                    'display_modes':deepcopy(frozen.modes) if frozen else
+                        deepcopy(self._monitor_view['modes']) if monitor_fresh else {}}
+                    if self._monitor or frozen else {}),
                 'raw_jpeg': raw,
                 'raw_index': self._raw_index, 'annotation_jpeg': annotation,
                 'calibration_error': calibration_error,
@@ -591,6 +628,7 @@ class VisionObserver:
         """
         view = self.snapshot()
         with self._condition:
+            frozen = self._valid_frozen()
             layout = deepcopy(self._lock_layout)
             observed = self._observation[0] if self._observation else None
             epoch = self._calibration_epoch
@@ -598,10 +636,11 @@ class VisionObserver:
                     or observed is None or not layout or not layout.get('alignment_valid')
                     or layout.get('screen') != observed.result['right_display']['state']
                     or self._stop.is_set() or self._calibration_invalidated
-                    or not (0 <= observed.age_seconds() <= 2.
+                    or not (frozen is not None or 0 <= observed.age_seconds() <= 2.
                             or self._monitor_fresh(self._monitor_view, time.monotonic()))):
                 return view
-            result = v2_targets.inspection_result(observed.result, layout)
+            result = (frozen.targets_result(layout) if frozen else
+                      v2_targets.inspection_result(observed.result, layout))
             session_id = observed.session_id
         with self._project_lock:
             projection = self.projector.project(result, {}, frame_size=observed.frame_size)[0]
@@ -614,7 +653,10 @@ class VisionObserver:
             for target in projection['targets'].values():
                 target.update(usable=False, action_ready=False, cached_geometry=True,
                               lock_generation=layout['generation'])
-                target.pop('active', None)  # Static cache has no activity evidence.
+                if frozen:
+                    target['locked_snapshot'] = True
+                else:
+                    target.pop('active', None)  # Geometry-only cache has no activity evidence.
             projection.update(session_id=session_id, capture_index=observed.capture_index,
                               lock_generation=layout['generation'], cached_geometry=True)
             view['locked_inspection'] = projection
@@ -667,6 +709,7 @@ class VisionObserver:
 
     def _invalidate_layout(self, reason: str, *, preserve_geometry: bool = False) -> None:
         """Caller holds the condition; never alter detector/action observations."""
+        self._frozen = None
         if self._screen_lock is not None:
             if not preserve_geometry:
                 self._screen_lock.invalidate(reason)
@@ -731,12 +774,94 @@ class VisionObserver:
                        and self._observation is not None and connected_regions(self._observation[0].result))
             return (10., 2.) if enabled else (4., 1.5)
 
+    def _frozen_context(self):
+        return (self._layout_context(), getattr(self.projector, "origin_epoch", None),
+                getattr(self.projector, "_registration_id", None))
+
+    def _valid_frozen(self):
+        """Caller holds condition. Context checks inspect metadata, never image pixels."""
+        frozen = self._frozen
+        if frozen is not None and (self._stop.is_set() or self._calibration_invalidated
+                or frozen.context != self._frozen_context()
+                or (self._packet is not None and tuple(self._packet.image.shape[1::-1]) != frozen.observation.frame_size)):
+            self._invalidate_layout('frozen_context_changed')
+            self._press_history.clear()
+            self._condition.notify_all()
+            return None
+        return frozen
+
+    def _frozen_press_sample(self, session_id, screen, label):
+        from dmi_robot_master.integration.shared.projection.recorded_test import RecordedTestProjector
+        with self._condition:
+            frozen = self._valid_frozen()
+            if (frozen is None or type(self.projector) is not RecordedTestProjector
+                    or not self.projector.stable_registration or self.projector.error
+                    or frozen.observation.session_id != session_id or self._lock_layout['screen'] != screen):
+                raise ValueError('Wait for a complete locked snapshot before pressing')
+            layout = deepcopy(self._lock_layout)
+            result = frozen.targets_result(layout)
+            observation = frozen.observation
+        with self._project_lock:
+            projection = self.projector.project(result, {}, frame_size=observation.frame_size)[0]
+        target = projection['targets'].get(label)
+        if target is None or target.get('mm') is None or not projection.get('calibration_id'):
+            raise ValueError('Selected locked control has no compatible experimental mapping')
+        element = frozen.element(target, screen, layout)
+        sample = dict(session_id=session_id, screen=screen, target=target,
+            visibility=projection['visibility'], calibration_id=projection['calibration_id'],
+            experimental_registration_id=projection.get('experimental_registration_id'),
+            calibration_error=self.projector.error, capture_index=observation.capture_index,
+            received_at=observation.received_at, upstream_age_seconds=observation.upstream_age_seconds,
+            frame_size=list(observation.frame_size), source_info=deepcopy(self.source_info),
+            geometry={side:deepcopy(observation.result[side+'_display']['geometry']['corners'])
+                      for side in ('left','right')},
+            lock_generation=layout['generation'], locked_element=element,
+            locked_snapshot_token=frozen.token, authorization='operator_fixed_setup_locked_snapshot')
+        self.validate_frozen_sample(sample)
+        return sample
+
+    def validate_frozen_sample(self, sample):
+        with self._condition:
+            frozen = self._valid_frozen()
+            if (frozen is None or sample.get('locked_snapshot_token') != frozen.token
+                    or sample['session_id'] != frozen.observation.session_id
+                    or sample['source_info'] != self.source_info):
+                raise ValueError('Locked snapshot invalidated; reacquire before pressing')
+            v2_targets.validate_layout(self._lock_layout, sample, enabled=self._locked_actions)
+
+    def begin_locked_action(self):
+        with self._condition:
+            if self._freeze_on_lock:
+                if self._valid_frozen() is None or self._frozen_action:
+                    raise ValueError('No available completed lock for this action')
+                self._frozen_action = True
+
+    def end_locked_action(self, *, uncertain=False):
+        with self._condition:
+            if not self._freeze_on_lock:
+                return
+            self._frozen_action = False
+            self._invalidate_layout('action_uncertain' if uncertain else 'action_completed')
+            self._observation = self._projection = None
+            self._press_history.clear()
+            self._mode = {}
+            self._state = 'action_recovery_required' if uncertain else 'acquiring'
+            if uncertain:
+                self._calibration_invalidated = True
+            # Frames acquired during motion cannot seed the next lock.
+            if self._packet is not None:
+                self._last_taken = self._packet.capture_index
+            self._condition.notify_all()
+
     def prepare_experimental_sample(self, session_id, screen, label) -> dict:
         """Reuse direct evidence, or ask the sole worker for one full verification.
 
         No camera is opened here and no old observation is renewed. Timeout/loss
         fails this request; there is no retry loop or physical command.
         """
+        if self._freeze_on_lock:
+            # Never request a fresh frame for the operator-authorized frozen route.
+            return self.experimental_press_sample(session_id, screen, label)
         if not self._locked_actions:
             return self.experimental_press_sample(session_id, screen, label)
         try:
@@ -773,6 +898,8 @@ class VisionObserver:
         """Direct button proof with an independently confirmed V2 destination."""
         from dmi_robot_master.integration.shared.projection.recorded_test import RecordedTestProjector
         from dmi_robot_master.integration.shared.calibration.calibration import transform_point
+        if self._freeze_on_lock:
+            return self._frozen_press_sample(session_id, screen, label)
         with self._condition:
             view = self.snapshot(experimental_action=True)
             projection = view.get('projection') or {}

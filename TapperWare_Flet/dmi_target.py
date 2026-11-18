@@ -23,6 +23,8 @@ def target_name(identity: str) -> str:
 
 def inspection_projection(view):
     """GUI-only geometry; never pass this to calibration or action resolution."""
+    if (view or {}).get('locked_snapshot'):
+        return (view or {}).get('locked_inspection')
     fresh = (view or {}).get('projection')
     cached = (view or {}).get('locked_inspection')
     if not fresh or not cached:
@@ -104,7 +106,7 @@ class TargetInspector:
         self._coordinate_key = key
         self.pixel.value = f"Camera centre: {format_pixels(target['pixel'])} px (original image)"
         if target.get('cached_geometry'):
-            self.pixel.value += ' · locked geometry only'
+            self.pixel.value += ' · locked snapshot' if view.get('locked_snapshot') else ' · locked geometry only'
         self.xy.value = (f"Robot XY estimate: {format_mm(self.display_mm)} mm · unverified"
                          if target.get('mm') is not None else 'Robot XY estimate: unavailable · load a matching calibration')
         if target.get('mm') is None and view.get('calibration_error'):
@@ -124,7 +126,8 @@ class TargetInspector:
             self.xy.value += f"\nLeft-border disagreement: {target['left_border_disagreement_px']:.1f} px · {policy}"
         notes = []
         if target['kind'] == 'field' and experimental_selection(view, selected):
-            notes.append('Input confirmation field · locked geometry with independent direct proof required.')
+            notes.append('Input confirmation field · saved completed lock.' if view.get('locked_snapshot')
+                         else 'Input confirmation field · locked geometry with independent direct proof required.')
         elif target['kind'] != 'button':
             notes.append('This is an information field or mode box, not a normal press button.')
         if 'active' in target and target['active'] is not True:
@@ -133,5 +136,6 @@ class TargetInspector:
             notes.append('Calibration: ' + view['calibration_error'])
         if target.get('mapping_error'):
             notes.append('Action mapping: ' + target['mapping_error'])
-        notes.append('Move and click uses the latest valid target. Move without pressing remains optional.')
+        notes.append('Move and click uses this saved lock without new detection.' if view.get('locked_snapshot')
+                     else 'Move and click uses the latest valid target. Move without pressing remains optional.')
         self.reason.value = '\n'.join(notes)

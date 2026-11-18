@@ -9,6 +9,7 @@ class VersionPolicy:
     vision: VisionSettings
     progressive_lock: bool = False
     selective_updates: bool = False
+    freeze_on_lock: bool = False
     locked_actions: bool = False
     stable_registration: bool = False
     recover_alignment: bool = False
@@ -19,7 +20,7 @@ class VersionPolicy:
         return dict(contrast_fallback=self.vision.contrast_fallback,
                     progressive_lock=self.progressive_lock,
                     selective_updates=self.selective_updates,
-                    locked_actions=self.locked_actions)
+                    locked_actions=self.locked_actions, freeze_on_lock=self.freeze_on_lock)
 
     def projector_options(self) -> dict[str, bool]:
         """Options for the existing experimental recorded route only."""
